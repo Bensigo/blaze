@@ -55,7 +55,7 @@ describe("automatic Jev recording and clip candidates", () => {
     expect(await automation.queueClipCandidate("ws", rec, game.title)).toBe(true);
     expect(await automation.queueClipCandidate("ws", rec, game.title)).toBe(false);
     const clip = (await db.query<{body:{start:number;end:number;recordingId:string}}>("SELECT body FROM records WHERE workspace_id='ws' AND kind='clip'"))[0].body;
-    expect(clip.recordingId).toBe(rec.id); expect(clip.start).toBeGreaterThanOrEqual(0); expect(clip.end).toBeLessThanOrEqual(rec.duration); expect(clip.end - clip.start).toBeLessThanOrEqual(20);
+    expect(clip.recordingId).toBe(rec.id); expect(clip.start).toBe(2); expect(clip.end).toBeLessThanOrEqual(rec.duration); expect(clip.end - clip.start).toBeLessThanOrEqual(20);
   });
 });
 

@@ -11,6 +11,7 @@ import { installAgentMarker, installBrowserPolicy, prepareBrowserPolicy, resolve
 import { startIsolatedBrowser, stopIsolatedBrowser } from "./egress-client";
 import { RunEvidence, failureCode } from "./observations";
 import { validateAdapterSnapshot } from "./adapter";
+import { recordedDuration } from "./media-timing";
 
 const app = new URL(process.env.APP_URL || "http://127.0.0.1:3000");
 const token = process.env.WORKER_TOKEN;
@@ -197,7 +198,7 @@ async function runRecording(job: any) {
   let context: BrowserContext | undefined;
   let browser;
   let isolated = false;
-  const started = Date.now();
+  let started = Date.now();
   let leaseValid = true;
   const heartbeat = setInterval(() => {
     void api("/api/worker/heartbeat", { recordingId: recording.id }).catch(
@@ -246,6 +247,9 @@ async function runRecording(job: any) {
       acceptDownloads: false,
     });
     await installAgentMarker(context);
+    // The video starts with page creation, after browser/network setup.
+    started = Date.now();
+    evidence.beginCapture();
     const page = await context.newPage();
     await installBrowserPolicy(context, page, policy, () => evidence.blockedRequest(), app.origin, job.syntheticCapability ? { url: safe.url, capability: job.syntheticCapability } : undefined);
     page.on("pageerror", (error) => evidence.pageError(error.name));
@@ -333,15 +337,17 @@ async function runRecording(job: any) {
     context = undefined;
     const videoPath = join(dir, "recording.webm");
     await video.saveAs(videoPath);
+    const duration = await recordedDuration(await readFile(videoPath));
+    evidence.endCapture(duration);
     const screenshotUrl = await upload(recording.id, "screenshot", screenshot),
       videoUrl = await upload(recording.id, "video", videoPath);
     await api("/api/worker/complete", {
       recordingId: recording.id,
       status: "ready",
-      duration: Math.round((Date.now() - started) / 1000),
+      duration,
       videoUrl,
       screenshotUrl,
-      actions: actionsLog,
+      actions: actionsLog.map(action => ({ ...action, at: Math.min(action.at, duration) })),
       observations: evidence.finish({
         fixture: recording.mode === "fixture",
         screenshotUrl,

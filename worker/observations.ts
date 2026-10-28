@@ -56,10 +56,17 @@ export class RunEvidence {
   private actionCount = 0;
   private models = 0;
   private completed = false;
+  private capturedDuration?: number;
   constructor(start = Date.now()) {
     this.start = start;
   }
+  beginCapture() { this.start = Date.now(); this.capturedDuration = undefined; }
+  endCapture(duration: number) {
+    if (!Number.isFinite(duration) || duration <= 0 || duration > 180) throw new Error("Invalid capture duration");
+    this.capturedDuration = duration;
+  }
   now() {
+    if (this.capturedDuration !== undefined) return this.capturedDuration;
     return Math.max(
       0,
       Math.min(180, Math.round((Date.now() - this.start) / 1000)),
@@ -112,7 +119,7 @@ export class RunEvidence {
     failure?: string;
   }): Observation[] {
     const at = this.now(),
-      items = [...this.items];
+      items = this.items.map(item => ({ ...item, at: Math.min(item.at, at) }));
     items.push({
       at,
       text: `Observed ${this.actionCount} actions and ${this.models} Jev model decisions. Final observed phase: ${this.lastPhase || "unobserved"}; completion ${this.completed ? "observed" : "not observed"}.`,
@@ -156,7 +163,7 @@ export class RunEvidence {
       });
     if (options.screenshotUrl)
       items.push({
-        at: options.screenshotAt ?? at,
+        at: Math.min(options.screenshotAt ?? at, at),
         text: "Final captured frame.",
         type: "observation",
         screenshotUrl: options.screenshotUrl,

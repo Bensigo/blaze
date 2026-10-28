@@ -88,8 +88,10 @@ export async function queueScheduledRecording(workspace: string, game: Game) {
 export async function queueClipCandidate(workspace: string, recording: Recording, title: string) {
   if (!actualJev(recording) || !recording.duration || !await hasRecordingAsset(workspace, recording)) return false;
   const duration = Math.min(180, recording.duration);
+  const firstAction = recording.actions?.find((action): action is { at: number; id: string } =>
+    typeof action === "object" && action !== null && "at" in action && typeof action.at === "number" && action.at >= 0 && action.at < duration && "id" in action && typeof action.id === "string" && /^[a-zA-Z0-9_-]{1,40}$/.test(action.id));
   const observed = recording.observations?.find(o => o.type === "observation" && o.at >= 3 && o.at < duration);
-  const start = observed ? Math.max(0, Math.floor(observed.at - 5)) : 0;
+  const start = firstAction ? Math.max(0, Math.floor(firstAction.at - 1)) : observed ? Math.max(0, Math.floor(observed.at - 5)) : 0;
   const end = Math.min(duration, start + 20);
   if (end <= start) return false;
   const clip: Clip = { id: `clip_${hash(`${workspace}:${recording.id}:candidate`).slice(0,32)}`, gameId: recording.gameId, recordingId: recording.id, title: `${title.slice(0,100)} · gameplay candidate`, start, end, layout: "landscape", status: "queued", createdAt: new Date().toISOString() };

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { publicIPv4, validateGameUrl } from "../worker/safety";
 describe("worker network boundaries", () => {
   it("rejects local and reserved IPv4 space", () => {
@@ -43,6 +43,26 @@ import {
   safeErrorName,
 } from "../worker/observations";
 describe("recording evidence", () => {
+  it("uses the video clock and final media duration instead of setup and upload time", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const run = new RunEvidence();
+      vi.advanceTimersByTime(12000);
+      run.beginCapture();
+      vi.advanceTimersByTime(2000);
+      run.state({ phase: "playing" }, '{}');
+      run.action();
+      vi.advanceTimersByTime(4000);
+      run.endCapture(5.75);
+      vi.advanceTimersByTime(20000);
+      const rows = run.finish({ fixture: true, screenshotUrl: "/api/media/test", screenshotAt: 6 });
+      expect(rows.find(row => row.text.includes("phase: playing"))?.at).toBe(2);
+      expect(rows.find(row => row.text.includes("1 actions"))?.at).toBe(5.75);
+      expect(rows.every(row => row.at <= 5.75)).toBe(true);
+      expect(run.now()).toBe(5.75);
+    } finally { vi.useRealTimers(); }
+  });
   it("records bounded phase changes, counts, and a screenshot at its capture time", () => {
     const run = new RunEvidence(Date.now() - 5000);
     run.state({ phase: "ready" }, '{"phase":"ready"}');
