@@ -43,6 +43,8 @@ describe('durable media cleanup intent',()=>{
     expect(h.calls).not.toContain('read');expect(h.calls).not.toContain('unlink');
     expect(h.records.has('media:media_test')).toBe(true);
     vi.stubEnv('BLOB_READ_WRITE_TOKEN','configured-private-token');expect(mediaStorageConfigured()).toBe(true);
+    vi.stubEnv('NEON_STORAGE_ENDPOINT','https://branch.storage.example');expect(mediaStorageConfigured()).toBe(false);
+    await expect(saveAsset('ws_test','capture_test','session',file)).rejects.toThrow('Private Neon storage is not configured');
   });
   it('keeps the local file backend in test and development',async()=>{
     vi.stubEnv('NODE_ENV','test');vi.stubEnv('VERCEL',undefined);vi.stubEnv('BLOB_READ_WRITE_TOKEN',undefined);h.failPut=false;

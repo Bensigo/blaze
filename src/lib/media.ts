@@ -6,9 +6,9 @@ import {
   del as blobDelete,
 } from "@vercel/blob";
 import { id, put, get, query, remove } from "./db";
-import { neonStorageConfigured, neonPut, neonDelete, neonRead, neonDownloadUrl } from "./neon-storage";
+import { neonStorageConfigured, neonStorageSelected, neonPut, neonDelete, neonRead, neonDownloadUrl } from "./neon-storage";
 const localStorageAllowed = () => process.env.NODE_ENV !== "production" && !process.env.VERCEL;
-export const mediaStorageConfigured = () => process.env.NEON_STORAGE_BUCKET?.trim() ? neonStorageConfigured() : !!process.env.BLOB_READ_WRITE_TOKEN?.trim() || localStorageAllowed();
+export const mediaStorageConfigured = () => neonStorageSelected() ? neonStorageConfigured() : !!process.env.BLOB_READ_WRITE_TOKEN?.trim() || localStorageAllowed();
 function requireLocalStorage() {
   if (!localStorageAllowed()) throw new Error("Private media storage is not configured");
 }
@@ -39,7 +39,7 @@ export async function saveAsset(
   const mid = id("media");
   const contentType = mediaContentType(kind, bytes);
   if (!contentType) throw new Error("Unsupported media data");
-  if (process.env.NEON_STORAGE_BUCKET?.trim() && !neonStorageConfigured()) throw new Error("Private Neon storage is not configured");
+  if (neonStorageSelected() && !neonStorageConfigured()) throw new Error("Private Neon storage is not configured");
   const backend: "blob" | "local" | "neon" = neonStorageConfigured() ? "neon" : process.env.BLOB_READ_WRITE_TOKEN?.trim() ? "blob" : "local";
   if (backend === "local") requireLocalStorage();
   const storagePath = backend === "local" ? join(".data/media", workspace, mid) : `${workspace}/${mid}`;
