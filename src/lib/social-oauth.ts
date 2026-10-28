@@ -3,7 +3,7 @@ import { get, id, list, query } from "./db";
 import { HttpError } from "./http-error";
 import type { Identity } from "./auth";
 import { constantEqual, decrypt, encrypt, hash } from "./security";
-import { appOrigin } from "./app-origin";
+import { appOrigin, canonicalRequestUrl } from "./app-origin";
 import { isSocialProvider, socialProviders, type SocialAdapter, type SocialGrant, type SocialProvider } from "./social-provider";
 import { xAdapter, youtubeAdapter } from "./social-x-youtube";
 import { instagramAdapter, tiktokAdapter } from "./social-instagram-tiktok";
@@ -58,7 +58,7 @@ export async function beginSocialAuthorization(user: Identity, provider: string,
   const adapter = socialAdapter(provider);
   if (!adapter.configured()) throw new HttpError(503, adapter.setup);
   const origin = appOrigin(request);
-  if (!origin || new URL(request.url).origin !== origin) throw new HttpError(400, "Open the canonical Blaze app URL to connect an account.");
+  if (!origin || !canonicalRequestUrl(request)) throw new HttpError(400, "Open the canonical Blaze app URL to connect an account.");
   const current = connectionId ? await get<Connection>(user.workspace_id, "connection", connectionId) : undefined;
   if (connectionId && (!current || current.provider !== provider)) throw new HttpError(404, "Connection not found.");
   const state = randomBytes(32).toString("base64url"), verifier = randomBytes(48).toString("base64url");
@@ -70,7 +70,9 @@ export async function beginSocialAuthorization(user: Identity, provider: string,
   return adapter.authorizationUrl({ state, challenge, redirectUri: pending.redirectUri });
 }
 export async function finishSocialAuthorization(user: Identity, provider: string, request: Request) {
-  const adapter = socialAdapter(provider), url = new URL(request.url), state = url.searchParams.get("state") || "";
+  const adapter = socialAdapter(provider), url = canonicalRequestUrl(request);
+  if (!url) throw new HttpError(403, "Open the canonical Blaze app URL to connect an account.");
+  const state = url.searchParams.get("state") || "";
   if (!/^[a-zA-Z0-9_-]{43}$/.test(state)) throw new HttpError(400, "Invalid or expired authorization state.");
   const jar = await cookies(), name = cookieName(state), bound = jar.get(name)?.value || "";
   jar.set(name, "", { path: "/api/social", httpOnly: true, secure: secure(), sameSite: "lax", maxAge: 0 });

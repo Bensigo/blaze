@@ -1,9 +1,12 @@
-import { appOrigin } from "@/lib/app-origin";
+import { appOrigin, canonicalRequestUrl } from "@/lib/app-origin";
 import { googleAvailable, neonAuth, neonAuthConfig } from "@/lib/neon-auth";
 
 export async function GET(request: Request) {
   const origin = appOrigin(request);
-  if (!origin || new URL(request.url).origin !== origin) return Response.json({ error: "Sign-in is not configured." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  if (!origin || !canonicalRequestUrl(request)) {
+    console.error("Google sign-in canonical URL unavailable", { requestOrigin: new URL(request.url).origin, configuredOrigin: origin, host: request.headers.get("host") });
+    return Response.json({ error: "Sign-in is not configured." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
   const unavailable = () => new Response(null, { status: 303, headers: { Location: `${origin}/app?auth=setup`, "Cache-Control": "private, no-store" } });
   const auth = neonAuth();
   if (!googleAvailable() || !auth) return unavailable();
