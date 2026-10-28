@@ -6,7 +6,7 @@ Independent local repository: `/Users/macbook/work/web-game-marketing`.
 
 ## Evidence
 
-- 41 tests across eight suites pass. They exercise encrypted credentials/tamper rejection, account/workspace isolation and session expiry, origin validation/event deduplication/privacy filtering, ordered funnels, distinct-session mature retention, atomic recording queues, daily research queue idempotency/recovery beyond 30 games, SDK consent/inactivity rollover/timestamp ordering, worker evidence, real-adapter fixture responses, and approval/publication concurrency.
+- 42 tests across eight suites pass. They exercise encrypted credentials/tamper rejection, account/workspace isolation and session expiry, origin validation/event deduplication/privacy filtering, ordered funnels, distinct-session mature retention, atomic recording queues, daily research queue idempotency/recovery beyond 30 games, SDK consent/inactivity rollover/timestamp ordering, worker evidence, real-adapter fixture responses, approval/publication concurrency, and explicit strict PostgreSQL TLS verification.
 - TypeScript passes. Local optimized production build passes; the remote Vercel build also passed.
 - Production dependencies: `npm audit --omit=dev` reports zero vulnerabilities, with the vulnerable transitive Zod version overridden to the patched installed version.
 - Local real-browser journey: consented human SDK events persisted; agent events used a separate stream; actual video/screenshot and portrait clip reached ready state; private media accepted authenticated byte ranges and rejected unauthenticated reads. A draft could be reviewed and edited; disconnected approval/publication were denied and editing reset review. Its campaign tracking link was verified.

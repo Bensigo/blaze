@@ -4,6 +4,18 @@ import { resolve } from "node:path";
 type Client = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
 };
+export function postgresConnectionString(value: string) {
+  const url = new URL(value);
+  if (
+    ["prefer", "require", "verify-ca"].includes(
+      url.searchParams.get("sslmode") || "",
+    )
+  ) {
+    // Preserve pg v8's current strict verification explicitly across future driver upgrades.
+    url.searchParams.set("sslmode", "verify-full");
+  }
+  return url.toString();
+}
 const globalDb = globalThis as unknown as {
   studioDb?: Promise<Client>;
   studioSchema?: Promise<void>;
@@ -14,7 +26,7 @@ async function client(): Promise<Client> {
       if (process.env.DATABASE_URL) {
         const { Pool } = await import("pg");
         return new Pool({
-          connectionString: process.env.DATABASE_URL,
+          connectionString: postgresConnectionString(process.env.DATABASE_URL),
           max: 4,
           connectionTimeoutMillis: 10000,
           idleTimeoutMillis: 20000,

@@ -36,6 +36,18 @@ beforeEach(async () => {
   await db.query("DELETE FROM daily_runs");
 });
 describe("authentication and daily job isolation", () => {
+  it("preserves strict PostgreSQL TLS verification explicitly", () => {
+    for (const mode of ["prefer", "require", "verify-ca", "verify-full"]) {
+      const url = new URL(
+        db.postgresConnectionString(
+          `postgresql://test:fake@database.example/studio?sslmode=${mode}&channel_binding=require`,
+        ),
+      );
+      expect(url.searchParams.get("sslmode")).toBe("verify-full");
+      expect(url.searchParams.get("channel_binding")).toBe("require");
+      expect(url.hostname).toBe("database.example");
+    }
+  });
   it("commits recording records and queue entries atomically", async () => {
     const { enqueue } = await import("../src/lib/jobs");
     const body = { id: "atomic-recording", title: "Fixture", status: "queued" };
