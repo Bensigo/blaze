@@ -6,8 +6,9 @@ import {
   del as blobDelete,
 } from "@vercel/blob";
 import { id, put, get, query, remove } from "./db";
+import { neonStorageConfigured, neonPut, neonDelete, neonRead, neonDownloadUrl } from "./neon-storage";
 const localStorageAllowed = () => process.env.NODE_ENV !== "production" && !process.env.VERCEL;
-export const mediaStorageConfigured = () => !!process.env.BLOB_READ_WRITE_TOKEN?.trim() || localStorageAllowed();
+export const mediaStorageConfigured = () => process.env.NEON_STORAGE_BUCKET?.trim() ? neonStorageConfigured() : !!process.env.BLOB_READ_WRITE_TOKEN?.trim() || localStorageAllowed();
 function requireLocalStorage() {
   if (!localStorageAllowed()) throw new Error("Private media storage is not configured");
 }
@@ -19,11 +20,12 @@ export interface MediaRecord {
   contentType: string;
   size: number;
   location: string;
-  backend: "blob" | "local";
+  backend: "blob" | "local" | "neon";
   createdAt: string;
   captureId?: string;
   sessionId?: string;
   expiresAt?: string;
+  deletedAt?: string;
 }
 export async function saveAsset(
   workspace: string,
@@ -35,6 +37,38 @@ export async function saveAsset(
 ) {
   const bytes = Buffer.from(await file.arrayBuffer());
   const mid = id("media");
+  const contentType = mediaContentType(kind, bytes);
+  if (!contentType) throw new Error("Unsupported media data");
+  if (process.env.NEON_STORAGE_BUCKET?.trim() && !neonStorageConfigured()) throw new Error("Private Neon storage is not configured");
+  const backend: "blob" | "local" | "neon" = neonStorageConfigured() ? "neon" : process.env.BLOB_READ_WRITE_TOKEN?.trim() ? "blob" : "local";
+  if (backend === "local") requireLocalStorage();
+  const storagePath = backend === "local" ? join(".data/media", workspace, mid) : `${workspace}/${mid}`;
+  const intent = { id: mid, location: storagePath, backend, createdAt: new Date().toISOString(), cleanupAfter: new Date(Date.now() + 30 * 60000).toISOString() };
+  await put(workspace, "media_storage_intent", intent);
+  let location = storagePath;
+  try {
+    if (backend === "neon") await neonPut(storagePath, bytes, contentType);
+    else if (backend === "blob") {
+      const blob = await blobPut(storagePath, bytes, { access: "private", contentType, addRandomSuffix: false, allowOverwrite: false });
+      location = blob.url;
+    } else {
+      await mkdir(join(".data/media", workspace), { recursive: true });
+      await writeFile(location, bytes, { mode: 0o600, flag: "wx" });
+    }
+    await put<MediaRecord>(workspace, "media", { id: mid, recordingId, clipId, kind, contentType, size: bytes.length, location, backend, createdAt: new Date().toISOString(), ...capture });
+    await remove(workspace, "media_storage_intent", mid).catch(() => {});
+  } catch (error) {
+    try {
+      if (backend === "neon") await neonDelete(storagePath);
+      else if (backend === "blob") await blobDelete(storagePath);
+      else try { await unlink(storagePath); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
+      await remove(workspace, "media_storage_intent", mid);
+    } catch { /* Intent remains durable for cleanup retry. */ }
+    throw error;
+  }
+  return `/api/media/${mid}`;
+}
+export function mediaContentType(kind: string, bytes: Buffer) {
   let contentType = "";
   if (
     kind === "screenshot" &&
@@ -51,73 +85,35 @@ export async function saveAsset(
     bytes.subarray(4, 8).toString() === "ftyp"
   )
     contentType = "video/mp4";
-  if (!contentType) throw new Error("Unsupported media data");
-  const backend: "blob" | "local" = process.env.BLOB_READ_WRITE_TOKEN?.trim() ? "blob" : "local";
-  if (backend === "local") requireLocalStorage();
-  const storagePath =
-    backend === "blob"
-      ? `${workspace}/${mid}`
-      : join(".data/media", workspace, mid);
-  const intent = {
-    id: mid,
-    location: storagePath,
-    backend,
-    createdAt: new Date().toISOString(),
-    cleanupAfter: new Date(Date.now() + 10 * 60000).toISOString(),
-  };
-  // The cleanup pointer is durable before footage is written, including uncertain uploads.
-  await put(workspace, "media_storage_intent", intent);
-  let location = storagePath;
-  try {
-    if (backend === "blob") {
-      const blob = await blobPut(storagePath, bytes, {
-        access: "private",
-        contentType,
-        addRandomSuffix: false,
-        allowOverwrite: false,
-      });
-      location = blob.url;
-    } else {
-      await mkdir(join(".data/media", workspace), { recursive: true });
-      await writeFile(location, bytes, { mode: 0o600, flag: "wx" });
-    }
-    await put<MediaRecord>(workspace, "media", {
-      id: mid,
-      recordingId,
-      clipId,
-      kind,
-      contentType,
-      size: bytes.length,
-      location,
-      backend,
-      createdAt: new Date().toISOString(),
-      ...capture,
-    });
-    await remove(workspace, "media_storage_intent", mid).catch(() => {});
-  } catch (error) {
-    try {
-      if (backend === "blob") await blobDelete(storagePath);
-      else
-        try {
-          await unlink(storagePath);
-        } catch (e) {
-          if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-        }
-      await remove(workspace, "media_storage_intent", mid);
-    } catch {
-      /* Intent remains durable for cleanup retry. */
-    }
-    throw error;
-  }
-  return `/api/media/${mid}`;
+  return contentType;
 }
 export async function mediaRecord(workspace: string, mid: string) {
-  return get<MediaRecord>(workspace, "media", mid);
+  const record = await get<MediaRecord>(workspace, "media", mid);
+  return record?.deletedAt ? undefined : record;
+}
+// Never overwrite a deletion tombstone when recovering an interrupted upload.
+export async function registerMediaIfAbsent(workspace: string, record: MediaRecord) {
+  await query(`INSERT INTO records(workspace_id,kind,id,body) VALUES($1,'media',$2,$3::jsonb) ON CONFLICT(workspace_id,kind,id) DO NOTHING`, [workspace, record.id, JSON.stringify(record)]);
+  return mediaRecord(workspace, record.id);
 }
 export async function mediaBytes(record: MediaRecord) {
-  if (record.expiresAt && Date.parse(record.expiresAt) <= Date.now())
+  if (record.deletedAt || (record.expiresAt && Date.parse(record.expiresAt) <= Date.now()))
     throw new Error("Media expired");
   if (record.backend === "local") { requireLocalStorage(); return readFile(record.location); }
+  if (record.backend === "neon") {
+    if (!await lookupMedia(record.id)) throw new Error("Media expired");
+    if (!Number.isSafeInteger(record.size) || record.size <= 0 || record.size > 150 * 1024 * 1024) throw new Error("Media exceeds download limit");
+    const result = await neonRead(record.location, `bytes=0-${record.size - 1}`);
+    if (!result.Body || result.ContentLength !== record.size) throw new Error("Media unavailable or size mismatch");
+    const chunks: Buffer[] = []; let length = 0;
+    for await (const chunk of result.Body as AsyncIterable<Uint8Array>) {
+      length += chunk.length;
+      if (length > record.size) throw new Error("Media exceeds download limit");
+      chunks.push(Buffer.from(chunk));
+    }
+    if (length !== record.size) throw new Error("Media size mismatch");
+    return Buffer.concat(chunks, length);
+  }
   const blob = await blobGet(record.location, { access: "private" });
   if (!blob || blob.statusCode !== 200) throw new Error("Media unavailable");
   return Buffer.from(await new Response(blob.stream).arrayBuffer());
@@ -125,13 +121,13 @@ export async function mediaBytes(record: MediaRecord) {
 export async function lookupMedia(mid: string) {
   return (
     await query<{ workspace_id: string; body: MediaRecord }>(
-      `SELECT workspace_id,body FROM records WHERE kind='media' AND id=$1`,
+      `SELECT workspace_id,body FROM records WHERE kind='media' AND id=$1 AND NOT (body ? 'deletedAt')`,
       [mid],
     )
   )[0];
 }
 export async function serveMedia(record: MediaRecord, request: Request) {
-  if (record.expiresAt && Date.parse(record.expiresAt) <= Date.now())
+  if (record.deletedAt || (record.expiresAt && Date.parse(record.expiresAt) <= Date.now()))
     return new Response(null, { status: 410 });
   if (record.captureId) {
     const grant = (
@@ -171,6 +167,10 @@ export async function serveMedia(record: MediaRecord, request: Request) {
     headers["Content-Length"] = String(end - start + 1);
     headers["Content-Range"] = `bytes ${start}-${end}/${record.size}`;
   }
+  if (record.backend === "neon") {
+    if (!await lookupMedia(record.id)) return new Response(null, { status: 410 });
+    return new Response(null, { status: 307, headers: { Location: await neonDownloadUrl(record.location, new URL(request.url).pathname.includes("/manual-export/download") ? `game-clip.${record.contentType === "video/mp4" ? "mp4" : "webm"}` : undefined), "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" } });
+  }
   if (record.backend === "blob") {
     const blob = await blobGet(record.location, {
       access: "private",
@@ -202,10 +202,19 @@ export async function deleteAsset(
 ) {
   const mid = /^\/api\/media\/(media_[a-z0-9]+)$/.exec(url)?.[1];
   if (!mid) throw new Error("Invalid private media reference");
-  const record = await mediaRecord(workspace, mid);
+  let record = await get<MediaRecord>(workspace, "media", mid);
   if (!record) return;
   if (captureId && record.captureId !== captureId)
     throw new Error("Media belongs to another recording");
+  if (record.backend === "neon") {
+    // Retain the tombstone even after deletion: a concurrently running recovery
+    // must never recreate an intentionally deleted object or its metadata.
+    const rows = await query<{body: MediaRecord}>(`UPDATE records SET body=jsonb_set(body,'{deletedAt}',to_jsonb($3::text),true),updated_at=now() WHERE workspace_id=$1 AND kind='media' AND id=$2 RETURNING body`, [workspace, mid, record.deletedAt || new Date().toISOString()]);
+    if (!rows[0]) return;
+    record = rows[0].body;
+    await neonDelete(record.location);
+    return;
+  }
   if (record.backend === "blob") await blobDelete(record.location);
   else {
     requireLocalStorage();
@@ -221,16 +230,23 @@ export async function deleteAsset(
 export async function cleanupStorageIntents() {
   const intents = await query<{
     workspace_id: string;
-    body: { id: string; backend: "blob" | "local"; location: string };
+    body: { id: string; backend: "blob" | "local" | "neon"; location: string; uploadIntentId?: string; cleanupUploadIntent?: string };
   }>(
     `SELECT workspace_id,body FROM records WHERE kind='media_storage_intent' AND (body->>'cleanupAfter')::timestamptz<=now() LIMIT 100`,
   );
   let failed = 0;
   for (const row of intents) {
     try {
-      const registered = await mediaRecord(row.workspace_id, row.body.id);
+      let registered = await get<MediaRecord>(row.workspace_id, "media", row.body.id);
+      if (!registered && row.body.uploadIntentId) {
+        const upload = await get<{ state: string; mediaId?: string; record?: MediaRecord }>(row.workspace_id, "neon_upload_intent", row.body.uploadIntentId);
+        if (upload?.state === "complete" && upload.mediaId === row.body.id && upload.record?.location === row.body.location) {
+          registered = await registerMediaIfAbsent(row.workspace_id, upload.record) || await get<MediaRecord>(row.workspace_id, "media", row.body.id);
+        }
+      }
       if (!registered) {
-        if (row.body.backend === "blob") await blobDelete(row.body.location);
+        if (row.body.backend === "neon") await neonDelete(row.body.location);
+        else if (row.body.backend === "blob") await blobDelete(row.body.location);
         else {
           requireLocalStorage();
           try {
@@ -239,6 +255,14 @@ export async function cleanupStorageIntents() {
             if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
           }
         }
+      }
+      if (row.body.cleanupUploadIntent) {
+        const upload = await get<{state:string; mediaId?:string; record?:MediaRecord}>(row.workspace_id, "neon_upload_intent", row.body.cleanupUploadIntent);
+        if (upload?.state === "complete" && upload.mediaId && upload.record && !await get<MediaRecord>(row.workspace_id, "media", upload.mediaId)) {
+          const pending = await get<{location:string}>(row.workspace_id, "media_storage_intent", upload.mediaId);
+          if (pending?.location === upload.record.location) await registerMediaIfAbsent(row.workspace_id, upload.record);
+        }
+        await remove(row.workspace_id, "neon_upload_intent", row.body.cleanupUploadIntent);
       }
       await remove(row.workspace_id, "media_storage_intent", row.body.id);
     } catch {

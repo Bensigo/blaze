@@ -3,6 +3,7 @@ import { query, rateLimit } from "./db";
 import type { Game } from "./types";
 import { hash } from "./security";
 import { databaseUsage } from "./db-capacity";
+import { visitorMetadata } from "./visitor-metadata";
 const short = z.string().max(100);
 const eventSchema = z.object({
   id: z.string().min(8).max(100),
@@ -123,9 +124,7 @@ export async function ingest(
     );
   const usage = await databaseUsage();
   if (usage?.paused) return Response.json({ error: "Event ingestion is temporarily paused while database capacity is checked or managed." }, { status: 503, headers: { ...cors, "Retry-After": "30", "Cache-Control": "no-store" } });
-  const ip = process.env.VERCEL
-    ? (request.headers.get("x-forwarded-for") || "unknown").split(",")[0]
-    : "local";
+  const { ip, country: visitorCountry } = visitorMetadata(request);
   if (!(await rateLimit(`events:${hash(`${game.id}:${ip}`)}`, 1200)))
     return Response.json(
       { error: "Event limit reached" },
@@ -156,11 +155,7 @@ export async function ingest(
       else if ((surface === "game" || surface === "viewport") && typeof screen === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(screen)) pointer = { x, y, surface, screen };
       else continue;
     }
-    const country = synthetic
-      ? "Synthetic"
-      : process.env.VERCEL
-        ? (request.headers.get("x-vercel-ip-country") || "Unknown").slice(0, 3)
-        : "Unknown";
+    const country = synthetic ? "Synthetic" : visitorCountry;
     let source = e.source || "";
     if (!source) {
       try {

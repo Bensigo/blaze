@@ -52,11 +52,8 @@ export async function POST(request: Request) {
       });
       return Response.json({ url: `/api/media/${mid}` });
     }
-    if (
-      process.env.VERCEL &&
-      Number(request.headers.get("content-length") || 0) > 4 * 1024 * 1024
-    )
-      throw new HttpError(413, "Use direct Blob upload for large assets.");
+    if (process.env.NODE_ENV === "production" || process.env.VERCEL)
+      throw new HttpError(413, "Use a direct private upload for worker assets.");
     const form = await request.formData();
     const recordingId = String(form.get("recordingId") || ""),
       clipId = form.get("clipId") ? String(form.get("clipId")) : undefined,

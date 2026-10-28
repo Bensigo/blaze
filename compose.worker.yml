@@ -10,6 +10,7 @@ services:
       WORKER_TOKEN: ${WORKER_TOKEN:?WORKER_TOKEN is required}
       EGRESS_TOKEN: ${EGRESS_TOKEN:?EGRESS_TOKEN is required}
       BLOB_CLIENT_UPLOAD: ${BLOB_CLIENT_UPLOAD:-false}
+      NEON_CLIENT_UPLOAD: ${NEON_CLIENT_UPLOAD:-false}
     networks:
       outbound: {}
       browser_net:

@@ -29,7 +29,7 @@ async function api(path: string, body?: unknown) {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
-    signal: AbortSignal.timeout(path === "/api/worker/claim" ? 65000 : 15000),
+    signal: AbortSignal.timeout(path === "/api/worker/claim" || path === "/api/worker/neon-upload" ? 65000 : 15000),
   });
   if (!response.ok)
     throw new Error(`Worker API ${path} returned ${response.status}`);
@@ -44,6 +44,17 @@ async function upload(
   const data = await readFile(path);
   if (data.byteLength > 150 * 1024 * 1024)
     throw new Error("Asset exceeds worker size limit");
+  if (process.env.NEON_CLIENT_UPLOAD === "true") {
+    const reservation = await api("/api/worker/neon-upload", {action: "reserve", recordingId, clipId, kind, size: data.byteLength});
+    if (typeof reservation.uploadUrl !== "string" || typeof reservation.intentId !== "string" || typeof reservation.contentType !== "string") throw new Error("Asset reservation missing");
+    const target = new URL(reservation.uploadUrl);
+    if (target.protocol !== "https:" || target.username || target.password) throw new Error("Invalid asset upload endpoint");
+    const response = await fetch(target, {method: "PUT", headers: {"Content-Type": reservation.contentType}, body: data, signal: AbortSignal.timeout(120000)});
+    if (!response.ok) throw new Error(`Asset upload returned ${response.status}`);
+    const result = await api("/api/worker/neon-upload", {action: "finalize", recordingId, clipId, intentId: reservation.intentId});
+    if (typeof result.url !== "string") throw new Error("Asset URL missing");
+    return result.url as string;
+  }
   if (process.env.BLOB_CLIENT_UPLOAD === "true") {
     const ext =
         kind === "screenshot" ? "png" : kind === "clip" ? "mp4" : "webm",
@@ -396,14 +407,22 @@ async function runClip(job: any) {
       total = Infinity;
     const chunkSize = 2 * 1024 * 1024;
     while (offset < total) {
-      const res = await fetch(media, {
+      let res = await fetch(media, {
         headers: {
           ...headers,
           Range: `bytes=${offset}-${offset + chunkSize - 1}`,
         },
         signal: AbortSignal.timeout(30000),
-        redirect: "error",
+        redirect: "manual",
       });
+      if (res.status === 307) {
+        const location = res.headers.get("location");
+        if (!location) throw new Error("Media redirect missing");
+        const target = new URL(location);
+        if (target.protocol !== "https:" || target.username || target.password) throw new Error("Invalid media redirect");
+        // Do not forward the worker bearer token to the storage endpoint.
+        res = await fetch(target, {headers: {Range: `bytes=${offset}-${offset + chunkSize - 1}`}, signal: AbortSignal.timeout(30000), redirect: "error"});
+      }
       if (!res.ok) throw new Error(`Source download returned ${res.status}`);
       const bytes = Buffer.from(await res.arrayBuffer());
       if (res.status === 200) {
