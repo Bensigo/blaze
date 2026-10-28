@@ -116,22 +116,13 @@ export async function POST(request: Request) {
       if (!item) throw new HttpError(404, `${kind} not found.`);
       return item;
     };
-    if (action === "add_game") {
-      const v = z
-        .object({
-          url: z.string().max(2000),
-          title: z.string().max(120).optional(),
-          image: z.string().max(2000).optional(),
-          genre: z.string().max(80).optional(),
-        })
-        .parse(body);
+    if (action === "inspect_game" || action === "add_game") {
+      const v = z.object({ url: z.string().max(2000) }).parse(body);
       const metadata = await gameMetadata(v.url, publicOrigin(request));
+      if (action === "inspect_game") return Response.json({ metadata });
       const game: Game = {
         ...metadata,
         id: id("game"),
-        title: v.title || metadata.title,
-        image: v.image ? imageUrl(v.image, metadata.url) : metadata.image,
-        genre: v.genre || "Web game",
         sdkKey: id("sdk"),
         origins: [new URL(metadata.url).origin],
         createdAt: new Date().toISOString(),

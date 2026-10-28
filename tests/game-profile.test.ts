@@ -6,7 +6,8 @@ vi.mock("../src/lib/auth", async () => {
 });
 vi.mock("../src/lib/analytics", () => ({ analytics: async () => ({ sessions: 2 }) }));
 vi.mock("../src/lib/research-jobs", () => ({ researchJob: async () => ({ id: "run-1", status: context.research, coverage: [{ source: "AI research agent", status: "disconnected", detail: "Connect Anthropic and configure a model." }] }) }));
-vi.mock("../src/lib/metadata", () => ({ gameMetadata: async () => ({ url: "https://game.example/", title: "Original page title", description: "Page description", image: "", metadataStatus: "Metadata retrieved" }) }));
+vi.mock("../src/lib/game-manifest", () => ({ readGameManifest: async () => ({ status: "unavailable", detail: "Unavailable" }) }));
+vi.mock("../src/lib/metadata", () => ({ gameMetadata: async () => ({ url: "https://game.example/", title: "Original page title", description: "Page description", image: "", genre: "Cards" as const, metadataStatus: "Forever manifest", manifestSource: { url: "https://game.example/forever.json", observedAt: "2026-01-01T00:00:00Z", sha256: "abc", formatVersion: 1 as const } }) }));
 let db: typeof import("../src/lib/db");
 let profile: typeof import("../src/lib/game-profile");
 let routes: typeof import("../src/app/api/games/[id]/profile/route");
@@ -16,7 +17,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => { context.workspace = "ws-a"; await db.query("DELETE FROM jobs"); await db.query("DELETE FROM records"); });
 const game = { id: "game-1", title: "Owner title", url: "https://game.example/", description: "Owner description", image: "", genre: "Owner genre", sdkKey: "key", origins: [], createdAt: "2026-01-01T00:00:00Z", dailyEnabled: true, competitors: [] };
-const metadata = { url: game.url, title: "Original page title", description: "Page description", image: "", metadataStatus: "Metadata retrieved" };
+const metadata = { url: game.url, title: "Original page title", description: "Page description", image: "", genre: "Cards" as const, metadataStatus: "Forever manifest", manifestSource: { url: "https://game.example/forever.json", observedAt: "2026-01-01T00:00:00Z", sha256: "abc", formatVersion: 1 as const } };
 const routeContext = { params: Promise.resolve({ id: game.id }) };
 
 describe("game profile investigation", () => {
@@ -31,7 +32,7 @@ describe("game profile investigation", () => {
     expect(result.status).toBe("partial");
     expect(result.overrides).toEqual({ description: "Owner description", audience: "Hypothesis: puzzle players" });
     expect(result.facts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "page_title", value: "Original page title", evidence: expect.objectContaining({ url: game.url }) }),
+      expect.objectContaining({ key: "page_title", value: "Original page title", evidence: expect.objectContaining({ url: "https://game.example/forever.json", sha256: "abc" }) }),
       expect.objectContaining({ key: "human_sessions", value: "2" }),
       expect.objectContaining({ label: "Gameplay observation", value: "A menu is visible" }),
     ]));

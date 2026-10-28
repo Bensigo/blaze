@@ -1,0 +1,77 @@
+{
+  "formatVersion": 1,
+  "id": "star-catch-fixture",
+  "slug": "star-catch-fixture",
+  "name": "Star Catch",
+  "genre": "Action",
+  "maker": {
+    "name": "Blaze",
+    "url": null
+  },
+  "released": "2026-10-28",
+  "updated": "2026-10-28",
+  "tagline": "A controlled game fixture",
+  "description": "A controlled browser game fixture where players move across the sky and catch falling stars.",
+  "about": [
+    "Star Catch is a controlled browser game fixture used to exercise game recordings and telemetry. The player moves across a simple night sky while stars fall toward the ground. This fixture is part of Blaze and is supplied for development and acceptance testing. It is not a production game listing or evidence about another game.",
+    "The game is deliberately small so that recording, playback, and measurement workflows can be checked against a predictable scene. Players use the controls shown on the screen to move and catch the stars. Any data collected while using this fixture should be treated as test data."
+  ],
+  "players": {
+    "min": 1,
+    "max": 1,
+    "label": "One player"
+  },
+  "modes": [
+    "solo"
+  ],
+  "guestPlay": true,
+  "controls": {
+    "label": "Keyboard or touch",
+    "input": [
+      "keyboard",
+      "touch"
+    ]
+  },
+  "devices": {
+    "phone": "either",
+    "desktop": true
+  },
+  "session": {
+    "opponents": "Solo",
+    "duration": "Short test session",
+    "saving": "Optional telemetry is sent to the selected workspace"
+  },
+  "cost": {
+    "play": "free"
+  },
+  "howToPlay": [
+    "Start the controlled fixture.",
+    "Move using the on-screen controls or keyboard.",
+    "Catch falling stars."
+  ],
+  "faq": [
+    {
+      "q": "What is this?",
+      "a": "A controlled fixture for testing Blaze."
+    },
+    {
+      "q": "Does it cost anything?",
+      "a": "No, the fixture is free."
+    },
+    {
+      "q": "Is this a production game?",
+      "a": "No, it is a local development fixture."
+    }
+  ],
+  "ageRating": null,
+  "media": {
+    "cover": {
+      "src": "/fixture/cover.svg",
+      "alt": "Star Catch controlled fixture cover"
+    },
+    "share": "/fixture/cover.svg",
+    "screenshots": [],
+    "trailer": null
+  },
+  "visibility": "unlisted"
+}

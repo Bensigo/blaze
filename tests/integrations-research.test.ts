@@ -21,6 +21,7 @@ vi.mock("../src/lib/integrations/safe-fetch", () => ({
 }));
 import { runResearch, testConnection } from "../src/lib/integrations";
 import { fetchPublic } from "../src/lib/integrations/safe-fetch";
+import whotManifest from "./fixtures/forever-whot.json";
 const game: Game = {
   id: "g",
   title: "My Game",
@@ -213,7 +214,7 @@ describe("research evidence and source coverage", () => {
   it("grounds candidate advice in the matching manifest and separates observed queries", async () => {
     const fetchMock = vi.mocked(fetchPublic);
     const original = fetchMock.getMockImplementation()!;
-    const manifest = { formatVersion: 1, id: "last-card", slug: "whot", name: "WHOT", genre: "Cards", description: "Play cards", about: ["Match cards."], howToPlay: ["Deal cards.", "Match shapes.", "Empty your hand."], faq: [{ q: "Is WHOT free?", a: "Yes." }, { q: "Friends?", a: "Yes." }, { q: "Phone?", a: "Yes." }], controls: { label: "Mouse or touch" }, visibility: "listed" };
+    const manifest = whotManifest;
     fetchMock.mockImplementation(async (url, redirects) => url.endsWith("/forever.json") ? { status: 200, url, body: JSON.stringify(manifest), contentType: "application/json", elapsedMs: 1, xRobotsTag: "" } : original(url, redirects));
     vi.stubGlobal("fetch", vi.fn(async (_input: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body));
@@ -226,7 +227,7 @@ describe("research evidence and source coverage", () => {
       const result = await runResearch({ game: { ...game, url: "https://game.example/games/whot" }, analytics, connections: { search_console: { token: "token", accountId: "sc-domain:game.example" } } });
       const candidate = result.findings.find(f => f.title === "Unmeasured phrase candidate: WHOT how to play");
       expect(candidate?.detail).toContain("no search volume");
-      expect(candidate?.detail).toContain("Deal cards.");
+      expect(candidate?.detail).toContain(manifest.howToPlay[0]);
       expect(candidate?.evidence[0].url).toBe("https://game.example/games/whot/forever.json");
       expect(result.findings.find(f => f.title === "Review game-specific answers on the public page")?.detail).toContain("first FAQ question");
       const query = result.findings.find(f => f.title === "Observed search query: whot rules");

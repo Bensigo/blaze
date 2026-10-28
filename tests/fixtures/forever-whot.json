@@ -1,0 +1,74 @@
+{
+  "formatVersion": 1,
+  "id": "last-card",
+  "slug": "whot",
+  "name": "WHOT",
+  "genre": "Cards",
+  "maker": {
+    "name": "Forever",
+    "url": null
+  },
+  "released": "2026-10-11",
+  "updated": "2026-10-28",
+  "tagline": "Match cards with friends or NPCs",
+  "description": "Play Nigerian WHOT online for free. Match the call card by shape or number against computers or friends, on your phone or laptop.",
+  "about": [
+    "WHOT is the Nigerian card game where you match the card on top by shape or number and race to empty your hand. Each player gets five cards, and the special cards are the Nigerian ones: 1 Hold On, 2 Pick Two, 5 Pick Three, 8 Suspension and 14 General Market. The Whot card goes on anything.",
+    "Start a quick match against one to three computers, set to Easy or Sharp, or invite friends from your Forever friends list. A table seats two to four players, and you can play one round or best of three.",
+    "WHOT runs in your browser on a phone or laptop, with no app to install. Without an account you get one free round against the computer. When you are signed in, your completed rounds save to your Profile."
+  ],
+  "players": {
+    "min": 1,
+    "max": 4,
+    "label": "1–4 players"
+  },
+  "modes": ["cpu", "friends"],
+  "guestPlay": true,
+  "controls": {
+    "label": "Mouse or touch",
+    "input": ["mouse", "touch"]
+  },
+  "devices": {
+    "phone": "landscape",
+    "desktop": true
+  },
+  "session": {
+    "opponents": "CPU or real players",
+    "duration": "One round at a time; a series has several rounds",
+    "saving": "Signed-in completed rounds save to Profile. Guest rounds are not saved."
+  },
+  "cost": {
+    "play": "free"
+  },
+  "howToPlay": [
+    "You start with five cards. One card is turned face up as the call card.",
+    "On your turn, play a card with the same shape or number as the call card.",
+    "Whot (20) goes on anything. Choose the shape you need, and the next player must play that shape or another Whot.",
+    "1 Hold On: play again. 8 Suspension: the next player misses a turn. 14 General Market: everyone else takes a card and you play again.",
+    "2 Pick Two and 5 Pick Three: the next player picks unless they answer with the same number. The picks add up, and Whot cannot block them.",
+    "No card to play? Tap Go market and take one card.",
+    "With two cards left, tap Last card before you play, or you pick two. Play your last card to check up and win."
+  ],
+  "faq": [
+    {"q": "Is WHOT on Forever free?", "a": "Yes. Rounds cost nothing. Without an account you can play one free round against the computer, and a free account lets you keep playing and save your rounds."},
+    {"q": "Can I play WHOT with friends online?", "a": "Yes. Tap Play a friend and invite people from your Forever friends list. Two to four people can share a table, and the host can add computers to fill the empty seats."},
+    {"q": "Does WHOT work on a phone?", "a": "Yes. It runs in your phone’s browser with no app to install. Hold the phone sideways. On a laptop you play with the mouse."},
+    {"q": "What happens if I forget to call last card?", "a": "If you play down to one card without tapping Last card first, you pick two cards from the market."},
+    {"q": "Can I play more than one card at a time?", "a": "Yes, if they share a number. The first card must fit the call card and the last one sets the new shape. Two Pick Twos played together make the next player pick four. A Whot card always goes down alone."},
+    {"q": "How long do I have for each turn?", "a": "30 seconds. If time runs out, a move is made for you. Miss two turns in a row and a computer plays your seat until you come back."},
+    {"q": "What if the market runs out?", "a": "An empty market is refilled by shuffling the played cards under the call card. If those run out too and nobody can play for two full turns round the table, the lightest hand wins. Cards count their number, stars double, and a Whot counts 20."}
+  ],
+  "ageRating": null,
+  "media": {
+    "cover": {
+      "src": "/assets/games/covers-v1/last-card.webp",
+      "srcset": "/assets/games/covers-v1/last-card-480.webp 480w, /assets/games/covers-v1/last-card.webp 960w",
+      "alt": "WHOT cover art: friends play ivory cards with burgundy numbers and shapes."
+    },
+    "share": "/assets/game-share/whot.jpg",
+    "preview": "/assets/games/previews-v1/whot.webm",
+    "screenshots": [],
+    "trailer": null
+  },
+  "visibility": "listed"
+}

@@ -40,16 +40,7 @@ import {
   Video,
   X,
 } from "lucide-react";
-import {
-  Area,
-  AreaChart,
-  Line,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import dynamic from "next/dynamic";
 import ManualExportPanel from "./manual-export-panel";
 import type {
   Analytics,
@@ -66,6 +57,11 @@ import type {
   TelemetryEvent,
   WorkspaceSnapshot,
 } from "@/lib/types";
+
+const PlayerAnalytics = dynamic(() => import("./player-analytics"), { loading: () => <div className="analytics-loading" role="status">Loading analytics…</div> });
+
+type GameImportMetadata = { url: string; title: string; description: string; image: string; genre: string; metadataStatus: string; manifestSource: { url: string; observedAt: string; sha256: string; formatVersion: 1 } };
+type GameImportState = { status: "idle" | "waiting" | "loading" | "ready" | "error"; input: string; metadata?: GameImportMetadata; error?: string };
 
 type Page =
   | "overview"
@@ -91,7 +87,7 @@ type InvestigationEvidence = { eventId: string; name: string; timestamp: string;
 type InvestigationMatch = { session: SessionSummary; evidence: InvestigationEvidence };
 type InvestigationState = { kind: "heatmap" | "dropoff"; title: string; loading: boolean; error?: string; results: InvestigationMatch[]; hasMore: boolean; windowStart?: string; windowEnd?: string };
 const nav: { id: Page; label: string; icon: typeof Activity }[] = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "overview", label: "Dashboard", icon: LayoutDashboard },
   { id: "games", label: "Games", icon: Gamepad2 },
   { id: "analytics", label: "Player analytics", icon: BarChart3 },
   { id: "sessions", label: "Sessions", icon: Users },
@@ -134,6 +130,15 @@ const timecode = (n: number) =>
 const label = (v: string) =>
   v.replaceAll("_", " ").replace(/^\w/, (c) => c.toUpperCase());
 const eventLabel = (name: string) => name === "ui_click" ? "UI click" : label(name);
+function manifestAddress(input: string) {
+  try {
+    const url = new URL(input);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return "";
+    url.search = ""; url.hash = "";
+    url.pathname = `${url.pathname.replace(/\/+$/, "")}/forever.json`;
+    return url.href;
+  } catch { return ""; }
+}
 const trackingUrl = (post: Post) =>
   (post as Post & { trackingUrl?: string }).trackingUrl;
 const gameName = (games: Game[], id: string) =>
@@ -346,9 +351,6 @@ export default function Dashboard() {
     [mobileNav, setMobileNav] = useState(false),
     [modal, setModal] = useState<Modal>(null);
   const [chosenGame, setChosenGame] = useState<Game | null>(null);
-  const [heatSurface, setHeatSurface] = useState("");
-  const [heatScreen, setHeatScreen] = useState("");
-  const [heatDevice, setHeatDevice] = useState("");
   const [investigation, setInvestigation] = useState<InvestigationState | null>(null);
   const investigationRequest = useRef(0);
   const [eventFilter, setEventFilter] = useState("all");
@@ -448,6 +450,26 @@ export default function Dashboard() {
     releaseVersion: "", releaseDescription: "", releaseEvidenceUrl: "", releaseEffectiveAt: "",
     baselineStart: "", baselineEnd: "", followupStart: "", followupEnd: "",
   });
+  const [gameImport, setGameImport] = useState<GameImportState>({ status: "idle", input: "" });
+  const [importRetry, setImportRetry] = useState(0);
+  useEffect(() => {
+    const input = draft.url.trim();
+    if (modal !== "game" || chosenGame || !manifestAddress(input)) { setGameImport({ status: "idle", input }); return; }
+    const controller = new AbortController();
+    setGameImport({ status: "waiting", input });
+    const timer = window.setTimeout(() => {
+      setGameImport({ status: "loading", input });
+      void fetch("/api/actions", { method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal, body: JSON.stringify({ action: "inspect_game", url: input }) })
+        .then(async response => {
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "The game manifest could not be imported.");
+          if (!data.metadata?.manifestSource || typeof data.metadata.title !== "string") throw new Error("The import response is incomplete. Try again.");
+          if (!controller.signal.aborted) setGameImport({ status: "ready", input, metadata: data.metadata });
+        })
+        .catch(error => { if (!controller.signal.aborted) setGameImport({ status: "error", input, error: error instanceof Error ? error.message : "The game manifest could not be imported." }); });
+    }, 700);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [draft.url, modal, chosenGame, importRetry]);
   const refresh = useCallback(
     async (game = selectedGame, demo = snapshot?.demo, days = period) => {
       const request = ++workspaceRequest.current;
@@ -592,7 +614,11 @@ export default function Dashboard() {
       if (!res.ok) throw new Error(data.error || "Action failed");
       if (close) setModal(null);
       await refresh();
-      setNotice("Changes saved.");
+      if (payload.action === "add_game" && typeof data.game?.id === "string") {
+        setSelectedGame(data.game.id);
+        setPage("overview");
+        setNotice("Game imported. Install its SDK to start receiving player events.");
+      } else setNotice("Changes saved.");
       return data;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Action failed");
@@ -871,13 +897,6 @@ export default function Dashboard() {
     const timer = setInterval(check, 30000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [selectedGame, snapshot?.demo]);
-  const heatPoints = (analytics?.heatmap || []).filter((p) => p.gameId === selectedGame);
-  const surfaces = [...new Set(heatPoints.map((p) => p.surface))];
-  const surface = surfaces.find((value) => value === heatSurface) || surfaces[0] || "";
-  const screens = [...new Set(heatPoints.filter((p) => p.surface === surface).map((p) => p.screen))];
-  const screen = screens.find((value) => value === heatScreen) || screens[0] || "";
-  const devices = [...new Set(heatPoints.filter((p) => p.surface === surface && p.screen === screen).map((p) => p.device))];
-  const device = devices.find((value) => value === heatDevice) || devices[0] || "";
   useEffect(() => { investigationRequest.current++; setInvestigation(null); }, [selectedGame, period, analytics?.windowEnd, snapshot?.demo]);
   const investigate = async (kind: "heatmap" | "dropoff", title: string, filters: Record<string, string>) => {
     if (!snapshot || snapshot.demo || selectedGame === "all" || !analytics?.windowEnd || !sessionScopeReady) return;
@@ -967,6 +986,10 @@ export default function Dashboard() {
   const formSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (modal === "game") {
+      if (!chosenGame && (gameImport.status !== "ready" || gameImport.input !== draft.url.trim())) {
+        setError("Fetch and validate the game manifest before adding the game.");
+        return;
+      }
       let masks: { x: number; y: number; width: number; height: number }[] = [];
       if (chosenGame) {
         try {
@@ -1016,10 +1039,7 @@ export default function Dashboard() {
             }
           : {
               action: "add_game",
-              url: draft.url,
-              title: draft.title || undefined,
-              image: draft.image || undefined,
-              genre: draft.genre || undefined,
+              url: draft.url.trim(),
             },
       );
     } else if (modal === "recording")
@@ -1331,6 +1351,12 @@ export default function Dashboard() {
             </Button>
           </div>
         </header>
+        {process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_BLAZE_CONTROLLED_FIXTURE === "true" && (
+          <div className="demo-banner" role="status">
+            <strong>Controlled fixture data</strong>
+            <span>Local acceptance workspace · scripted tests, not audience activity.</span>
+          </div>
+        )}
         {snapshot.demo && (
           <div className="demo-banner">
             <strong>Example workspace</strong>
@@ -1399,134 +1425,21 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-          {page === "overview" && (
-            <>
-              <div className="overview-top">
-                <div className="overview-main">
-                  <SectionHead
-                    title="Player activity"
-                    detail="Human traffic · selected date range"
-                    action={
-                      <button
-                        className="inline-link"
-                        onClick={() => changePage("analytics")}
-                      >
-                        View analytics <ArrowRight size={15} />
-                      </button>
-                    }
-                  />
-                  <Metrics a={analytics} />
-                  <Chart data={trend} period={period} />
-                </div>
-                <aside className="overview-side">
-                  <div className="featured-game">
-                    <div className="featured-heading">
-                      <h2>{selectedGame === "all" ? "Game in focus" : "Selected game"}</h2>
-                      {snapshot.demo && <span className="featured-example">Example</span>}
-                    </div>
-                    {featuredGame ? (
-                      <>
-                        <Media src={featuredGame.image} title={featuredGame.title} />
-                        <div className="featured-copy">
-                          <h3>{featuredGame.title}</h3>
-                          <p>{featuredGame.genre || "Web game"}{featuredGame.genre === "Fixture" ? " · Controlled fixture" : ""}</p>
-                        </div>
-                        <div className="featured-actions">
-                          <Button onClick={() => { setSelectedGame(featuredGame.id); changePage("analytics"); }}>
-                            View analytics <ArrowRight size={14} />
-                          </Button>
-                          <Button onClick={() => {
-                            setSelectedGame(featuredGame.id);
-                            openModal("recording");
-                            setDraft((d) => ({ ...d, gameId: featuredGame.id }));
-                          }}>
-                            <Video size={14} /> Record game
-                          </Button>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="featured-empty">
-                        <p>No game selected or added yet.</p>
-                        <button className="inline-link" onClick={() => openModal("game")}>Add a game <ArrowRight size={14} /></button>
-                      </div>
-                    )}
-                    <div className="featured-status">
-                      <h3>Recording readiness</h3>
-                      <div><span>Jev provider</span><strong>{jev?.connected ? "Verified" : "Not verified"}</strong></div>
-                      <p>Last checked: {jev?.checkedAt ? dateTime(jev.checkedAt) : "Never"}</p>
-                      <div><span>Recording worker</span><strong>{snapshot.system.worker ? "Current" : snapshot.system.lastWorkerAt ? "Stale" : "Not seen"}</strong></div>
-                      <p>Last heartbeat: {snapshot.system.lastWorkerAt ? dateTime(snapshot.system.lastWorkerAt) : "Never"}</p>
-                      <div><span>Game adapter</span><strong>{jevValidation ? "Verified" : "Not verified"}</strong></div>
-                      <p>{selectedGame === "all" ? "Select a game to check its adapter." : "Requires a successful Jev recording with model decisions and footage. Fixtures do not verify Jev."}</p>
-                      <div><span>Current recording</span><strong>{currentRecording ? `${label(currentRecording.mode)} · ${label(currentRecording.status)}` : "None"}</strong></div>
-                      <div><span>Latest recording</span><strong>{latestRecording ? `${label(latestRecording.mode)} · ${label(latestRecording.status)}` : "None"}</strong></div>
-                      {latestRecording && <p>{dateTime(latestRecording.createdAt)}{latestRecording.error ? ` · ${latestRecording.error}` : ""}</p>}
-                      {lastRecordingError && lastRecordingError.id !== latestRecording?.id && <p>Last recording error: {dateTime(lastRecordingError.createdAt)} · {lastRecordingError.error}</p>}
-                      <div><span>Current research run</span><strong>{currentRun ? label(currentRun.status) : "None"}</strong></div>
-                      <div><span>Latest research run</span><strong>{latestRun ? label(latestRun.status) : "None"}</strong></div>
-                      {latestRun && <p>{dateTime(latestRun.startedAt)}{latestRun.error ? ` · ${latestRun.error}` : ""}</p>}
-                      {lastRunError && lastRunError.id !== latestRun?.id && <p>Last research error: {dateTime(lastRunError.startedAt)} · {lastRunError.error}</p>}
-                      <div><span>Posts awaiting review</span><strong>{posts.filter((p) => p.status === "review").length}</strong></div>
-                    </div>
-                  </div>
-                </aside>
-              </div>
-              <div className="lower-grid">
-                <div>
-                  <SectionHead
-                    title="Recent sessions"
-                    detail={`Human sessions · last ${period} days`}
-                    action={
-                      <button
-                        className="inline-link"
-                        onClick={() => changePage("sessions")}
-                      >
-                        All sessions <ArrowRight size={15} />
-                      </button>
-                    }
-                  />
-                  <SessionsTable
-                    sessions={sessions.slice(0, 5)}
-                    games={games}
-                    onSelect={openSession}
-                  />
-                </div>
-                <div>
-                  <SectionHead
-                    title="Open findings"
-                    detail="Evidence and hypotheses to review"
-                    action={
-                      <button
-                        className="inline-link"
-                        onClick={() => changePage("research")}
-                      >
-                        View research <ArrowRight size={15} />
-                      </button>
-                    }
-                  />
-                  <Findings
-                    findings={findings
-                      .filter((f) => f.status !== "resolved")
-                      .slice(0, 3)}
-                    action={action}
-                  />
-                </div>
-              </div>
-              <section className="overview-queue">
-                <SectionHead title="Publishing queue" detail="Scheduled posts and their current status." action={
-                  <button className="inline-link" onClick={() => changePage("calendar")}>Open calendar <ArrowRight size={15} /></button>
-                } />
-                {posts.filter((p) => p.scheduledAt).slice(0, 3).map((p) => (
-                  <button className="queue-row" key={p.id} onClick={() => reviewPost(p)}>
-                    <div><strong>{label(p.channel)}</strong><span>{gameName(games, p.gameId)} · {dateTime(p.scheduledAt)}</span></div>
-                    <Status value={p.status} />
-                    {p.deliveryMethod === "manual" && <ManualPostNote post={p} />}
-                  </button>
-                ))}
-                {!posts.some((p) => p.scheduledAt) && <p className="muted">No scheduled posts yet.</p>}
-              </section>
-            </>
-          )}
+          {(page === "overview" || page === "analytics") && (sessionScopeReady ? <PlayerAnalytics
+            analytics={analytics} games={games} gameId={selectedGame} days={period} demo={snapshot.demo} detailed={page === "analytics"}
+            onChooseGame={setSelectedGame} onAddGame={() => openModal("game")} onSetup={() => changePage("help")}
+            onSessions={() => changePage("sessions")} onOpenSession={openSession}
+            onDropoff={name => void investigate("dropoff", name, { dropoff: name })}
+            onClearEvidence={() => { investigationRequest.current++; setInvestigation(null); }}
+            onBin={(context, bx, by, sessionId) => {
+              if (sessionId) {
+                const selected = sessions.find(item => item.gameId === selectedGame && item.id === sessionId);
+                if (selected) void openSession(selected);
+                else setNotice("Open this session from the Sessions list to inspect its events.");
+              } else void investigate("heatmap", `Pointer bin ${bx + 1}, ${by + 1}`, { ...context, bx: String(bx), by: String(by) });
+            }}
+            supporting={investigation ? <InvestigationResults state={investigation} onOpen={openSession} /> : undefined}
+          /> : <div className="analytics-loading" role="status">Loading this game and date range…</div>)}
           {page === "games" && (
             <>
               <SectionHead
@@ -1551,6 +1464,7 @@ export default function Dashboard() {
                           {g.url} <ExternalLink size={12} />
                         </a>
                         <p>{g.description || "No description provided."}</p>
+                        {g.manifestSource && <a className="game-manifest-source" href={g.manifestSource.url} target="_blank" rel="noreferrer">Imported from forever.json <ExternalLink size={11}/></a>}
                         <span className="tag">
                           {g.genre || "Web game"}
                         </span>{" "}
@@ -1593,193 +1507,6 @@ export default function Dashboard() {
                   }
                 />
               )}
-            </>
-          )}
-          {page === "analytics" && (
-            <>
-              <SectionHead
-                title="Human player activity"
-                detail="Human traffic in the selected date range."
-              />
-              <Metrics a={analytics} />
-              <section className="activity-context">
-                <div><h2>From visit to play</h2><p>Recorded sessions in the selected range.</p><dl><div><dt>Loaded</dt><dd>{analytics?.loadedSessions === undefined ? "Unknown" : fmt(analytics.loadedSessions)}</dd></div><div><dt>Reached progression</dt><dd>{analytics?.progressionSessions === undefined ? "Unknown" : fmt(analytics.progressionSessions)}</dd></div></dl></div>
-                <div><h2>Estimated active play</h2><p>Foreground, recent-input estimate after a round starts; idle tabs and agent sessions are excluded.</p><dl><div><dt>Total</dt><dd>{analytics?.activePlay?.totalSeconds == null ? "Unknown" : timecode(analytics.activePlay.totalSeconds)}</dd></div><div><dt>Average</dt><dd>{analytics?.activePlay?.averageSeconds == null ? "Unknown" : timecode(analytics.activePlay.averageSeconds)}</dd></div><div><dt>Median</dt><dd>{analytics?.activePlay?.medianSeconds == null ? "Unknown" : timecode(analytics.activePlay.medianSeconds)}</dd></div></dl><p>{analytics?.activePlay ? `${fmt(analytics.activePlay.measuredSessions)} of ${fmt(analytics.activePlay.eligibleSessions)} eligible sessions measured.` : "Measurement unavailable."} Missing measurement is unknown.</p></div>
-              </section>
-              <div className="analytics-grid">
-                <div>
-                  <Chart data={trend} period={period} />
-                  <SectionHead
-                    title="Player funnel"
-                    detail="Counts follow the recorded order of events."
-                  />
-                  <div className="funnel">
-                    {(analytics?.funnel || []).map((f, i) => (
-                      <div key={f.name}>
-                        <span>{f.name}</span>
-                        <div className="funnel-track">
-                          <div
-                            style={{
-                              width: `${Math.max(0, Math.min(100, (f.count / (analytics?.funnel?.[0]?.count || 1)) * 100))}%`,
-                            }}
-                          />
-                        </div>
-                        <strong>{fmt(f.count)}</strong>
-                        {i > 0 && (
-                          <small>
-                            {analytics?.funnel?.[0]?.count
-                              ? Math.round(
-                                  (f.count / analytics.funnel[0].count) * 100,
-                                )
-                              : 0}
-                            %
-                          </small>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="analytics-aside">
-                  <Breakdown
-                    title="Countries"
-                    items={analytics?.countries || []}
-                  />
-                  <Breakdown
-                    title="Traffic sources"
-                    items={analytics?.sources || []}
-                  />
-                  <Breakdown title="Devices" items={analytics?.devices || []} />
-                </div>
-              </div>
-              {limitedCoverage.length > 0 && <div className="data-note">Limited breakdowns: {limitedCoverage.map(([key, value]) => `${fmt(value.shown)} of ${fmt(value.total)} ${coverageLabels[key] || label(key)}`).join("; ")}. Counts refer to categories or pointer bins.</div>}
-              <div className="data-note">
-                Human traffic only. {fmt(analytics?.syntheticSessions)}{" "}
-                synthetic sessions excluded. Last event:{" "}
-                {analytics?.lastEventAt
-                  ? dateTime(analytics.lastEventAt)
-                  : "No events yet"}
-                . Country and attribution may be unavailable.
-              </div>
-              <div className="lower-grid">
-                <div>
-                  <SectionHead
-                    title="Drop-off points"
-                    detail="Recorded steps in sessions without a completed round; this does not establish why players left."
-                  />
-                  {selectedGame === "all" ? <p className="muted">Select one game to inspect supporting sessions.</p> : snapshot.demo ? <p className="muted">Supporting sessions are unavailable in the example workspace.</p> : !analytics?.windowEnd ? <p className="muted">Supporting sessions are unavailable until analytics can be refreshed.</p> : null}
-                  <div className="investigation-list">{(analytics?.dropoffs || []).map((item) => <button key={item.name} type="button" disabled={selectedGame === "all" || snapshot.demo || !analytics?.windowEnd || !sessionScopeReady} onClick={() => void investigate("dropoff", item.name, { dropoff: item.name })}><span>{item.name}</span><strong>{fmt(item.count)}</strong><ChevronRight size={14} /></button>)}</div>
-                  {!analytics?.dropoffs?.length && <p className="muted">No drop-off points in this range.</p>}
-                  {investigation?.kind === "dropoff" && <InvestigationResults state={investigation} onOpen={openSession} />}
-                </div>
-                <div>
-                  <SectionHead
-                    title="Campaign attribution"
-                    detail="Counts reflect attributed sessions, not causal impact."
-                  />
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>CAMPAIGN</th>
-                          <th>VISITS</th>
-                          <th>STARTS</th>
-                          <th>COMPLETIONS</th>
-                          <th>RETURNS</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(analytics?.campaigns || []).map((c) => {
-                          const post = posts.find(
-                            (p) => p.campaignId === c.name,
-                          );
-                          return (
-                            <tr key={c.name}>
-                              <td>
-                                {post ? (
-                                  <>
-                                    <strong>
-                                      {post.channel === "x"
-                                        ? "X"
-                                        : label(post.channel)}
-                                    </strong>
-                                    <small>
-                                      {post.text.slice(0, 80)}
-                                      {post.text.length > 80 ? "…" : ""}
-                                    </small>
-                                    <small>{c.name}</small>
-                                  </>
-                                ) : (
-                                  c.name
-                                )}
-                              </td>
-                              <td>{c.visits}</td>
-                              <td>{c.starts}</td>
-                              <td>{c.completions}</td>
-                              <td>{c.returns}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                    {!analytics?.campaigns?.length && (
-                      <p className="table-empty">
-                        No attributed campaigns in this range.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="section-spacer">
-                <SectionHead title="Pointer density" detail="Select a surface, screen and device to inspect normalized pointer bins from human sessions." />
-                {selectedGame === "all" ? <p className="table-empty">Select one game to inspect pointer density.</p> : !heatPoints.length ? <p className="table-empty">No pointer samples in this range.</p> : <div className="heatmap">
-                  <div className="heatmap-filters">
-                    <Field label="Surface"><select value={surface} onChange={(e) => { setHeatSurface(e.target.value); setHeatScreen(""); setHeatDevice(""); setInvestigation(null); investigationRequest.current++; }}>{surfaces.map((value) => <option key={value} value={value}>{value === "game" ? "Game surface" : "Viewport"}</option>)}</select></Field>
-                    <Field label="Screen"><select value={screen} onChange={(e) => { setHeatScreen(e.target.value); setHeatDevice(""); setInvestigation(null); investigationRequest.current++; }}>{screens.map((value) => <option key={value} value={value}>{value === "unknown" ? "Unknown (legacy or unspecified)" : value}</option>)}</select></Field>
-                    <Field label="Device"><select value={device} onChange={(e) => { setHeatDevice(e.target.value); setInvestigation(null); investigationRequest.current++; }}>{devices.map((value) => <option key={value} value={value}>{label(value)}</option>)}</select></Field>
-                  </div>
-                  <p className="muted">{surface === "game" ? "Positions are normalized to the instrumented game surface." : "Positions are normalized to the browser viewport; they may include areas outside the game."} The grid is not a replay or an image of the game.</p>
-                  <div className="heatmap-grid" aria-label="Pointer density grid">
-                    {heatPoints.filter((point) => point.surface === surface && point.screen === screen && point.device === device).map((point) => <button key={`${point.bx}-${point.by}`} type="button" disabled={snapshot.demo || !analytics?.windowEnd || !sessionScopeReady} aria-label={`Pointer bin ${point.bx + 1}, ${point.by + 1}: ${fmt(point.count)} interactions`} title={`${fmt(point.count)} interactions · open supporting sessions`} style={{left:`${point.bx * 5}%`,top:`${point.by * 5}%`,opacity:Math.min(0.9,0.28 + point.count / 10)}} onClick={() => void investigate("heatmap", `Pointer bin ${point.bx + 1}, ${point.by + 1}`, {surface:point.surface,screen:point.screen,device:point.device,bx:String(point.bx),by:String(point.by)})} />)}
-                  </div>
-                  {snapshot.demo ? <p className="muted">Supporting sessions are unavailable in the example workspace.</p> : !analytics?.windowEnd ? <p className="muted">Supporting sessions are unavailable until analytics can be refreshed.</p> : <p className="muted">Select a filled bin to view supporting sessions. Pointer density does not explain player intent.</p>}
-                  {investigation?.kind === "heatmap" && <InvestigationResults state={investigation} onOpen={openSession} />}
-                </div>}
-              </div>
-              <SectionHead
-                title="Return cohorts"
-                detail="Return rates use eligible players in mature cohorts."
-              />
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>COHORT</th>
-                      <th>PLAYERS</th>
-                      <th>ELIGIBLE</th>
-                      <th>RETURNED</th>
-                      <th>RETURN RATE</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(analytics?.retention || []).map((r) => (
-                      <tr key={r.date}>
-                        <td>{r.date}</td>
-                        <td>{fmt(r.players)}</td>
-                        <td>{fmt(r.eligible)}</td>
-                        <td>{fmt(r.returned)}</td>
-                        <td>
-                          {r.rate === null
-                            ? "Not mature"
-                            : `${Math.round(r.rate * 100)}%`}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {!analytics?.retention?.length && (
-                  <p className="table-empty">No eligible cohorts yet.</p>
-                )}
-              </div>
             </>
           )}
           {page === "sessions" && (
@@ -2546,63 +2273,26 @@ export default function Dashboard() {
               {error && <div ref={formError} className="alert error" role="alert">{error}</div>}
               {modal === "game" && (
                 <>
-                  <Field
-                    label="Game URL"
-                    hint="We’ll attempt to extract public metadata. You can override it below."
-                  >
-                    <input
-                      required
-                      disabled={!!chosenGame}
-                      type="url"
-                      placeholder="https://yourgame.com"
-                      value={draft.url}
-                      onChange={(e) =>
-                        setDraft({ ...draft, url: e.target.value })
-                      }
-                    />
+                  <Field label="Game page URL" hint={chosenGame ? "The registered source URL." : "Blaze reads this game page’s /forever.json file and imports its metadata."}>
+                    <input required disabled={!!chosenGame} type="url" placeholder="https://yourgame.com/my/game" value={draft.url} onChange={e => { setError(""); setDraft({ ...draft, url: e.target.value }); }} />
                   </Field>
-                  <button
-                    type="button"
-                    className="inline-link fixture-link"
-                    onClick={() =>
-                      setDraft({
-                        ...draft,
-                        url: `${origin}/fixture/index.html`,
-                        title: "Controlled fixture",
-                        genre: "Fixture",
-                      })
-                    }
-                  >
-                    Use controlled fixture URL <ArrowRight size={14} />
-                  </button>
-                  <Field label="Title (optional)">
-                    <input
-                      placeholder="Game title"
-                      value={draft.title}
-                      onChange={(e) =>
-                        setDraft({ ...draft, title: e.target.value })
-                      }
-                    />
-                  </Field>
-                  <Field label="Artwork URL (optional)">
-                    <input
-                      type="url"
-                      placeholder="https://…"
-                      value={draft.image}
-                      onChange={(e) =>
-                        setDraft({ ...draft, image: e.target.value })
-                      }
-                    />
-                  </Field>
-                  <Field label="Genre (optional)">
-                    <input
-                      placeholder="e.g. Puzzle"
-                      value={draft.genre}
-                      onChange={(e) =>
-                        setDraft({ ...draft, genre: e.target.value })
-                      }
-                    />
-                  </Field>
+                  {!chosenGame && <div className="manifest-import">
+                    {manifestAddress(draft.url) && <div className="manifest-address"><span>Manifest URL</span><code>{manifestAddress(draft.url)}</code></div>}
+                    {(gameImport.status === "waiting" || gameImport.status === "loading") && <p className="manifest-status" role="status"><LoaderCircle className="spin" size={15} /> Fetching and validating the manifest…</p>}
+                    {gameImport.status === "error" && <div className="manifest-import-error" role="alert"><strong>Game could not be imported</strong><p>{gameImport.error}</p><button type="button" className="text-action" onClick={() => setImportRetry(value => value + 1)}>Try again <ArrowRight size={13}/></button></div>}
+                    {gameImport.status === "ready" && gameImport.metadata && <div className="manifest-preview" role="status">
+                      <div className="manifest-preview-head">{gameImport.metadata.image && <img src={gameImport.metadata.image} alt=""/>}<div><span><Check size={13}/> Manifest validated</span><h3>{gameImport.metadata.title}</h3><p>{gameImport.metadata.genre}</p></div></div>
+                      <p className="manifest-description">{gameImport.metadata.description}</p>
+                      <div className="manifest-provenance"><a href={gameImport.metadata.manifestSource.url} target="_blank" rel="noreferrer">View source manifest <ExternalLink size={12}/></a><span>Version {gameImport.metadata.manifestSource.formatVersion} · checked {dateTime(gameImport.metadata.manifestSource.observedAt)}</span></div>
+                      <small>Name, description, genre and artwork come from this manifest. You can edit the game after adding it.</small>
+                    </div>}
+                    {gameImport.status === "idle" && <p className="quiet-help">The game must publish a valid Forever v1 manifest at the exact URL shown above.</p>}
+                  </div>}
+                  {chosenGame && <>
+                    <Field label="Title"><input required placeholder="Game title" value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })}/></Field>
+                    <Field label="Artwork URL"><input type="url" placeholder="https://…" value={draft.image} onChange={e => setDraft({ ...draft, image: e.target.value })}/></Field>
+                    <Field label="Genre"><input placeholder="Game genre" value={draft.genre} onChange={e => setDraft({ ...draft, genre: e.target.value })}/></Field>
+                  </>}
                   {chosenGame && (
                     <>
                       <Field
@@ -3180,7 +2870,7 @@ export default function Dashboard() {
                   variant="primary"
                   type="submit"
                   disabled={
-                    busy ||
+                    busy || (modal === "game" && !chosenGame && (gameImport.status !== "ready" || gameImport.input !== draft.url.trim())) ||
                     (modal === "connection" && socialProviders.includes(draft.provider) && !advancedSocial) ||
                     (modal === "post" && draft.deliveryMethod === "manual" && (!validTimeZone(localTimeZone) || !draft.scheduledAt || !Number.isFinite(Date.parse(draft.scheduledAt)))) ||
                     (modal === "post" &&
@@ -3364,9 +3054,9 @@ function Brand() {
   );
 }
 const pageDescriptions: Record<Page, string> = {
-  overview: "A clear view of player activity and the work ahead.",
+  overview: "Sessions, measured play and recorded pointer activity.",
   games: "Manage the games in your workspace.",
-  analytics: "Understand where players start, continue and return.",
+  analytics: "Play funnels, traffic sources and player returns.",
   sessions: "Inspect individual player journeys and event sequences.",
   recordings: "Turn recorded gameplay into reusable highlights.",
   content: "Prepare content for review and publication.",
@@ -3406,95 +3096,6 @@ const providerDescriptions: Record<string, string> = {
   search_console:
     "Google Search Console property data; requires an authorized token and property URL",
 };
-function Metrics({ a }: { a?: Analytics }) {
-  return (
-    <div className="metrics">
-      <div>
-        <span>Human sessions</span>
-        <strong>{fmt(a?.sessions)}</strong>
-        <small>Visits recorded</small>
-      </div>
-      <div>
-        <span>Sessions with a start</span>
-        <strong>{fmt(a?.starts)}</strong>
-        <small>At least one round started</small>
-      </div>
-      <div>
-        <span>Sessions with a completion</span>
-        <strong>{fmt(a?.completions)}</strong>
-        <small>At least one round completed</small>
-      </div>
-      <div>
-        <span>Returning players</span>
-        <strong>{fmt(a?.returns)}</strong>
-        <small>Returned at least a day later</small>
-      </div>
-    </div>
-  );
-}
-function Chart({ data, period }: { data: Analytics["trend"]; period: string }) {
-  return (
-    <div className="chart-block">
-      <div className="chart-header">
-        <div>
-          <span className="chart-title">Human activity over time</span>
-          <span className="chart-sub">Daily counts · last {period} days</span>
-        </div>
-        <div className="legend">
-          <span className="legend-item visits">Sessions</span>
-          <span className="legend-item starts">Sessions with a start</span>
-          <span className="legend-item completions">Sessions with a completion</span>
-        </div>
-      </div>
-      {data.length ? (
-        <div className="chart">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart
-              data={data}
-              margin={{ top: 12, right: 18, left: -25, bottom: 0 }}
-            >
-              <CartesianGrid vertical={false} stroke="#e8eae6" />
-              <XAxis
-                dataKey="date"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 10, fill: "#777f78" }}
-                tickFormatter={(v) => String(v).slice(5)}
-              />
-              <YAxis
-                allowDecimals={false}
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 10, fill: "#777f78" }}
-              />
-              <Tooltip
-                contentStyle={{
-                  border: "1px solid #dfe4df",
-                  background: "#fff",
-                  color: "#18241d",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="visits"
-                stroke="#447f61"
-                strokeWidth={2}
-                fill="#e7f1e8"
-                name="Sessions"
-              />
-              <Line type="monotone" dataKey="starts" name="Sessions with a start" stroke="#779d87" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="completions" name="Sessions with a completion" stroke="#b38955" strokeWidth={2} dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      ) : (
-        <div className="chart-empty">No activity in this date range.</div>
-      )}
-    </div>
-  );
-}
 function InvestigationResults({ state, onOpen }: { state: InvestigationState; onOpen: (session: SessionSummary, evidence?: InvestigationEvidence) => void }) {
   return <section className="investigation-results" aria-label="Supporting sessions">
     <h3>{state.title} · Supporting sessions</h3>

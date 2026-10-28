@@ -84,14 +84,14 @@ export async function drainProfile(jobId?: string) {
     let metadata = row.body.metadata;
     if (!metadata) {
       try { metadata = await gameMetadata(game.url, row.body.appOrigin); }
-      catch { prerequisites.push("The public game page could not be retrieved safely."); }
+      catch (error) { prerequisites.push(error instanceof Error ? error.message : "The game manifest could not be retrieved safely."); }
     }
     if (metadata) {
-      const evidence = { source: metadata.metadataStatus === "Controlled fixture" ? "Controlled fixture metadata" : "Public page metadata", url: metadata.url, observedAt: row.body.metadataAt || now };
-      if (metadata.title && metadata.title !== new URL(metadata.url).hostname) facts.push({ key: "page_title", label: "Page title", value: metadata.title, evidence });
-      if (metadata.description) facts.push({ key: "page_description", label: "Page description", value: metadata.description, evidence });
+      const evidence = { source: metadata.metadataStatus === "Controlled fixture manifest" ? "Controlled fixture manifest" : "Forever game manifest", ...metadata.manifestSource };
+      if (metadata.title && metadata.title !== new URL(metadata.url).hostname) facts.push({ key: "page_title", label: "Imported name", value: metadata.title, evidence });
+      if (metadata.description) facts.push({ key: "page_description", label: "Imported description", value: metadata.description, evidence });
     }
-    const manifest = await readGameManifest(game.url);
+    const manifest = await readGameManifest(game.url, row.body.appOrigin);
     if (manifest.status === "complete") {
       const evidence = { source: "Forever game manifest", ...manifest.source };
       const values: Array<[string, string, string]> = [

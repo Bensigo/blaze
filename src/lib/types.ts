@@ -20,6 +20,7 @@ export interface Game {
   dailyEnabled: boolean;
   competitors: string[];
   metadataStatus?: string;
+  manifestSource?: { url: string; observedAt: string; sha256: string; formatVersion: 1 };
   networkPolicy?: { resourceOrigins: string[]; webSocketOrigins: string[]; frameUrls?: string[] };
   capture?: CaptureConfig;
 }

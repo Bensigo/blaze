@@ -2,7 +2,7 @@ import { query } from "./db";
 import type { Analytics, SessionSummary, SessionCapture } from "./types";
 
 // A stable event order also makes tied timestamps deterministic.
-const sessionsCte = `
+export const sessionsCte = `
 WITH window_events AS MATERIALIZED (
  SELECT * FROM events WHERE workspace_id=$1 AND ($2::text IS NULL OR game_id=$2)
    AND occurred_at >= $3::timestamptz AND occurred_at <= $4::timestamptz AND received_at <= $4::timestamptz
@@ -40,7 +40,7 @@ sessions AS (
   (f.first_at IS NOT NULL AND p.session_id<>f.first_session_id AND p.started_at >= f.first_at+interval '24 hours') returned
  FROM pos4 p LEFT JOIN player_first_seen f ON f.workspace_id=$1 AND f.game_id=p.game_id AND f.player_id=p.player_id
 )`;
-const pointerCte = `pointer_data AS (SELECT game_id,session_id,id,occurred_at,
+export const pointerCte = `pointer_data AS (SELECT game_id,session_id,id,occurred_at,
    CASE WHEN jsonb_typeof(properties->'x')='number' THEN (properties->>'x')::numeric END x,
    CASE WHEN jsonb_typeof(properties->'y')='number' THEN (properties->>'y')::numeric END y,
    CASE WHEN NOT (properties ? 'surface') AND NOT (properties ? 'screen') THEN 'viewport' WHEN jsonb_typeof(properties->'surface')='string' AND jsonb_typeof(properties->'screen')='string' AND properties->>'surface' IN ('game','viewport') AND properties->>'screen' ~ '^[A-Za-z0-9_-]{1,40}$' THEN properties->>'surface' END surface,
@@ -49,7 +49,7 @@ const pointerCte = `pointer_data AS (SELECT game_id,session_id,id,occurred_at,
    FROM human WHERE name='pointer')`;
 const dropoffName = `CASE WHEN v IS NOT NULL AND NOT started THEN 'Viewed, no round start' WHEN started AND NOT acted THEN 'Started, no first action' ELSE coalesce(nullif(last_step,''),'Unknown') END`;
 
-function windowParams(workspace: string, gameId: string | undefined, days: number, now: number) {
+export function windowParams(workspace: string, gameId: string | undefined, days: number, now: number) {
   if (!Number.isInteger(days) || days < 1 || days > 90 || !Number.isFinite(now)) throw new Error("Invalid analytics window");
   return [workspace, gameId || null, new Date(now - days * 86400000).toISOString(), new Date(now).toISOString()];
 }
