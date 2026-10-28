@@ -27,12 +27,12 @@ try {
     return route.fulfill({status:200,body:'{}'});
   });
   await page.goto(`http://127.0.0.1:${port}`);
-  await page.evaluate(()=>{(window as any).GameMarketing.init({endpoint:location.origin,sdkKey:'fixture'});});
-  assert.equal((await page.evaluate(()=>(window as any).GameMarketing.startCapture({consent:true}))).status,'consent_required');assert.equal(uploads,0);
-  await page.evaluate(()=>(window as any).GameMarketing.setConsent(true));
-  assert.equal((await page.evaluate(()=>(window as any).GameMarketing.startCapture({consent:true}))).status,'recording');
-  await page.waitForTimeout(400);await page.evaluate(()=>(window as any).GameMarketing.track('round_start'));await page.waitForTimeout(1200);
-  assert.equal((await page.evaluate(()=>(window as any).GameMarketing.stopCapture())).status,'ready');
+  await page.evaluate(()=>{(window as any).Blaze.init({endpoint:location.origin,sdkKey:'fixture'});});
+  assert.equal((await page.evaluate(()=>(window as any).Blaze.startCapture({consent:true}))).status,'consent_required');assert.equal(uploads,0);
+  await page.evaluate(()=>(window as any).Blaze.setConsent(true));
+  assert.equal((await page.evaluate(()=>(window as any).Blaze.startCapture({consent:true}))).status,'recording');
+  await page.waitForTimeout(400);await page.evaluate(()=>(window as any).Blaze.track('round_start'));await page.waitForTimeout(1200);
+  assert.equal((await page.evaluate(()=>(window as any).Blaze.stopCapture())).status,'ready');
   assert.equal(uploads,1);assert.ok(uploaded && uploaded.length>0 && uploaded.length<=3145728);
   const offset=(Date.parse(eventAt)-Date.parse(recordedAt))/1000;assert.ok(Date.parse(recordedAt)-grantAt>=500);assert.ok(offset>=.35 && offset<.65,`event offset ${offset}`);assert.ok((Date.parse(eventAt)-grantAt)/1000-offset>=.5);
   const inspected=await inspectCaptureVideo(uploaded!,3);

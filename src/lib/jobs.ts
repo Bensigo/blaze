@@ -4,11 +4,19 @@ import { HttpError } from "./auth";
 import { secretFor } from "./credentials";
 import { duePublications } from "./publishing";
 import { drainResearch } from "./research-jobs";
+import { drainProfile } from "./game-profile";
+import { enqueueRecording, releaseRecordingGate, tickAutomation } from "./game-automation";
+import { mintSyntheticCapability } from "./synthetic-capability";
+import { drainContentAutomation } from "./content-automation";
 export async function enqueue(
   workspace: string,
   kind: "recording" | "clip",
   body: { id: string },
 ) {
+  if (kind === "recording" && "gameId" in body && typeof body.gameId === "string") {
+    if (!await enqueueRecording(workspace, body as Recording)) throw new HttpError(409, "A recording is already active for this game.");
+    return;
+  }
   await query(
     `WITH created AS (INSERT INTO records(workspace_id,kind,id,body) VALUES($1,$2,$3,$4::jsonb) RETURNING id) INSERT INTO jobs(id,workspace_id,kind,state,body) SELECT id,$1,$2,'queued',$4::jsonb FROM created`,
     [workspace, kind, body.id, JSON.stringify(body)],
@@ -52,7 +60,9 @@ export async function claimJob() {
         error:
           "The recording worker stopped responding. Queue a new run after reconnecting it.",
       });
+    if (body && row.kind === "recording") await releaseRecordingGate(row.workspace_id, (body as Recording).gameId, body.id);
   }
+  await tickAutomation();
   // Publish checks are durable and bounded. A crashed tick can resume after its lease; write reservations prevent duplicate posts.
   const tick = await query(
     `INSERT INTO jobs(id,workspace_id,kind,state,body,lease_until) VALUES('publish-tick','system','scheduler','running','{}',now()+interval '1 minute') ON CONFLICT(id) DO UPDATE SET lease_until=excluded.lease_until,updated_at=now() WHERE jobs.lease_until<now() RETURNING id`,
@@ -67,7 +77,10 @@ export async function claimJob() {
   );
   const row = rows[0];
   if (!row) {
-    await drainResearch(1);
+    const auxiliary = (await query<{kind: string}>(`SELECT kind FROM jobs WHERE kind IN ('game_profile','content_draft','research') AND available_at<=now() AND (state='queued' OR (state='claimed' AND lease_until<now())) ORDER BY available_at,id LIMIT 1`))[0];
+    if (auxiliary?.kind === "game_profile") await drainProfile();
+    else if (auxiliary?.kind === "content_draft") await drainContentAutomation();
+    else if (auxiliary?.kind === "research") await drainResearch(1);
     return {};
   }
   if (row.kind === "recording") {
@@ -84,10 +97,13 @@ export async function claimJob() {
       heartbeatAt: new Date().toISOString(),
     });
     const secret = await secretFor(row.workspace_id, "jev");
+    if (!game) throw new Error("Missing game");
+    const syntheticCapability = recording.mode === "fixture" ? undefined : await mintSyntheticCapability(row.workspace_id, recording.id, game.id, game.url);
     return {
       recording,
       game,
       jevKey: recording.mode === "jev" ? secret?.token : undefined,
+      syntheticCapability,
     };
   }
   const clip = await get<Clip>(row.workspace_id, "clip", row.id);

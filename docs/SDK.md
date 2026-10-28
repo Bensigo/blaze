@@ -1,18 +1,18 @@
-# Browser telemetry SDK
+# Blaze browser SDK
 
 Load `/sdk.js` from your deployment on a game origin registered for the game. Do not enable telemetry until the player has opted in:
 
 ```html
 <script src="https://YOUR-APP/sdk.js"></script>
 <script>
-  GameMarketing.init({ endpoint: "https://YOUR-APP", sdkKey: "YOUR_GAME_KEY" });
+  Blaze.init({ endpoint: "https://YOUR-APP", sdkKey: "YOUR_GAME_KEY" });
   // Call after an affirmative consent choice:
-  GameMarketing.setConsent(true);
-  GameMarketing.track("first_action"); // At the first meaningful game action
-  GameMarketing.track("round_start");
-  GameMarketing.track("progression", { step: "level 2" });
-  GameMarketing.track("round_complete", { result: "win" });
-  // On withdrawal: GameMarketing.disable();
+  Blaze.setConsent(true);
+  Blaze.track("first_action"); // At the first meaningful game action
+  Blaze.track("round_start");
+  Blaze.track("progression", { step: "level 2" });
+  Blaze.track("round_complete", { result: "win" });
+  // On withdrawal: Blaze.disable();
 </script>
 ```
 
@@ -29,15 +29,15 @@ Recording is off unless the game owner enables it and reviews the capture surfac
 Ask for **separate affirmative recording consent** after analytics consent. Analytics consent alone never starts recording. Call only from a human player’s explicit choice, never from the agent play adapter:
 
 ```js
-const state = await GameMarketing.startCapture({ consent: true });
+const state = await Blaze.startCapture({ consent: true });
 // Show state.status to the player (recording, not_sampled, quota_reached,
 // unsupported, failed, or another documented state).
-await GameMarketing.stopCapture(); // Stop and save.
-await GameMarketing.stopCapture({ discard: true }); // Withdraw and discard.
-// GameMarketing.disable() or setConsent(false) also discards the current capture.
+await Blaze.stopCapture(); // Stop and save.
+await Blaze.stopCapture({ discard: true }); // Withdraw and discard.
+// Blaze.disable() or setConsent(false) also discards the current capture.
 ```
 
-`GameMarketing.getCaptureState()` and `gm:capturestatus` events expose status, a stable failure reason where applicable, and a capture ID where available, never the grant token. Recording is sampled; a player can consent and still be `not_sampled` or encounter `quota_reached`. The server also requires a persisted human visit. Capture is capped at 5 frames per second, 960×540, 400 kbps, 30 seconds and 3 MiB. A supported WebM or MP4 MediaRecorder codec is required. Failures such as unsupported APIs, a tainted canvas, an invalid selector or upload failure are reported explicitly. Grant and upload requests omit cookies and are scoped to the configured game origin. Browser and network failures can prevent cancellation; tell users that application-level deletion remains available to the owner.
+`Blaze.getCaptureState()` and `blaze:capturestatus` events expose status, a stable failure reason where applicable, and a capture ID where available, never the grant token. Recording is sampled; a player can consent and still be `not_sampled` or encounter `quota_reached`. The server also requires a persisted human visit. Capture is capped at 5 frames per second, 960×540, 400 kbps, 30 seconds and 3 MiB. A supported WebM or MP4 MediaRecorder codec is required. Failures such as unsupported APIs, a tainted canvas, an invalid selector or upload failure are reported explicitly. Grant and upload requests omit cookies and are scoped to the configured game origin. Browser and network failures can prevent cancellation; tell users that application-level deletion remains available to the owner.
 
 The fixture has separate tracking and recording controls and is intended only for controlled acceptance, not production player consent.
 
@@ -46,3 +46,7 @@ Uploads include the recorder's actual start timestamp so event seeking stays ali
 The studio worker reserves `window.__WEB_GAME_STUDIO_AGENT__ === true` for its automated game sessions. The worker injects an immutable marker before game code runs; when present, this SDK sends no human analytics, creates no analytics IDs in browser storage, and returns `agent_session` from `startCapture` without requesting a grant. This covers the studio's own automation; the marker is not general bot detection or a fraud-prevention boundary.
 
 A recording stops and attempts to save as soon as its page becomes hidden, avoiding extended background recording when browsers throttle timers. An in-progress capture is discarded on page exit; an unload can interrupt that cancellation request, so the server expires unused grants. A page hidden before recording starts is cancelled.
+
+## Compatibility
+
+`Blaze` and `blaze:capturestatus` are the public API and event names. The old `GameMarketing` global is a deprecated alias of the same API object, and the legacy `gm:capturestatus` event remains for installed integrations. Existing internal `gm_*` browser-storage keys are retained so the rename does not reset player/session identities. New examples use Blaze.

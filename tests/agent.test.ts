@@ -67,3 +67,16 @@ describe('bounded AI research and history',()=>{
   });
 
 });
+
+describe('profile projection',()=>{
+  it('bounds same-game facts and edits, excludes fixture, private references and foreign records',async()=>{
+    const {put}=await import('../src/lib/db');
+    await put('projection','game_profile_overrides',{id:'g',overrides:{controls:'x'.repeat(1200),rules:'Use arrows session_private',secret:'BAD_EXTRA'}});
+    await put('projection','game_profile',{id:'g',facts:[...Array.from({length:25},()=>({label:'L'.repeat(150),value:'v'.repeat(700),evidence:{source:'Public page metadata',observedAt:'2026-10-01T00:00:00.000Z',url:'https://private.example',recordingId:'rec-private'}})),{label:'fixture',value:'FIXTURE_SENTINEL',evidence:{source:'Controlled fixture metadata'}}]});
+    await put('projection','game_profile',{id:'other',facts:[{label:'foreign',value:'FOREIGN_GAME',evidence:{source:'Public page metadata'}}]});
+    await put('foreign_projection','game_profile_overrides',{id:'g',overrides:{rules:'FOREIGN_WORKSPACE'}});
+    const h=await loadAgentHistory('projection','g');
+    expect(h.profile.facts).toHaveLength(20); expect(h.profile.facts[0].label).toHaveLength(100); expect(h.profile.facts[0].value).toHaveLength(600); expect(h.profile.overrides.controls).toHaveLength(1000);
+    const json=JSON.stringify(h.profile); for(const secret of ['session_private','private.example','rec-private','FOREIGN_GAME','FOREIGN_WORKSPACE','FIXTURE_SENTINEL','BAD_EXTRA']) expect(json).not.toContain(secret);
+  });
+});

@@ -22,18 +22,18 @@ try {
   await page.getByText('Optional gameplay recording').click();
   await page.locator('#fixture-private-input').fill('DOM_INPUT_SENTINEL');
   await page.locator('#fixture-chat').evaluate(e=>e.textContent='DOM_CHAT_SENTINEL');
-  assert.equal((await page.evaluate(()=>(window as any).GameMarketing.startCapture({consent:true}))).status,'consent_required');
+  assert.equal((await page.evaluate(()=>(window as any).Blaze.startCapture({consent:true}))).status,'consent_required');
   assert.equal(uploads,0);
-  await page.evaluate((key)=>{(window as any).GameMarketing.init({endpoint:location.origin,sdkKey:key,consent:true});},game.sdkKey);
-  assert.equal((await page.evaluate(()=>(window as any).GameMarketing.startCapture({consent:false}))).status,'consent_required');
+  await page.evaluate((key)=>{(window as any).Blaze.init({endpoint:location.origin,sdkKey:key,consent:true});},game.sdkKey);
+  assert.equal((await page.evaluate(()=>(window as any).Blaze.startCapture({consent:false}))).status,'consent_required');
   assert.equal(uploads,0);
   // Paint non-private test colors directly into the game surface so the mask is observable.
   await page.locator('#game').evaluate((node:HTMLCanvasElement)=>{const x=node.getContext('2d')!;x.fillStyle='#ff00ff';x.fillRect(0,0,100,100);x.fillStyle='#00ff00';x.fillRect(200,150,100,100);});
-  const started=await page.evaluate(()=>(window as any).GameMarketing.startCapture({consent:true}));
+  const started=await page.evaluate(()=>(window as any).Blaze.startCapture({consent:true}));
   assert.equal(started.status,'recording',JSON.stringify(started));
   if (process.env.CAPTURE_GAMEPLAY) { await page.waitForTimeout(500); await page.locator('#start').click(); await page.waitForTimeout(300); await page.locator('#right').click(); await page.waitForTimeout(1400); }
   else await page.waitForTimeout(Number(process.env.CAPTURE_TEST_MS || 1000));
-  const result=await page.evaluate(()=>(window as any).GameMarketing.stopCapture());
+  const result=await page.evaluate(()=>(window as any).Blaze.stopCapture());
   assert.equal(result.status,'ready',JSON.stringify(result));assert.equal(uploads,1);
   const sid=await page.evaluate((key)=>sessionStorage.getItem('gm_session_'+key+'_id'),game.sdkKey);
   const detail=await fetch(`${base}/api/sessions/${sid}?gameId=${game.id}`,{headers:{Cookie:cookie}});assert.equal(detail.status,200);
@@ -51,7 +51,7 @@ try {
   assert.ok(masked.every(v=>v<25),`masked=${masked}`);assert.ok(outside.some(v=>v>25),`outside=${outside}`);
   const artifact=output+'/human-capture-local-fixture.webm';if (!process.env.CAPTURE_GAMEPLAY) await writeFile(artifact,bytes);
   let afterStatus:number | undefined;
-  if (!process.env.CAPTURE_KEEP) { await page.evaluate(()=>(window as any).GameMarketing.disable()); const after=await fetch(base+videoUrl,{headers:{Cookie:cookie}});afterStatus=after.status;assert.ok([404,410].includes(after.status),`after cancel ${after.status}`); }
+  if (!process.env.CAPTURE_KEEP) { await page.evaluate(()=>(window as any).Blaze.disable()); const after=await fetch(base+videoUrl,{headers:{Cookie:cookie}});afterStatus=after.status;assert.ok([404,410].includes(after.status),`after cancel ${after.status}`); }
   const report={checkedAt:new Date().toISOString(),local:true,game:'controlled Star Catch fixture',consent:'analytics and recording required',result:process.env.CAPTURE_KEEP?'ready':'ready then cancelled',gameId:game.id,sessionId:sid,bytes:bytes.length,width:inspect.width,height:inspect.height,durationSeconds:inspect.durationSeconds,fps:inspect.fps,audio:'none (server inspected)',maskedPixel:masked,outsidePixel:outside,anonymousStatus:401,ownerRangeStatus:206,afterCancelStatus:afterStatus,domOutsideCanvas:true,artifact};
   if (!process.env.CAPTURE_GAMEPLAY) await writeFile(output+'/human-capture-local-evidence.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));
 } finally {await browser.close();}

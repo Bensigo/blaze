@@ -43,12 +43,14 @@ import {
 import {
   Area,
   AreaChart,
+  Line,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import ManualExportPanel from "./manual-export-panel";
 import type {
   Analytics,
   Channel,
@@ -83,6 +85,9 @@ type Modal =
   | "review"
   | "measurement"
   | null;
+type InvestigationEvidence = { eventId: string; name: string; timestamp: string; replay?: { captureId: string; offsetSeconds: number; segment?: number } };
+type InvestigationMatch = { session: SessionSummary; evidence: InvestigationEvidence };
+type InvestigationState = { kind: "heatmap" | "dropoff"; title: string; loading: boolean; error?: string; results: InvestigationMatch[]; hasMore: boolean; windowStart?: string; windowEnd?: string };
 type Measurement = {
   id: string;
   gameId: string;
@@ -113,6 +118,7 @@ const nav: { id: Page; label: string; icon: typeof Activity }[] = [
   { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "research", label: "Research", icon: Search },
 ];
+const socialProviders = ["x", "youtube", "instagram", "tiktok"];
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString();
 const shortDate = (v?: string) =>
   v
@@ -131,6 +137,16 @@ const dateTime = (v?: string) =>
         minute: "2-digit",
       })
     : "Not scheduled";
+const dateTimeInZone = (value: string, timeZone?: string) => {
+  try { return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", ...(timeZone ? { timeZone } : {}) }); }
+  catch { return dateTime(value); }
+};
+const validTimeZone = (zone?: string) => {
+  if (!zone) return false;
+  try { new Intl.DateTimeFormat("en", { timeZone: zone }); return true; } catch { return false; }
+};
+const validPlannedTime = (time?: string, zone?: string) => !!time && Number.isFinite(Date.parse(time)) && validTimeZone(zone);
+const captureTime = (v: string) => new Date(v).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" });
 const observedDays = (n: number) =>
   n < 1 ? "<1" : String(Math.min(14, Math.floor(n)));
 const timecode = (n: number) =>
@@ -334,8 +350,10 @@ function Field({
 }
 
 export default function Dashboard() {
-  const [googleConfigured, setGoogleConfigured] = useState(false);
+  const [googleConfigured, setGoogleConfigured] = useState<boolean | null>(null);
+  const [authNotice, setAuthNotice] = useState("");
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [snapshotScope, setSnapshotScope] = useState("");
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null),
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
@@ -343,10 +361,17 @@ export default function Dashboard() {
     [notice, setNotice] = useState("");
   const [page, setPage] = useState<Page>("overview"),
     [selectedGame, setSelectedGame] = useState("all"),
-    [period, setPeriod] = useState("30"),
+    [period, setPeriod] = useState("7"),
     [mobileNav, setMobileNav] = useState(false),
     [modal, setModal] = useState<Modal>(null);
   const [chosenGame, setChosenGame] = useState<Game | null>(null);
+  const [heatSurface, setHeatSurface] = useState("");
+  const [heatScreen, setHeatScreen] = useState("");
+  const [heatDevice, setHeatDevice] = useState("");
+  const [investigation, setInvestigation] = useState<InvestigationState | null>(null);
+  const investigationRequest = useRef(0);
+  const [sessionEvidence, setSessionEvidence] = useState<InvestigationEvidence | null>(null);
+  const [evidenceReplayAvailable, setEvidenceReplayAvailable] = useState(false);
   const [chosenFinding, setChosenFinding] = useState<Finding | null>(null);
   const [seekAt, setSeekAt] = useState<number | undefined>(undefined);
   const [chosenRecording, setChosenRecording] = useState<Recording | null>(
@@ -357,15 +382,32 @@ export default function Dashboard() {
     [chosenSession, setChosenSession] = useState<SessionSummary | null>(null),
     [sessionEvents, setSessionEvents] = useState<TelemetryEvent[]>([]),
     [sessionCapture, setSessionCapture] = useState<SessionCapture | null>(null),
+    [sessionCaptures, setSessionCaptures] = useState<SessionCapture[]>([]),
+    [sessionCoverage, setSessionCoverage] = useState<{ recordedSeconds: number; gaps: { startAt: string; endAt: string; reason: string }[]; limitation: string } | null>(null),
     [sessionLoading, setSessionLoading] = useState(false),
-    [sessionError, setSessionError] = useState("");
+    [sessionError, setSessionError] = useState(""),
+    [eventsTruncated, setEventsTruncated] = useState(false);
+  const [sessionPageData, setSessionPageData] = useState<{
+    scope: string; cursor: string; sessions: SessionSummary[]; total: number;
+    limit: number; nextCursor?: string;
+  } | null>(null);
+  const [sessionCursors, setSessionCursors] = useState<(string | null)[]>([null]);
+  const [sessionPageIndex, setSessionPageIndex] = useState(0);
+  const [sessionPageLoading, setSessionPageLoading] = useState(false);
+  const [sessionPageError, setSessionPageError] = useState("");
+  const sessionPageRequest = useRef(0);
+  const workspaceRequest = useRef(0);
   const sessionVideo = useRef<HTMLVideoElement>(null);
+  const pendingSegmentSeek = useRef<{ id: string; offset: number } | null>(null);
   const sessionRequest = useRef(0);
   const formError = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (error && modal) formError.current?.scrollIntoView({ block: "nearest" });
   }, [error, modal]);
   const [origin, setOrigin] = useState("");
+  const [localTimeZone, setLocalTimeZone] = useState("");
+  const [advancedSocial, setAdvancedSocial] = useState(false);
+  const [adapterState, setAdapterState] = useState<{ gameId: string; verified: boolean } | null>(null);
   const [creator, setCreator] = useState<{
     privacyOptions: string[];
     commentDisabled: boolean;
@@ -391,6 +433,7 @@ export default function Dashboard() {
     layout: "portrait",
     clipId: "",
     channel: "x",
+    deliveryMethod: "native",
     text: "",
     accountId: "",
     scheduledAt: "",
@@ -405,6 +448,7 @@ export default function Dashboard() {
     origins: "",
     resourceOrigins: "",
     webSocketOrigins: "",
+    frameUrls: "",
     captureEnabled: false,
     canvasSelector: "",
     surfaceReviewed: false,
@@ -421,44 +465,80 @@ export default function Dashboard() {
     note: "",
   });
   const refresh = useCallback(
-    async (game = selectedGame, demo = snapshot?.demo) => {
+    async (game = selectedGame, demo = snapshot?.demo, days = period) => {
+      const request = ++workspaceRequest.current;
       try {
-        const query = new URLSearchParams({ days: period });
+        const query = new URLSearchParams({ days });
         if (game !== "all") query.set("gameId", game);
-        const url = `${demo ? "/api/demo" : "/api/workspace"}?${query}`;
-        const res = await fetch(url, { cache: "no-store" });
-        if (res.status === 401) {
-          const example = await fetch("/api/demo", { cache: "no-store" });
-          if (example.ok) {
-            const data = await example.json();
-            setGoogleConfigured(data.system.google);
-            setSnapshot(data);
-            setUpdatedAt(new Date());
-            setError("");
-          } else setSnapshot(null);
+        const res = await fetch(`${demo ? "/api/demo" : "/api/workspace"}?${query}`, { cache: "no-store" });
+        if (request !== workspaceRequest.current) return;
+        if (res.status === 401 && !demo) {
+          sessionRequest.current++;
+          sessionPageRequest.current++;
+          setChosenSession(null);
+          setSnapshot(null);
+          setError("");
           return;
         }
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Could not load workspace");
-        setGoogleConfigured(data.system.google);
+        if (request !== workspaceRequest.current) return;
+        setSnapshotScope(`${demo ? "demo" : "workspace"}:${game}:${days}`);
+        setAuthNotice("");
         setSnapshot(data);
         setUpdatedAt(new Date());
         setError("");
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not load workspace");
+        if (request === workspaceRequest.current) setError(e instanceof Error ? e.message : "Could not load workspace");
       } finally {
-        setLoading(false);
+        if (request === workspaceRequest.current) setLoading(false);
       }
     },
     [selectedGame, snapshot?.demo, period],
   );
   useEffect(() => {
     setOrigin(window.location.origin);
+    setLocalTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+    const params = new URLSearchParams(window.location.search);
+    const authResult = params.get("auth");
+    const socialResult = params.get("social");
+    const provider = params.get("provider") || "";
+    if (socialProviders.includes(provider) && socialResult) {
+      const name = provider === "x" ? "X" : label(provider);
+      const messages: Record<string, string> = {
+        connected: `${name} account connected.`,
+        failed: `${name} authorization failed. Try connecting again.`,
+        denied: `${name} authorization was denied.`,
+        account_mismatch: `${name} returned a different account. Reconnect the original account.`,
+      };
+      if (messages[socialResult]) setNotice(messages[socialResult]);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+    if (authResult === "failed") setAuthNotice("Google sign-in did not finish. Please try again.");
+    if (authResult === "setup") setAuthNotice("Google sign-in is not available yet.");
+    void fetch("/api/auth/config", { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Unable to check sign-in availability");
+        const config = await res.json();
+        setGoogleConfigured(config.googleConfigured === true);
+      })
+      .catch(() => setGoogleConfigured(null));
     void refresh();
   }, []); // Initial workspace or sign-in state.
   useEffect(() => {
     if (snapshot) void refresh(selectedGame, snapshot.demo);
   }, [selectedGame, period]);
+  const sessionScope = `${snapshot?.demo ? "demo" : "workspace"}:${selectedGame}:${period}`;
+  const currentSessionScope = useRef(sessionScope);
+  currentSessionScope.current = sessionScope;
+  useEffect(() => {
+    sessionPageRequest.current++;
+    setSessionCursors([null]);
+    setSessionPageIndex(0);
+    setSessionPageData(null);
+    setSessionPageLoading(false);
+    setSessionPageError("");
+  }, [sessionScope]);
   const activeJobs =
     !!snapshot &&
     !snapshot.demo &&
@@ -498,7 +578,7 @@ export default function Dashboard() {
       if (!current) return null;
       const fresh = snapshot.posts.find((p) => p.id === current.id);
       return fresh
-        ? { ...current, status: fresh.status, error: fresh.error }
+        ? fresh
         : current;
     });
   }, [snapshot]);
@@ -515,6 +595,15 @@ export default function Dashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (res.status === 401) {
+        workspaceRequest.current++;
+        sessionPageRequest.current++;
+        sessionRequest.current++;
+        setChosenSession(null);
+        setModal(null);
+        setSnapshot(null);
+        return false;
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Action failed");
       if (close) setModal(null);
@@ -528,9 +617,34 @@ export default function Dashboard() {
       setBusy(false);
     }
   };
+  const socialAction = async (provider: string, operation: "connect" | "refresh" | "disconnect", connectionId?: string) => {
+    if (snapshot?.demo) { setNotice("Example workspace is read-only. Sign in to connect an account."); return; }
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`/api/social/${provider}/${operation}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(connectionId ? { connectionId } : {}),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Could not ${operation} account`);
+      if (operation === "connect") {
+        if (typeof data.url !== "string") throw new Error("Authorization URL is unavailable.");
+        window.location.assign(data.url);
+        return;
+      }
+      await refresh();
+      setNotice(data.warning || (operation === "refresh" ? "Account refreshed." : "Account disconnected."));
+    } catch (e) { setError(e instanceof Error ? e.message : `Could not ${operation} account`); }
+    finally { setBusy(false); }
+  };
   const showDemo = async () => {
+    setSelectedGame("all");
+    setPeriod("7");
+    setPage("overview");
+    setMobileNav(false);
+    setChosenSession(null);
     setLoading(true);
-    await refresh("all", true);
+    await refresh("all", true, "7");
   };
   const loginDev = async () => {
     setBusy(true);
@@ -554,22 +668,40 @@ export default function Dashboard() {
     sessionRequest.current++;
     setChosenSession(null);
   };
-  const openSession = async (s: SessionSummary) => {
+  const openSession = async (s: SessionSummary, evidence?: InvestigationEvidence) => {
     const request = ++sessionRequest.current;
     setChosenSession(s);
+    setSessionEvidence(evidence || null);
+    setEvidenceReplayAvailable(false);
     setSessionEvents([]);
     setSessionCapture(null);
+    setSessionCaptures([]);
+    setSessionCoverage(null);
+    pendingSegmentSeek.current = null;
     setSessionError("");
+    setEventsTruncated(false);
     if (snapshot?.demo) { setSessionLoading(false); return; }
     setSessionLoading(true);
     try {
       const query = new URLSearchParams({ gameId: s.gameId });
       const r = await fetch(`/api/sessions/${encodeURIComponent(s.id)}?${query}`, { cache: "no-store" });
+      if (r.status === 401) {
+        if (request === sessionRequest.current) { workspaceRequest.current++; sessionPageRequest.current++; setChosenSession(null); setSnapshot(null); }
+        return;
+      }
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Unable to load session");
       if (request === sessionRequest.current) {
         setSessionEvents(d.events || []);
-        setSessionCapture(d.capture || null);
+        setEventsTruncated(d.eventsTruncated === true);
+        const captures: SessionCapture[] = Array.isArray(d.captures) ? d.captures : d.capture ? [d.capture] : [];
+        const replay = evidence?.replay;
+        const matched = replay && captures.find((capture) => capture.id === replay.captureId && capture.status === "ready" && !!capture.videoUrl && !!capture.recordedAt && capture.durationSeconds !== undefined && replay.offsetSeconds >= 0 && replay.offsetSeconds <= capture.durationSeconds && Math.abs((Date.parse(evidence.timestamp) - Date.parse(capture.recordedAt)) / 1000 - replay.offsetSeconds) < 0.1);
+        if (matched && replay) pendingSegmentSeek.current = { id: matched.id, offset: replay.offsetSeconds };
+        setEvidenceReplayAvailable(!!matched);
+        setSessionCapture(matched || d.capture || null);
+        setSessionCaptures(captures);
+        setSessionCoverage(d.coverage || null);
       }
     } catch (e) {
       if (request === sessionRequest.current) setSessionError(e instanceof Error ? e.message : "Unable to load session");
@@ -577,8 +709,44 @@ export default function Dashboard() {
       if (request === sessionRequest.current) setSessionLoading(false);
     }
   };
+  const navigateSessionPage = async (index: number, cursor: string | null, cursors: (string | null)[]) => {
+    const request = ++sessionPageRequest.current;
+    setSessionPageError("");
+    if (cursor === null) {
+      setSessionPageIndex(index);
+      setSessionCursors(cursors);
+      setSessionPageData(null);
+      setSessionPageLoading(false);
+      return;
+    }
+    setSessionPageLoading(true);
+    try {
+      const query = new URLSearchParams({ days: period, limit: "100", cursor });
+      if (selectedGame !== "all") query.set("gameId", selectedGame);
+      const res = await fetch(`/api/sessions?${query}`, { cache: "no-store" });
+      if (request !== sessionPageRequest.current || sessionScope !== currentSessionScope.current) return;
+      if (res.status === 401) {
+        workspaceRequest.current++;
+        sessionRequest.current++;
+        setChosenSession(null);
+        setSnapshot(null);
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to load sessions");
+      if (request !== sessionPageRequest.current || sessionScope !== currentSessionScope.current) return;
+      setSessionPageData({ ...data, scope: sessionScope, cursor });
+      setSessionPageIndex(index);
+      setSessionCursors(cursors);
+    } catch (e) {
+      if (request === sessionPageRequest.current) setSessionPageError(e instanceof Error ? e.message : "Unable to load sessions");
+    } finally {
+      if (request === sessionPageRequest.current) setSessionPageLoading(false);
+    }
+  };
   const resetDraft = () => {
     setCreator(null);
+    setAdvancedSocial(false);
     setDraft({
       url: "",
       title: "",
@@ -592,6 +760,7 @@ export default function Dashboard() {
       layout: "portrait",
       clipId: "",
       channel: "x",
+      deliveryMethod: "native",
       text: "",
       accountId: "",
       scheduledAt: "",
@@ -606,6 +775,7 @@ export default function Dashboard() {
       origins: "",
       resourceOrigins: "",
       webSocketOrigins: "",
+      frameUrls: "",
       captureEnabled: false,
       canvasSelector: "",
       surfaceReviewed: false,
@@ -648,6 +818,7 @@ export default function Dashboard() {
       origins: g.origins.join("\n"),
       resourceOrigins: (g.networkPolicy?.resourceOrigins || []).join("\n"),
       webSocketOrigins: (g.networkPolicy?.webSocketOrigins || []).join("\n"),
+      frameUrls: (g.networkPolicy?.frameUrls || []).join("\n"),
       captureEnabled: g.capture?.enabled || false,
       canvasSelector: g.capture?.canvasSelector || "",
       surfaceReviewed: g.capture?.surfaceReviewed || false,
@@ -679,13 +850,61 @@ export default function Dashboard() {
     runs = (snapshot?.runs || []).filter(
       (x) => selectedGame === "all" || x.gameId === selectedGame,
     );
-  const since = Date.now() - Number(period) * 86400000;
-  const sessions = (analytics?.sessionsList || []).filter(
-    (x) => new Date(x.startedAt).getTime() >= since,
-  );
-  const trend = (analytics?.trend || []).filter(
-    (x) => new Date(x.date).getTime() >= since,
-  );
+  const sessions = analytics?.sessionsList || [];
+  const sessionScopeReady = snapshotScope === sessionScope;
+  const activeSessionPage = sessionPageData?.scope === sessionScope && sessionPageIndex > 0 ? sessionPageData : null;
+  const shownSessions = activeSessionPage?.sessions || sessions;
+  const sessionTotal = activeSessionPage?.total ?? analytics?.sessionPage?.total ?? sessions.length;
+  const sessionLimit = activeSessionPage?.limit ?? analytics?.sessionPage?.limit ?? 100;
+  const sessionNextCursor = activeSessionPage?.nextCursor ?? (sessionPageIndex === 0 ? analytics?.sessionPage?.nextCursor : undefined);
+  const coverageLabels: Record<string, string> = { countries: "countries", sources: "traffic sources", devices: "devices", dropoffs: "drop-off points", campaigns: "campaigns", heatmap: "pointer bins" };
+  const limitedCoverage = Object.entries(analytics?.coverage || {}).filter(([, value]) => value.shown < value.total);
+  const trend = analytics?.trend || [];
+  const latestRecording = [...records].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const latestRun = [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+  const currentRecording = records.find((r) => ["queued", "recording"].includes(r.status));
+  const currentRun = runs.find((r) => r.status === "running");
+  const lastRecordingError = [...records].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).find((r) => r.error);
+  const lastRunError = [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).find((r) => r.error);
+  const jev = snapshot?.demo ? undefined : [...(snapshot?.connections || [])].filter((c) => c.provider === "jev").sort((a, b) => (b.checkedAt || "").localeCompare(a.checkedAt || ""))[0];
+  const jevValidation = adapterState?.gameId === selectedGame && adapterState.verified;
+  useEffect(() => {
+    setAdapterState(null);
+    if (!snapshot || snapshot.demo || selectedGame === "all") return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const response = await fetch(`/api/games/${encodeURIComponent(selectedGame)}/automation`, { cache: "no-store" });
+        const data = await response.json();
+        if (!cancelled) setAdapterState({ gameId: selectedGame, verified: response.ok && data.adapterVerified === true });
+      } catch { if (!cancelled) setAdapterState(null); }
+    };
+    void check();
+    const timer = setInterval(check, 30000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [selectedGame, snapshot?.demo]);
+  const heatPoints = (analytics?.heatmap || []).filter((p) => p.gameId === selectedGame);
+  const surfaces = [...new Set(heatPoints.map((p) => p.surface))];
+  const surface = surfaces.find((value) => value === heatSurface) || surfaces[0] || "";
+  const screens = [...new Set(heatPoints.filter((p) => p.surface === surface).map((p) => p.screen))];
+  const screen = screens.find((value) => value === heatScreen) || screens[0] || "";
+  const devices = [...new Set(heatPoints.filter((p) => p.surface === surface && p.screen === screen).map((p) => p.device))];
+  const device = devices.find((value) => value === heatDevice) || devices[0] || "";
+  useEffect(() => { investigationRequest.current++; setInvestigation(null); }, [selectedGame, period, analytics?.windowEnd, snapshot?.demo]);
+  const investigate = async (kind: "heatmap" | "dropoff", title: string, filters: Record<string, string>) => {
+    if (!snapshot || snapshot.demo || selectedGame === "all" || !analytics?.windowEnd || !sessionScopeReady) return;
+    const request = ++investigationRequest.current;
+    setInvestigation({ kind, title, loading: true, results: [], hasMore: false });
+    try {
+      const params = new URLSearchParams({ kind, gameId: selectedGame, days: period, end: analytics.windowEnd, ...filters });
+      const response = await fetch(`/api/investigation?${params}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load supporting sessions");
+      if (request === investigationRequest.current) setInvestigation({ kind, title, loading: false, results: data.results || [], hasMore: !!data.hasMore, windowStart: data.windowStart, windowEnd: data.windowEnd });
+    } catch (e) {
+      if (request === investigationRequest.current) setInvestigation({ kind, title, loading: false, results: [], hasMore: false, error: e instanceof Error ? e.message : "Could not load supporting sessions" });
+    }
+  };
   const title =
     nav.find((n) => n.id === page)?.label ||
     (page === "connections" ? "Connections" : "Setup & help");
@@ -708,6 +927,7 @@ export default function Dashboard() {
       gameId: p.gameId,
       clipId: p.clipId || "",
       channel: p.channel,
+      deliveryMethod: p.deliveryMethod || "native",
       text: p.text,
       accountId: p.accountId,
       scheduledAt: dateInput(p.scheduledAt),
@@ -793,6 +1013,7 @@ export default function Dashboard() {
               networkPolicy: {
                 resourceOrigins: draft.resourceOrigins.split("\n").map((x) => x.trim()).filter(Boolean),
                 webSocketOrigins: draft.webSocketOrigins.split("\n").map((x) => x.trim()).filter(Boolean),
+                frameUrls: draft.frameUrls.split("\n").map((x) => x.trim()).filter(Boolean),
               },
               capture: {
                 enabled: draft.captureEnabled,
@@ -837,6 +1058,7 @@ export default function Dashboard() {
     else if (modal === "connection")
       await action({
         action: "save_connection",
+        advanced: socialProviders.includes(draft.provider) ? true : undefined,
         provider: draft.provider,
         label: draft.label,
         token: draft.token,
@@ -853,12 +1075,14 @@ export default function Dashboard() {
         gameId: draft.gameId,
         clipId: draft.clipId || undefined,
         channel: draft.channel,
+        deliveryMethod: draft.deliveryMethod,
+        timeZone: localTimeZone || "UTC",
         text: draft.text,
         accountId: draft.accountId,
         scheduledAt: draft.scheduledAt
           ? new Date(draft.scheduledAt).toISOString()
           : null,
-        ...(draft.channel === "tiktok" && draft.tiktokPrivacy
+        ...(draft.deliveryMethod === "native" && draft.channel === "tiktok" && draft.tiktokPrivacy
           ? {
               tiktokConsent: {
                 consent: draft.tiktokConsent,
@@ -950,7 +1174,7 @@ export default function Dashboard() {
           <div className="signin-mark">
             <Gamepad2 size={29} />
           </div>
-          <p className="eyebrow">WEB GAME STUDIO</p>
+          <p className="eyebrow">BLAZE</p>
           <h1>
             Know what happens
             <br />
@@ -960,6 +1184,7 @@ export default function Dashboard() {
             Bring your games, player evidence and content workflow into one
             place.
           </p>
+          {authNotice && <div className="alert error" role="alert">{authNotice}</div>}
           {googleConfigured ? (
             <a className="button primary sign-button" href="/api/auth/google">
               Continue with Google <ArrowRight size={16} />
@@ -967,19 +1192,14 @@ export default function Dashboard() {
           ) : (
             <>
               <Button variant="primary" disabled>
-                Google sign-in not configured
+                {googleConfigured === null ? "Google sign-in unavailable" : "Google sign-in not configured"}
               </Button>
               <p className="signin-setup">
-                Create a Google OAuth web application, add this callback URL,
-                and set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on the server:{" "}
-                <code>
-                  {origin || "YOUR_WORKSPACE_ORIGIN"}/api/auth/callback/google
-                </code>
-                .
+                {googleConfigured === null ? "Sign-in availability could not be confirmed. Please try again later." : "Google sign-in has not been configured for this workspace yet."}
               </p>
             </>
           )}
-          {process.env.NEXT_PUBLIC_LOCAL_DEV === "true" && (
+          {process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_LOCAL_DEV === "true" && (
             <Button onClick={loginDev} disabled={busy}>
               Local development sign in
             </Button>
@@ -1062,10 +1282,13 @@ export default function Dashboard() {
               aria-label="Sign out"
               onClick={async () => {
                 if (snapshot.demo) {
+                  workspaceRequest.current++;
                   setSnapshot(null);
                   return;
                 }
                 await fetch("/api/auth/logout", { method: "POST" });
+                workspaceRequest.current++;
+                sessionPageRequest.current++;
                 setSnapshot(null);
               }}
             >
@@ -1123,7 +1346,7 @@ export default function Dashboard() {
               Illustrative data, not your games or analytics. Changes are
               disabled.
             </span>
-            <button onClick={() => setSnapshot(null)}>
+            <button onClick={() => { workspaceRequest.current++; setSnapshot(null); }}>
               Sign in <ArrowRight size={14} />
             </button>
           </div>
@@ -1201,7 +1424,7 @@ export default function Dashboard() {
                     }
                   />
                   <Metrics a={analytics} />
-                  <Chart data={trend} />
+                  <Chart data={trend} period={period} />
                 </div>
                 <aside className="overview-side">
                   <div className="featured-game">
@@ -1236,7 +1459,21 @@ export default function Dashboard() {
                       </div>
                     )}
                     <div className="featured-status">
-                      <div><span>Recording worker</span><Status value={snapshot.system.worker ? "connected" : "disconnected"} /></div>
+                      <h3>Recording readiness</h3>
+                      <div><span>Jev provider</span><strong>{jev?.connected ? "Verified" : "Not verified"}</strong></div>
+                      <p>Last checked: {jev?.checkedAt ? dateTime(jev.checkedAt) : "Never"}</p>
+                      <div><span>Recording worker</span><strong>{snapshot.system.worker ? "Current" : snapshot.system.lastWorkerAt ? "Stale" : "Not seen"}</strong></div>
+                      <p>Last heartbeat: {snapshot.system.lastWorkerAt ? dateTime(snapshot.system.lastWorkerAt) : "Never"}</p>
+                      <div><span>Game adapter</span><strong>{jevValidation ? "Verified" : "Not verified"}</strong></div>
+                      <p>{selectedGame === "all" ? "Select a game to check its adapter." : "Requires a successful Jev recording with model decisions and footage. Fixtures do not verify Jev."}</p>
+                      <div><span>Current recording</span><strong>{currentRecording ? `${label(currentRecording.mode)} · ${label(currentRecording.status)}` : "None"}</strong></div>
+                      <div><span>Latest recording</span><strong>{latestRecording ? `${label(latestRecording.mode)} · ${label(latestRecording.status)}` : "None"}</strong></div>
+                      {latestRecording && <p>{dateTime(latestRecording.createdAt)}{latestRecording.error ? ` · ${latestRecording.error}` : ""}</p>}
+                      {lastRecordingError && lastRecordingError.id !== latestRecording?.id && <p>Last recording error: {dateTime(lastRecordingError.createdAt)} · {lastRecordingError.error}</p>}
+                      <div><span>Current research run</span><strong>{currentRun ? label(currentRun.status) : "None"}</strong></div>
+                      <div><span>Latest research run</span><strong>{latestRun ? label(latestRun.status) : "None"}</strong></div>
+                      {latestRun && <p>{dateTime(latestRun.startedAt)}{latestRun.error ? ` · ${latestRun.error}` : ""}</p>}
+                      {lastRunError && lastRunError.id !== latestRun?.id && <p>Last research error: {dateTime(lastRunError.startedAt)} · {lastRunError.error}</p>}
                       <div><span>Posts awaiting review</span><strong>{posts.filter((p) => p.status === "review").length}</strong></div>
                     </div>
                   </div>
@@ -1291,6 +1528,7 @@ export default function Dashboard() {
                   <button className="queue-row" key={p.id} onClick={() => reviewPost(p)}>
                     <div><strong>{label(p.channel)}</strong><span>{gameName(games, p.gameId)} · {dateTime(p.scheduledAt)}</span></div>
                     <Status value={p.status} />
+                    {p.deliveryMethod === "manual" && <ManualPostNote post={p} />}
                   </button>
                 ))}
                 {!posts.some((p) => p.scheduledAt) && <p className="muted">No scheduled posts yet.</p>}
@@ -1330,6 +1568,7 @@ export default function Dashboard() {
                       </div>
                       <div className="game-actions">
                         <Button onClick={() => editGame(g)}>Edit</Button>
+                        <Button onClick={() => setSelectedGame(g.id)}>Game profile</Button>
                         <Button
                           onClick={() => {
                             setSelectedGame(g.id);
@@ -1349,6 +1588,7 @@ export default function Dashboard() {
                       </div>
                     </div>
                   ))}
+                  {selectedGame !== "all" && <GameProfile gameId={selectedGame} demo={snapshot.demo} />}
                 </div>
               ) : (
                 <Empty
@@ -1370,9 +1610,13 @@ export default function Dashboard() {
                 detail="Human traffic in the selected date range."
               />
               <Metrics a={analytics} />
+              <section className="activity-context">
+                <div><h2>From visit to play</h2><p>Recorded sessions in the selected range.</p><dl><div><dt>Loaded</dt><dd>{analytics?.loadedSessions === undefined ? "Unknown" : fmt(analytics.loadedSessions)}</dd></div><div><dt>Reached progression</dt><dd>{analytics?.progressionSessions === undefined ? "Unknown" : fmt(analytics.progressionSessions)}</dd></div></dl></div>
+                <div><h2>Estimated active play</h2><p>Foreground, recent-input estimate after a round starts; idle tabs and agent sessions are excluded.</p><dl><div><dt>Total</dt><dd>{analytics?.activePlay?.totalSeconds == null ? "Unknown" : timecode(analytics.activePlay.totalSeconds)}</dd></div><div><dt>Average</dt><dd>{analytics?.activePlay?.averageSeconds == null ? "Unknown" : timecode(analytics.activePlay.averageSeconds)}</dd></div><div><dt>Median</dt><dd>{analytics?.activePlay?.medianSeconds == null ? "Unknown" : timecode(analytics.activePlay.medianSeconds)}</dd></div></dl><p>{analytics?.activePlay ? `${fmt(analytics.activePlay.measuredSessions)} of ${fmt(analytics.activePlay.eligibleSessions)} eligible sessions measured.` : "Measurement unavailable."} Missing measurement is unknown.</p></div>
+              </section>
               <div className="analytics-grid">
                 <div>
-                  <Chart data={trend} />
+                  <Chart data={trend} period={period} />
                   <SectionHead
                     title="Player funnel"
                     detail="Counts follow the recorded order of events."
@@ -1415,6 +1659,7 @@ export default function Dashboard() {
                   <Breakdown title="Devices" items={analytics?.devices || []} />
                 </div>
               </div>
+              {limitedCoverage.length > 0 && <div className="data-note">Limited breakdowns: {limitedCoverage.map(([key, value]) => `${fmt(value.shown)} of ${fmt(value.total)} ${coverageLabels[key] || label(key)}`).join("; ")}. Counts refer to categories or pointer bins.</div>}
               <div className="data-note">
                 Human traffic only. {fmt(analytics?.syntheticSessions)}{" "}
                 synthetic sessions excluded. Last event:{" "}
@@ -1427,12 +1672,12 @@ export default function Dashboard() {
                 <div>
                   <SectionHead
                     title="Drop-off points"
-                    detail="Last recorded step for sessions without a completed round."
+                    detail="Recorded steps in sessions without a completed round; this does not establish why players left."
                   />
-                  <Breakdown
-                    title="Last step"
-                    items={analytics?.dropoffs || []}
-                  />
+                  {selectedGame === "all" ? <p className="muted">Select one game to inspect supporting sessions.</p> : snapshot.demo ? <p className="muted">Supporting sessions are unavailable in the example workspace.</p> : !analytics?.windowEnd ? <p className="muted">Supporting sessions are unavailable until analytics can be refreshed.</p> : null}
+                  <div className="investigation-list">{(analytics?.dropoffs || []).map((item) => <button key={item.name} type="button" disabled={selectedGame === "all" || snapshot.demo || !analytics?.windowEnd || !sessionScopeReady} onClick={() => void investigate("dropoff", item.name, { dropoff: item.name })}><span>{item.name}</span><strong>{fmt(item.count)}</strong><ChevronRight size={14} /></button>)}</div>
+                  {!analytics?.dropoffs?.length && <p className="muted">No drop-off points in this range.</p>}
+                  {investigation?.kind === "dropoff" && <InvestigationResults state={investigation} onOpen={openSession} />}
                 </div>
                 <div>
                   <SectionHead
@@ -1493,41 +1738,20 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="section-spacer">
-                <SectionHead
-                  title="Pointer density"
-                  detail="Normalized screen coordinates across human sessions. This is not a semantic game replay."
-                />
-                {selectedGame === "all" ? (
-                  <p className="table-empty">
-                    Select one game to inspect pointer density.
-                  </p>
-                ) : analytics?.heatmap?.length ? (
-                  <div className="heatmap">
-                    <div className="heatmap-grid">
-                      {analytics.heatmap
-                        .filter((p) => p.gameId === selectedGame)
-                        .map((p, i) => (
-                          <span
-                            key={i}
-                            title={`${p.count} interactions`}
-                            style={{
-                              left: `${p.x * 100}%`,
-                              top: `${p.y * 100}%`,
-                              opacity: Math.min(0.9, 0.25 + p.count / 10),
-                            }}
-                          />
-                        ))}
-                    </div>
-                    <p className="muted">
-                      Dots show sampled pointer positions. Screen size and
-                      layout may vary between sessions.
-                    </p>
+                <SectionHead title="Pointer density" detail="Select a surface, screen and device to inspect normalized pointer bins from human sessions." />
+                {selectedGame === "all" ? <p className="table-empty">Select one game to inspect pointer density.</p> : !heatPoints.length ? <p className="table-empty">No pointer samples in this range.</p> : <div className="heatmap">
+                  <div className="heatmap-filters">
+                    <Field label="Surface"><select value={surface} onChange={(e) => { setHeatSurface(e.target.value); setHeatScreen(""); setHeatDevice(""); setInvestigation(null); investigationRequest.current++; }}>{surfaces.map((value) => <option key={value} value={value}>{value === "game" ? "Game surface" : "Viewport"}</option>)}</select></Field>
+                    <Field label="Screen"><select value={screen} onChange={(e) => { setHeatScreen(e.target.value); setHeatDevice(""); setInvestigation(null); investigationRequest.current++; }}>{screens.map((value) => <option key={value} value={value}>{value === "unknown" ? "Unknown (legacy or unspecified)" : value}</option>)}</select></Field>
+                    <Field label="Device"><select value={device} onChange={(e) => { setHeatDevice(e.target.value); setInvestigation(null); investigationRequest.current++; }}>{devices.map((value) => <option key={value} value={value}>{label(value)}</option>)}</select></Field>
                   </div>
-                ) : (
-                  <p className="table-empty">
-                    No pointer samples in this range.
-                  </p>
-                )}
+                  <p className="muted">{surface === "game" ? "Positions are normalized to the instrumented game surface." : "Positions are normalized to the browser viewport; they may include areas outside the game."} The grid is not a replay or an image of the game.</p>
+                  <div className="heatmap-grid" aria-label="Pointer density grid">
+                    {heatPoints.filter((point) => point.surface === surface && point.screen === screen && point.device === device).map((point) => <button key={`${point.bx}-${point.by}`} type="button" disabled={snapshot.demo || !analytics?.windowEnd || !sessionScopeReady} aria-label={`Pointer bin ${point.bx + 1}, ${point.by + 1}: ${fmt(point.count)} interactions`} title={`${fmt(point.count)} interactions · open supporting sessions`} style={{left:`${point.bx * 5}%`,top:`${point.by * 5}%`,opacity:Math.min(0.9,0.28 + point.count / 10)}} onClick={() => void investigate("heatmap", `Pointer bin ${point.bx + 1}, ${point.by + 1}`, {surface:point.surface,screen:point.screen,device:point.device,bx:String(point.bx),by:String(point.by)})} />)}
+                  </div>
+                  {snapshot.demo ? <p className="muted">Supporting sessions are unavailable in the example workspace.</p> : !analytics?.windowEnd ? <p className="muted">Supporting sessions are unavailable until analytics can be refreshed.</p> : <p className="muted">Select a filled bin to view supporting sessions. Pointer density does not explain player intent.</p>}
+                  {investigation?.kind === "heatmap" && <InvestigationResults state={investigation} onOpen={openSession} />}
+                </div>}
               </div>
               <SectionHead
                 title="Return cohorts"
@@ -1572,11 +1796,29 @@ export default function Dashboard() {
                 title="Session explorer"
                 detail="Human sessions in the selected date range. Select a row to inspect events and any consented canvas capture."
               />
-              <SessionsTable
-                sessions={sessions}
+              {sessionPageError && <p className="error-text" role="alert">{sessionPageError}</p>}
+              {sessionScopeReady ? <SessionsTable
+                sessions={shownSessions}
                 games={games}
                 onSelect={openSession}
-              />
+              /> : <p className="table-empty">Loading sessions…</p>}
+              {sessionScopeReady && !snapshot.demo && analytics?.sessionPage && (
+                <div className="session-pagination" aria-label="Session pages">
+                  <span aria-live="polite">{sessionPageLoading ? "Loading sessions…" : shownSessions.length ? `Showing ${fmt(sessionPageIndex * sessionLimit + 1)}–${fmt(sessionPageIndex * sessionLimit + shownSessions.length)} of ${fmt(sessionTotal)} sessions` : `Showing 0 of ${fmt(sessionTotal)} sessions`}</span>
+                  <div>
+                    <Button disabled={sessionPageLoading || sessionPageIndex === 0} onClick={() => {
+                      const index = sessionPageIndex - 1;
+                      void navigateSessionPage(index, sessionCursors[index], sessionCursors);
+                    }}>Previous</Button>
+                    <Button disabled={sessionPageLoading || !sessionNextCursor} onClick={() => {
+                      if (!sessionNextCursor) return;
+                      const index = sessionPageIndex + 1;
+                      const cursors = [...sessionCursors.slice(0, index), sessionNextCursor];
+                      void navigateSessionPage(index, sessionNextCursor, cursors);
+                    }}>Next</Button>
+                  </div>
+                </div>
+              )}
             </>
           )}
           {page === "recordings" && (
@@ -2002,22 +2244,18 @@ export default function Dashboard() {
                           {provider === "x" ? "X" : label(provider)}
                         </strong>
                         <span>{providerDescriptions[provider]}</span>
+                        {socialProviders.includes(provider) && !snapshot.system.social?.find((item) => item.provider === provider)?.configured && (
+                          <small>OAuth app setup required. Connect to see setup instructions.</small>
+                        )}
                         {con.map((c) => (
-                          <small key={c.id}>
-                            {c.label}
-                            {c.accountId ? ` · ${c.accountId}` : ""}
-                            {c.model ? ` · ${c.model}` : ""}{" "}
-                            <button
-                              onClick={() =>
-                                action({
-                                  action: "delete_connection",
-                                  id: c.id,
-                                })
-                              }
-                            >
-                              Remove
-                            </button>
-                          </small>
+                          <div className="connection-account" key={c.id}>
+                            <small>{c.accountName || c.label}{c.accountId ? ` · ID: ${c.accountId}` : ""} · {c.authMethod === "oauth" ? "OAuth" : "Manual"}{c.requiresReconnect ? " · Reconnect required" : ""}{c.checkedAt ? ` · Checked ${dateTime(c.checkedAt)}` : " · Not checked"}{c.expiresAt ? ` · Expires ${dateTime(c.expiresAt)}` : ""}{c.scopes?.length ? ` · Scopes: ${c.scopes.join(", ")}` : ""}</small>
+                            {socialProviders.includes(provider) ? <div className="account-actions">
+                              <button onClick={() => void socialAction(provider, "connect", c.id)} disabled={busy}>Reconnect</button>
+                              {c.authMethod === "oauth" && <button onClick={() => void socialAction(provider, "refresh", c.id)} disabled={busy}>Refresh</button>}
+                              <button onClick={() => void socialAction(provider, "disconnect", c.id)} disabled={busy}>Disconnect</button>
+                            </div> : <button className="account-remove" onClick={() => action({ action: "delete_connection", id: c.id })}>Remove</button>}
+                          </div>
                         ))}
                       </div>
                       <Status
@@ -2029,6 +2267,7 @@ export default function Dashboard() {
                       />
                       <Button
                         onClick={() => {
+                          if (socialProviders.includes(provider)) { void socialAction(provider, "connect"); return; }
                           resetDraft();
                           setDraft((d) => ({ ...d, provider }));
                           setModal("connection");
@@ -2084,10 +2323,15 @@ export default function Dashboard() {
               </button>
             </div>
             <div className="drawer-body">
+              {sessionEvidence && <div className="evidence-context"><strong>Supporting event: {label(sessionEvidence.name)}</strong><p>{captureTime(sessionEvidence.timestamp)}</p>{!sessionLoading && <p>{sessionEvidence.replay ? evidenceReplayAvailable ? "The matching segment is selected; playback will seek when it loads." : "The previously available segment is no longer available; showing the event only." : "No saved segment covers this event; showing the event only."}</p>}</div>}
               <div className="session-stats">
                 <div>
-                  <span>Duration</span>
+                  <span>Session span</span>
                   <strong>{timecode(chosenSession.duration)}</strong>
+                </div>
+                <div>
+                  <span>Estimated active play</span>
+                  <strong>{chosenSession.activePlaySeconds == null ? "Unknown" : timecode(chosenSession.activePlaySeconds)}</strong>
                 </div>
                 <div>
                   <span>Events</span>
@@ -2103,28 +2347,31 @@ export default function Dashboard() {
                   <h3>Player canvas capture</h3>
                   {!sessionLoading && !sessionError && <Status value={sessionCapture?.status || chosenSession.captureStatus || "not_recorded"} />}
                 </div>
+                {!sessionLoading && sessionCaptures.length > 1 && <Field label="Capture segment"><select value={sessionCapture?.id || ""} onChange={(e) => { pendingSegmentSeek.current = null; setSessionCapture(sessionCaptures.find((c) => c.id === e.target.value) || null); }}>{sessionCaptures.map((capture, index) => <option key={capture.id} value={capture.id}>Segment {capture.segment === undefined ? index + 1 : capture.segment + 1} · {label(capture.status)} · {capture.recordedAt ? dateTime(capture.recordedAt) : "Start unknown"}</option>)}</select></Field>}
+                {sessionCoverage && <div className="capture-coverage"><p>{timecode(sessionCoverage.recordedSeconds)} recorded across {sessionCaptures.filter((capture) => capture.status === "ready").length} available segment(s). {sessionCoverage.limitation}</p>{sessionCoverage.gaps.length > 0 && <><strong>Unrecorded gaps</strong><ul>{sessionCoverage.gaps.map((gap, index) => <li key={index}>{captureTime(gap.startAt)}–{captureTime(gap.endAt)} · {label(gap.reason)}</li>)}</ul></>}</div>}
                 {sessionLoading ? <p className="muted">Loading capture…</p> : sessionError ? <p className="error-text">{sessionError}</p> : sessionCapture?.status === "ready" && sessionCapture.videoUrl ? (
                   <>
-                    <video ref={sessionVideo} controls preload="metadata" src={sessionCapture.videoUrl} aria-label="Player canvas capture" />
+                    <video key={sessionCapture.id} ref={sessionVideo} controls preload="metadata" src={sessionCapture.videoUrl} aria-label="Player canvas capture" onLoadedMetadata={() => { if (pendingSegmentSeek.current?.id === sessionCapture.id && sessionVideo.current) { sessionVideo.current.currentTime = pendingSegmentSeek.current.offset; pendingSegmentSeek.current = null; } }} />
                     <p className="muted">Started {dateTime(sessionCapture.recordedAt || sessionCapture.createdAt)}{!sessionCapture.recordedAt && " (approximate)"} · {sessionCapture.durationSeconds === undefined ? "Duration unavailable" : timecode(sessionCapture.durationSeconds)} · {sessionCapture.width && sessionCapture.height ? `${sessionCapture.width} × ${sessionCapture.height}` : "Dimensions unavailable"} · expires {dateTime(sessionCapture.expiresAt)}</p>
-                    <p className="muted">Canvas only, with configured masks. Select an event within the capture to seek.</p>
+                    <p className="muted">Canvas only, with configured masks; no audio or DOM. Select an event within an available segment to seek.</p>
                   </>
                 ) : (
                   <p className="muted">{captureMessage(sessionCapture?.status || chosenSession.captureStatus, snapshot.demo, sessionCapture?.status === "ready")}{sessionCapture?.reason ? ` (${label(sessionCapture.reason)})` : ""}</p>
                 )}
                 {sessionCapture && !snapshot.demo && !["expired", "cancelled"].includes(sessionCapture.status) && (
                   <Button variant="danger" disabled={busy} onClick={() => {
-                    if (window.confirm("Delete this player capture? This cannot be undone.")) {
+                    if (window.confirm("Delete all captured segments for this session? This cannot be undone.")) {
                       void (async () => {
                         const result = await action({ action: "delete_session_capture", id: sessionCapture.id }, false);
                         if (result) await openSession(chosenSession);
                       })();
                     }
-                  }}>Delete capture</Button>
+                  }}>Delete all session footage</Button>
                 )}
               </div>
               <h3>Event timeline</h3>
               <p className="muted">Ordered activity captured by the SDK.</p>
+              {!sessionLoading && eventsTruncated && <p className="data-note">Showing the first {fmt(sessionEvents.length)} events. This timeline was limited to 5,000 events.</p>}
               {sessionLoading ? (
                 <p>Loading events…</p>
               ) : sessionError ? (
@@ -2135,15 +2382,16 @@ export default function Dashboard() {
                     <div key={e.id || i}>
                       <span className="timeline-dot" />
                       <div>
-                        {sessionCapture?.status === "ready" && sessionCapture.videoUrl && sessionCapture.durationSeconds !== undefined && Number.isFinite(Date.parse(e.timestamp)) && (() => {
-                          const offset = (Date.parse(e.timestamp) - Date.parse(sessionCapture.recordedAt || sessionCapture.createdAt)) / 1000;
-                          return Number.isFinite(offset) && offset >= 0 && offset <= sessionCapture.durationSeconds! ? (
-                            <button className="timeline-seek" type="button" onClick={() => { if (sessionVideo.current) sessionVideo.current.currentTime = offset; }}>
-                              {label(e.name)} <small>Seek to {timecode(offset)}</small>
-                            </button>
-                          ) : <strong>{label(e.name)}</strong>;
+                        {(() => {
+                          const timestamp = Date.parse(e.timestamp);
+                          const capture = sessionCaptures.find((item) => item.status === "ready" && !!item.videoUrl && !!item.recordedAt && item.durationSeconds !== undefined && Number.isFinite(timestamp) && timestamp >= Date.parse(item.recordedAt) && timestamp <= Date.parse(item.recordedAt) + item.durationSeconds * 1000);
+                          if (!capture || !capture.recordedAt) return <strong>{label(e.name)}</strong>;
+                          const offset = (timestamp - Date.parse(capture.recordedAt)) / 1000;
+                          return <button className="timeline-seek" type="button" onClick={() => {
+                            if (sessionCapture?.id === capture.id && sessionVideo.current) sessionVideo.current.currentTime = offset;
+                            else { pendingSegmentSeek.current = { id: capture.id, offset }; setSessionCapture(capture); }
+                          }}>{label(e.name)} <small>Seek to {timecode(offset)} in segment {capture.segment === undefined ? sessionCaptures.indexOf(capture) + 1 : capture.segment + 1}</small></button>;
                         })()}
-                        {!(sessionCapture?.status === "ready" && sessionCapture.videoUrl && sessionCapture.durationSeconds !== undefined && Number.isFinite(Date.parse(e.timestamp))) && <strong>{label(e.name)}</strong>}
                         <p>{dateTime(e.timestamp)}</p>
                         {e.properties &&
                           Object.keys(e.properties).length > 0 && (
@@ -2186,16 +2434,21 @@ export default function Dashboard() {
                 </div>
                 <div className="review-text">{chosenPost.text}</div>
                 <dl>
-                  <dt>Account</dt>
-                  <dd>{chosenPost.accountId || "Not selected"}</dd>
+                  <dt>Delivery</dt>
+                  <dd>{chosenPost.deliveryMethod === "manual" ? "Manual export" : "Connected account"}</dd>
+                  <dt>Destination account</dt>
+                  <dd>{chosenPost.deliveryMethod === "manual" ? `${chosenPost.accountId || "Not entered"} · Unverified, entered by you` : (() => {
+                    const account = snapshot.connections.find((c) => c.provider === chosenPost.channel && c.accountId === chosenPost.accountId && c.connected && !c.requiresReconnect);
+                    return account?.accountName ? `${account.accountName} · ID: ${chosenPost.accountId}` : `Name not verified · ID: ${chosenPost.accountId || "Not selected"}`;
+                  })()}</dd>
                   <dt>Clip</dt>
                   <dd>
                     {clips.find((c) => c.id === chosenPost.clipId)?.title ||
                       "None"}
                   </dd>
                   <dt>Planned time</dt>
-                  <dd>{dateTime(chosenPost.scheduledAt)}</dd>
-                  {chosenPost.channel === "tiktok" && (
+                  <dd>{chosenPost.scheduledAt ? dateTimeInZone(chosenPost.scheduledAt, chosenPost.timeZone) : "Not scheduled"}{chosenPost.timeZone ? ` · ${chosenPost.timeZone}` : ""}</dd>
+                  {chosenPost.deliveryMethod !== "manual" && chosenPost.channel === "tiktok" && (
                     <>
                       <dt>TikTok settings</dt>
                       <dd>
@@ -2206,6 +2459,8 @@ export default function Dashboard() {
                     </>
                   )}
                 </dl>
+                {chosenPost.recommendation && <PostRecommendation post={chosenPost} />}
+                {chosenPost.deliveryMethod === "manual" && !validPlannedTime(chosenPost.scheduledAt, chosenPost.timeZone) && <p className="error-text">Set a planned time and time zone in Edit post before approval.</p>}
                 {trackingUrl(chosenPost) && (
                   <div className="tracked-link">
                     <strong>Tracked game link</strong>
@@ -2235,6 +2490,7 @@ export default function Dashboard() {
                   Approval applies to this exact content, account, media and
                   planned time. Editing invalidates approval.
                 </p>
+                {chosenPost.deliveryMethod === "manual" && validPlannedTime(chosenPost.scheduledAt, chosenPost.timeZone) && <ManualExportPanel key={chosenPost.id} post={chosenPost} onChanged={() => refresh()} />}
               </div>
               <div className="modal-actions">
                 <Button onClick={() => editPost(chosenPost)}>Edit post</Button>
@@ -2251,9 +2507,11 @@ export default function Dashboard() {
                   <Button
                     variant="primary"
                     disabled={
-                      chosenPost.channel === "tiktok" &&
+                      (chosenPost.deliveryMethod === "manual" && !validPlannedTime(chosenPost.scheduledAt, chosenPost.timeZone)) ||
+                      (chosenPost.deliveryMethod !== "manual" && (!snapshot.connections.some((c) => c.provider === chosenPost.channel && c.accountId === chosenPost.accountId && c.connected && !c.requiresReconnect && !!c.accountName) ||
+                      (chosenPost.channel === "tiktok" &&
                       (!chosenPost.tiktokConsent?.consent ||
-                        !chosenPost.tiktokConsent?.privacy)
+                        !chosenPost.tiktokConsent?.privacy))))
                     }
                     onClick={() =>
                       action({ action: "approve_post", id: chosenPost.id })
@@ -2262,7 +2520,7 @@ export default function Dashboard() {
                     Approve post
                   </Button>
                 )}
-                {["approved", "scheduled"].includes(chosenPost.status) && (
+                {chosenPost.deliveryMethod !== "manual" && ["approved", "scheduled"].includes(chosenPost.status) && (
                   <Button
                     variant="primary"
                     onClick={() =>
@@ -2367,6 +2625,9 @@ export default function Dashboard() {
                         </Field>
                         <Field label="Allowed WSS origins" hint="Exact origins only, one per line; for example wss://socket.example.com. Sockets are opt-in.">
                           <textarea rows={2} value={draft.webSocketOrigins} onChange={(e) => setDraft({ ...draft, webSocketOrigins: e.target.value })} />
+                        </Field>
+                        <Field label="Reviewed game frame URLs" hint="Up to two exact HTTPS game-frame URLs on this game’s origin, one per line. Include the full non-root path; no query, fragment, credentials, or wildcards. Review each frame before adding it.">
+                          <textarea rows={2} value={draft.frameUrls} onChange={(e) => setDraft({ ...draft, frameUrls: e.target.value })} placeholder="https://game.example/play/index.html" />
                         </Field>
                       </div>
                       <div className="settings-section">
@@ -2552,16 +2813,17 @@ export default function Dashboard() {
                         ))}
                       </select>
                     </Field>
-                    <Field label="Clip (optional)">
+                    <Field label={draft.deliveryMethod === "manual" ? "Ready clip" : "Clip (optional)"}>
                       <select
+                        required={draft.deliveryMethod === "manual"}
                         value={draft.clipId}
                         onChange={(e) =>
                           setDraft({ ...draft, clipId: e.target.value })
                         }
                       >
-                        <option value="">No clip</option>
+                        <option value="">{draft.deliveryMethod === "manual" ? "Select a ready clip" : "No clip"}</option>
                         {clips
-                          .filter((c) => c.gameId === draft.gameId)
+                          .filter((c) => c.gameId === draft.gameId && (draft.deliveryMethod !== "manual" || c.status === "ready"))
                           .map((c) => (
                             <option key={c.id} value={c.id}>
                               {c.title}
@@ -2570,6 +2832,13 @@ export default function Dashboard() {
                       </select>
                     </Field>
                   </div>
+                  <Field label="Delivery method">
+                    <select value={draft.deliveryMethod} onChange={(e) => setDraft({ ...draft, deliveryMethod: e.target.value, accountId: "", tiktokConsent: false })}>
+                      <option value="native">Connected account</option>
+                      <option value="manual">Manual export</option>
+                    </select>
+                  </Field>
+                  {draft.deliveryMethod === "manual" ? <Field label="Destination handle or account" hint="Entered by you and not verified with the platform."><input required value={draft.accountId} onChange={(e) => setDraft({ ...draft, accountId: e.target.value })} placeholder="e.g. @youraccount" /></Field> : <>
                   <Field
                     label="Account"
                     hint="Select a saved, authorized account for this channel."
@@ -2597,7 +2866,7 @@ export default function Dashboard() {
                         )
                         .map((c) => (
                           <option key={c.id} value={c.accountId}>
-                            {c.label} · {c.accountId}
+                            {c.accountName || `${c.label} (name not verified)`} · ID: {c.accountId}
                           </option>
                         ))}
                     </select>
@@ -2613,7 +2882,8 @@ export default function Dashboard() {
                       account ID in Connections.
                     </p>
                   )}
-                  {draft.channel === "tiktok" && (
+                  </>}
+                  {draft.deliveryMethod === "native" && draft.channel === "tiktok" && (
                     <div className="tiktok-settings">
                       <strong>TikTok creator settings</strong>
                       <p className="muted">
@@ -2758,9 +3028,10 @@ export default function Dashboard() {
                     Generation requires a configured Anthropic connection.
                     Review all generated copy.
                   </p>
-                  <Field label="Planned time (optional)">
+                  <Field label={draft.deliveryMethod === "manual" ? "Planned time" : "Planned time (optional)"} hint={draft.deliveryMethod === "manual" ? `Required for manual review. Uses your browser time zone (${localTimeZone || "unavailable"}); you can edit this time.` : `Uses your browser time zone (${localTimeZone || "local time"}).`}>
                     <input
                       type="datetime-local"
+                      required={draft.deliveryMethod === "manual"}
                       value={draft.scheduledAt}
                       onChange={(e) =>
                         setDraft({ ...draft, scheduledAt: e.target.value })
@@ -2824,6 +3095,14 @@ export default function Dashboard() {
                       ))}
                     </select>
                   </Field>
+                  {socialProviders.includes(draft.provider) && !advancedSocial ? (
+                    <div className="data-note">
+                      <p>Connect through the provider to authorize and verify your account.</p>
+                      {!snapshot.system.social?.find((item) => item.provider === draft.provider)?.configured && <p>OAuth app setup is required. Connect for the exact setup error.</p>}
+                      <Button variant="primary" disabled={busy} onClick={() => void socialAction(draft.provider, "connect")}>Connect with {draft.provider === "x" ? "X" : label(draft.provider)}</Button>
+                      <button type="button" className="text-link" onClick={() => setAdvancedSocial(true)}>Advanced: use a manual token</button>
+                    </div>
+                  ) : <>
                   <Field label="Connection label">
                     <input
                       required
@@ -2904,6 +3183,7 @@ export default function Dashboard() {
                     use. Saving a token does not complete native OAuth or
                     required platform approval.
                   </div>
+                  </>}
                 </>
               )}
               <div className="modal-actions">
@@ -2913,8 +3193,10 @@ export default function Dashboard() {
                   type="submit"
                   disabled={
                     busy ||
+                    (modal === "connection" && socialProviders.includes(draft.provider) && !advancedSocial) ||
+                    (modal === "post" && draft.deliveryMethod === "manual" && (!validTimeZone(localTimeZone) || !draft.scheduledAt || !Number.isFinite(Date.parse(draft.scheduledAt)))) ||
                     (modal === "post" &&
-                      draft.channel === "tiktok" &&
+                      draft.deliveryMethod === "native" && draft.channel === "tiktok" &&
                       (!creator ||
                         !draft.tiktokPrivacy ||
                         !draft.tiktokConsent))
@@ -2947,6 +3229,139 @@ export default function Dashboard() {
   );
 }
 
+type GameProfileData = {
+  gameId: string;
+  status: "queued" | "running" | "partial" | "complete" | "failed" | "not_started";
+  lastRefresh: string | null;
+  facts: { key: string; label: string; value: string; evidence: { source: string; url?: string; observedAt: string; recordingId?: string; at?: number } }[];
+  overrides: Partial<Record<"description" | "genre" | "audience" | "rules" | "controls", string>>;
+  prerequisites: string[];
+};
+const profileFields = ["description", "genre", "audience", "rules", "controls"] as const;
+function GameProfile({ gameId, demo }: { gameId: string; demo: boolean }) {
+  const [profile, setProfile] = useState<GameProfileData | null>(null);
+  const [values, setValues] = useState<GameProfileData["overrides"]>({});
+  const [dirty, setDirty] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const dirtyRef = useRef(false);
+  useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
+  useEffect(() => {
+    if (demo) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/profile`, { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Could not load game profile");
+        if (cancelled) return;
+        setProfile(data);
+        if (!dirtyRef.current) setValues(data.overrides || {});
+        setError("");
+      } catch (e) { if (!cancelled) setError(e instanceof Error ? e.message : "Could not load game profile"); }
+    };
+    setProfile(null); setDirty(false); dirtyRef.current = false; setEditing(false); setNotice("");
+    void load();
+    return () => { cancelled = true; };
+  }, [gameId, demo]);
+  const send = async (method: "POST" | "PATCH") => {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/profile`, {
+        method, headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(method === "PATCH" ? { overrides: values } : {}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not update game profile");
+      if (method === "PATCH") { setDirty(false); dirtyRef.current = false; setEditing(false); setNotice("Owner details saved."); }
+      else setNotice("Profile refresh queued.");
+      // Remount the read loop after a write so queued work is polled.
+      const get = await fetch(`/api/games/${encodeURIComponent(gameId)}/profile`, { cache: "no-store" });
+      const fresh = await get.json();
+      if (get.ok) { setProfile(fresh); if (method === "PATCH") setValues(fresh.overrides || {}); }
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not update game profile"); }
+    finally { setBusy(false); }
+  };
+  // Refresh starts polling even when the previous investigation had finished.
+  useEffect(() => {
+    if (!profile || !["queued", "running"].includes(profile.status)) return;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/profile`, { cache: "no-store" });
+        if (res.ok) { const data = await res.json(); setProfile(data); if (!dirtyRef.current) setValues(data.overrides || {}); }
+      } catch { setError("Could not refresh game profile status."); }
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [profile, gameId]);
+  if (demo) return <section className="game-profile"><h2>Game profile</h2><p>Profile investigation is unavailable in the example workspace.</p></section>;
+  return <section className="game-profile">
+    <div className="profile-heading"><div><h2>Game profile</h2><p>Investigation: {profile ? label(profile.status) : "Loading"} · Last refresh: {profile?.lastRefresh ? dateTime(profile.lastRefresh) : "Never"}</p></div>
+      <div><Button disabled={busy || !profile || ["queued", "running"].includes(profile.status)} onClick={() => void send("POST")}>Refresh investigation</Button> <Button onClick={() => setEditing(!editing)}>{editing ? "Close editor" : "Edit owner details"}</Button></div></div>
+    {error && <p className="profile-error" role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
+    {profile?.prerequisites.length ? <div className="profile-prerequisites"><strong>Needed to investigate</strong><ul>{profile.prerequisites.map((item) => <li key={item}>{item}</li>)}</ul></div> : null}
+    {editing ? <form onSubmit={(e) => { e.preventDefault(); void send("PATCH"); }}>
+      <p>Owner-entered details take precedence. Audience is a hypothesis. Clear a field to remove its override.</p>
+      <div className="profile-fields">{profileFields.map((field) => <Field key={field} label={field === "audience" ? "Audience hypothesis" : label(field)}><textarea maxLength={1000} rows={2} value={values[field] || ""} onChange={(e) => { dirtyRef.current = true; setDirty(true); setValues((current) => ({ ...current, [field]: e.target.value })); }} /></Field>)}</div>
+      <Button type="submit" variant="primary" disabled={busy || !dirty}>Save owner details</Button>
+    </form> : <dl className="profile-details">{profileFields.filter((field) => profile?.overrides[field]).map((field) => <div key={field}><dt>{field === "audience" ? "Audience hypothesis" : label(field)} · Owner</dt><dd>{profile?.overrides[field]}</dd></div>)}</dl>}
+    <GameAutomation gameId={gameId} />
+    <h3>Observed evidence</h3>
+    {profile?.facts.length ? <ul className="profile-facts">{profile.facts.map((fact, index) => <li key={`${fact.key}-${index}`}><strong>{fact.label}</strong><span>{fact.value}</span><small>{fact.evidence.source} · {dateTime(fact.evidence.observedAt)}{fact.evidence.recordingId ? ` · Recording ${fact.evidence.recordingId}${fact.evidence.at !== undefined ? ` at ${timecode(fact.evidence.at)}` : ""}` : ""}{fact.evidence.url && /^https?:\/\//i.test(fact.evidence.url) && <> · <a href={fact.evidence.url} target="_blank" rel="noreferrer">Source</a></>}</small></li>)}</ul> : <p className="muted">No observed facts available yet.</p>}
+  </section>;
+}
+
+type GameAutomationData = {
+  enabled: boolean; intervalHours: number; ready: boolean; reasons: string[];
+  draftReady: boolean; draftReasons: string[]; adapterVerified: boolean;
+  lastQueuedAt: string | null; activeRecordingId: string | null; nextDueAt: string | null;
+};
+function GameAutomation({ gameId }: { gameId: string }) {
+  const [data, setData] = useState<GameAutomationData | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [interval, setIntervalHours] = useState("24");
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/games/${encodeURIComponent(gameId)}/automation`, { cache: "no-store" });
+        const next = await response.json();
+        if (!response.ok) throw new Error(next.error || "Could not load automation");
+        if (!cancelled) { setData(next); setIntervalHours(String(next.intervalHours)); setError(""); }
+      } catch (e) { if (!cancelled) setError(e instanceof Error ? e.message : "Could not load automation"); }
+    };
+    setData(null); void load();
+    return () => { cancelled = true; };
+  }, [gameId]);
+  const update = async (changes: { enabled?: boolean; intervalHours?: number }) => {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`/api/games/${encodeURIComponent(gameId)}/automation`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes) });
+      const next = await response.json();
+      if (!response.ok) throw new Error(next.error || "Could not update automation");
+      setData(next); setIntervalHours(String(next.intervalHours));
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not update automation"); }
+    finally { setBusy(false); }
+  };
+  return <div className="game-automation">
+    <div className="profile-heading"><div><h3>Automatic recordings</h3><p>{!data ? "Checking readiness…" : !data.enabled ? "Paused" : data.activeRecordingId ? "Recording queued or running" : data.ready ? "Ready" : "Waiting for setup"}</p></div>
+      {data && <Button disabled={busy} onClick={() => void update({ enabled: !data.enabled })}>{data.enabled ? "Pause" : "Enable"}</Button>}</div>
+    {error && <p className="profile-error" role="alert">{error}</p>}
+    {data && <>
+      <p>Adapter: {data.adapterVerified ? "Verified by a Jev recording" : "Not verified"}. A game URL alone does not verify compatibility.</p>
+      {!!data.reasons.length && <ul>{data.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}
+      <p>Content drafts: {data.draftReady ? "Ready" : "Waiting"}{data.draftReasons.length ? ` · ${data.draftReasons.join("; ")}` : ""}. Posts still require approval.</p>
+      <p>Last queued: {data.lastQueuedAt ? dateTime(data.lastQueuedAt) : "Never"} · Next due: {data.nextDueAt ? dateTime(data.nextDueAt) : "Not scheduled"}</p>
+      <form className="automation-interval" onSubmit={(e) => { e.preventDefault(); void update({ intervalHours: Number(interval) }); }}>
+        <Field label="Recording interval (hours)"><input type="number" min="6" max="24" step="1" required value={interval} onChange={(e) => setIntervalHours(e.target.value)} /></Field>
+        <Button type="submit" disabled={busy || Number(interval) === data.intervalHours}>Save interval</Button>
+      </form>
+    </>}
+  </div>;
+}
+
 function Brand() {
   return (
     <div className="brand">
@@ -2956,11 +3371,7 @@ function Brand() {
         <span />
         <span />
       </span>
-      <span>
-        Web Game
-        <br />
-        <b>Studio</b>
-      </span>
+      <span><b>blaze<span className="blaze-period">.</span></b></span>
     </div>
   );
 }
@@ -3016,34 +3427,35 @@ function Metrics({ a }: { a?: Analytics }) {
         <small>Visits recorded</small>
       </div>
       <div>
-        <span>Players</span>
-        <strong>{fmt(a?.players)}</strong>
-        <small>Distinct players</small>
-      </div>
-      <div>
-        <span>Rounds started</span>
+        <span>Sessions with a start</span>
         <strong>{fmt(a?.starts)}</strong>
-        <small>Started play</small>
+        <small>At least one round started</small>
       </div>
       <div>
-        <span>Rounds completed</span>
+        <span>Sessions with a completion</span>
         <strong>{fmt(a?.completions)}</strong>
-        <small>Completed play</small>
+        <small>At least one round completed</small>
+      </div>
+      <div>
+        <span>Returning players</span>
+        <strong>{fmt(a?.returns)}</strong>
+        <small>Returned at least a day later</small>
       </div>
     </div>
   );
 }
-function Chart({ data }: { data: Analytics["trend"] }) {
+function Chart({ data, period }: { data: Analytics["trend"]; period: string }) {
   return (
     <div className="chart-block">
       <div className="chart-header">
         <div>
-          <span className="chart-title">Activity over time</span>
-          <span className="chart-sub">Selected date range</span>
+          <span className="chart-title">Human activity over time</span>
+          <span className="chart-sub">Daily counts · last {period} days</span>
         </div>
         <div className="legend">
-          <span />
-          <span>Visits</span>
+          <span className="legend-item visits">Sessions</span>
+          <span className="legend-item starts">Sessions with a start</span>
+          <span className="legend-item completions">Sessions with a completion</span>
         </div>
       </div>
       {data.length ? (
@@ -3051,7 +3463,7 @@ function Chart({ data }: { data: Analytics["trend"] }) {
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart
               data={data}
-              margin={{ top: 12, right: 8, left: -25, bottom: 0 }}
+              margin={{ top: 12, right: 18, left: -25, bottom: 0 }}
             >
               <CartesianGrid vertical={false} stroke="#e8eae6" />
               <XAxis
@@ -3082,7 +3494,10 @@ function Chart({ data }: { data: Analytics["trend"] }) {
                 stroke="#447f61"
                 strokeWidth={2}
                 fill="#e7f1e8"
+                name="Sessions"
               />
+              <Line type="monotone" dataKey="starts" name="Sessions with a start" stroke="#779d87" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="completions" name="Sessions with a completion" stroke="#b38955" strokeWidth={2} dot={false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -3091,6 +3506,15 @@ function Chart({ data }: { data: Analytics["trend"] }) {
       )}
     </div>
   );
+}
+function InvestigationResults({ state, onOpen }: { state: InvestigationState; onOpen: (session: SessionSummary, evidence?: InvestigationEvidence) => void }) {
+  return <section className="investigation-results" aria-label="Supporting sessions">
+    <h3>{state.title} · Supporting sessions</h3>
+    {state.loading ? <p className="muted">Loading sessions…</p> : state.error ? <p className="error-text" role="alert">{state.error}</p> : state.results.length ? <>
+      <p className="muted">{state.windowStart && state.windowEnd ? `Window: ${captureTime(state.windowStart)} – ${captureTime(state.windowEnd)}.` : ""} {state.hasMore ? "Showing the first 50 matches; more are available." : `${fmt(state.results.length)} matching sessions.`}</p>
+      <div className="investigation-list">{state.results.map(({session, evidence}) => <button key={`${session.gameId}-${session.id}-${evidence.eventId}`} type="button" onClick={() => onOpen(session, evidence)}><span><strong>{dateTime(session.startedAt)} · {session.id.slice(0, 8)}</strong><small>{label(evidence.name)} · {captureTime(evidence.timestamp)} · {evidence.replay ? "Saved segment available" : "Event only; no saved segment"}</small></span><ChevronRight size={14} /></button>)}</div>
+    </> : <p className="muted">No matching sessions in this range.</p>}
+  </section>;
 }
 function Breakdown({
   title,
@@ -3338,6 +3762,15 @@ function Measurements({
     </div>
   );
 }
+function PostRecommendation({ post }: { post: Post }) {
+  if (!post.recommendation) return null;
+  return <div className="post-recommendation"><strong>{label(post.recommendation.confidence)} confidence starting point</strong><p>{post.recommendation.reason}</p><p>{post.recommendation.time}</p></div>;
+}
+function ManualPostNote({ post }: { post: Post }) {
+  if (post.manualConfirmedAt && post.manualPublishedAt) return <small>Manual · User-confirmed {dateTime(post.manualPublishedAt)} · Not platform verified</small>;
+  if (post.manualExportedAt) return <small>Manual · Export prepared {dateTime(post.manualExportedAt)} · Not published</small>;
+  return <small>Manual · Awaiting export</small>;
+}
 function PostRow({
   post: p,
   games,
@@ -3363,6 +3796,8 @@ function PostRow({
           <span>{dateTime(p.scheduledAt)}</span>
         </div>
         <p>{p.text}</p>
+        {p.deliveryMethod === "manual" && <ManualPostNote post={p} />}
+        {p.recommendation && <PostRecommendation post={p} />}
         {p.error && <small className="error-text">{p.error}</small>}
       </div>
       <Status value={p.status} />
@@ -3471,6 +3906,8 @@ function Calendar({
                       · {gameName(games, p.gameId)}
                     </span>
                     <Status value={p.status} />
+                    {p.deliveryMethod === "manual" && <ManualPostNote post={p} />}
+                    {p.recommendation && <PostRecommendation post={p} />}
                   </button>
                 ))}
               </div>
@@ -3493,9 +3930,11 @@ function Help({
   origin: string;
 }) {
   const game = games.find((g) => g.id === selectedGame) || games[0];
+  const usage = system.databaseUsage;
+  const size = (bytes: number | null) => bytes === null ? "Unavailable" : bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GiB` : `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
   origin = origin || "YOUR_WORKSPACE_ORIGIN";
   const snippet = game
-    ? `<script src="${origin}/sdk.js"></script>\n<script>\n  GameMarketing.init({ endpoint: "${origin}", sdkKey: "${game.sdkKey}", consent: false });\n  // After the player opts in:\n  GameMarketing.setConsent(true);\n  // On a game event:\n  GameMarketing.track("round_start");\n</script>`
+    ? `<script src="${origin}/sdk.js"></script>\n<script>\n  Blaze.init({ endpoint: "${origin}", sdkKey: "${game.sdkKey}", consent: false });\n  // After the player opts in:\n  Blaze.setConsent(true);\n  // On a game event:\n  Blaze.track("round_start");\n</script>`
     : "";
   return (
     <div className="help-layout">
@@ -3521,11 +3960,7 @@ function Help({
           <div>
             <h3>Configure Google sign-in</h3>
             <p>
-              Create a Google OAuth web application and register{" "}
-              <code>{origin}/api/auth/callback/google</code> as an authorized
-              redirect URI. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the
-              server environment, and set APP_URL to the public workspace
-              origin. Restart or redeploy after changing environment variables.
+              Configure your own Google OAuth web client in Neon Auth and register the callback URL shown there in Google Cloud. Set the application’s Neon Auth URL and cookie secret, then verify sign-in with a real account. Google sign-in remains unavailable until setup is complete.
             </p>
           </div>
         </div>
@@ -3563,8 +3998,8 @@ function Help({
           <div>
             <h3>Configure network access and player capture</h3>
             <p>In Edit game, add exact HTTPS resource origins and opt-in WSS origins needed by the browser worker. Only verified public destinations are allowed; unknown, private and local destinations are blocked.</p>
-            <p>Player capture is off by default. Review a unique origin-clean canvas and add privacy masks before enabling it. Ask for recording consent separately from analytics consent; call <code>await GameMarketing.startCapture(&#123;consent:true&#125;)</code> only after both are granted. Stop with <code>await GameMarketing.stopCapture()</code>, or discard with <code>await GameMarketing.stopCapture(&#123;discard:true&#125;)</code>. Analytics withdrawal also discards capture.</p>
-            <p>Capture is sampled and limited to 30 seconds, 5 fps, 960 × 540, and 3 MiB. It contains the canvas only, no audio or DOM. Inspect private footage in Sessions; it is separate from agent recordings and content clips.</p>
+            <p>Player capture is off by default. Review a unique origin-clean canvas and add privacy masks before enabling it. Ask for recording consent separately from analytics consent; call <code>await Blaze.startCapture(&#123;consent:true&#125;)</code> only after both are granted. Stop with <code>await Blaze.stopCapture()</code>, or discard with <code>await Blaze.stopCapture(&#123;discard:true&#125;)</code>. Analytics withdrawal also discards capture.</p>
+            <p>Capture is sampled and limited to up to four 30-second segments at 5 fps, 960 × 540, and 3 MiB each. Gaps and upload failures may leave parts unrecorded. It contains the canvas only, no audio or DOM. Inspect private footage in Sessions; it is separate from agent recordings and content clips.</p>
           </div>
         </div>
         <div className="help-step">
@@ -3625,6 +4060,17 @@ function Help({
           <span>Database</span>
           <Status value={system.database ? "connected" : "disconnected"} />
         </div>
+        <div className="health-row">
+          <span>Storage guard</span>
+          <strong>{!usage ? "Not configured" : usage.paused ? "Paused" : "Active"}</strong>
+        </div>
+        {usage && <div className="database-usage muted">
+          <p>Current database: {size(usage.bytes)} / {size(usage.limitBytes)}{usage.bytes !== null && usage.limitBytes ? ` (${(usage.bytes / usage.limitBytes * 100).toFixed(1)}%)` : ""}.</p>
+          <p>Measured: {usage.measuredAt ? dateTime(usage.measuredAt) : "Unavailable"}. Event ingestion pauses at 80% of the configured limit.</p>
+          {usage.reason && <p>{usage.reason}</p>}
+          <p>This is an estimate of the current database, not total Neon project storage.</p>
+        </div>}
+        <p className="muted">Raw event retention: Not configured.</p>
         <div className="health-row">
           <span>Google sign-in</span>
           <Status value={system.google ? "configured" : "disconnected"} />

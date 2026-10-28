@@ -160,9 +160,7 @@ export function buildDemo(gameId?: string, days = 30): WorkspaceSnapshot {
     analytics,
     system: {
       database: false,
-      google: !!(
-        process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
-      ),
+      google: false,
       storage: false,
       worker: false,
       dailySchedule: "Not configured in example",

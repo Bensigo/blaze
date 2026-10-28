@@ -1,4 +1,5 @@
-import { query } from "./db";
+import { sqlAnalytics } from "./analytics-sql";
+export { querySessionPage } from "./analytics-sql";
 import type { Analytics, SessionSummary } from "./types";
 export interface EventRow {
   id: string;
@@ -61,32 +62,37 @@ export function summarize(
   let replays = 0;
   const heat = new Map<
     string,
-    { x: number; y: number; count: number; gameId: string }
+    Analytics["heatmap"][number]
   >();
   for (const ev of groups.values()) {
     ev.sort(
       (a, b) =>
-        new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime(),
+        new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
     );
     const first = ev[0],
       last = ev.at(-1)!;
     const names = ev.map((e) => e.name);
-    let from = 0;
-    for (const [i, name] of [
-      "visit",
-      "loaded",
-      "first_action",
-      "round_start",
-      "round_complete",
-    ].entries()) {
-      const idx = names.indexOf(name, from);
-      if (idx < 0) break;
-      orderedFunnel[i]++;
-      from = idx + 1;
-    }
+    const visit = names.indexOf("visit");
+    const loaded = visit >= 0 ? names.indexOf("loaded", visit + 1) : -1;
+    const start = loaded >= 0 ? names.indexOf("round_start", loaded + 1) : -1;
+    // Games differ: the first accepted action can precede or follow round_start.
+    const action = visit >= 0 ? names.indexOf("first_action", visit + 1) : -1;
+    const completed = start >= 0 && action >= 0 ? names.indexOf("round_complete", Math.max(start, action) + 1) : -1;
+    if (visit >= 0) orderedFunnel[0]++;
+    if (loaded >= 0) orderedFunnel[1]++;
+    if (start >= 0) orderedFunnel[2]++;
+    if (start >= 0 && action >= 0) orderedFunnel[3]++;
+    if (completed >= 0) orderedFunnel[4]++;
     replays += names.filter((x) => x === "retry").length;
     const step = [...ev].reverse().find((e) => e.name === "progression")
       ?.properties.step;
+    let running = false, activePlaySeconds: number | null = null;
+    for (const event of ev) {
+      if (event.name === "round_start") running = true;
+      else if (event.name === "round_complete" || event.name === "exit") running = false;
+      else if (event.name === "active_play" && running && typeof event.properties.duration === "number" && Number.isFinite(event.properties.duration))
+        activePlaySeconds = (activePlaySeconds ?? 0) + Math.max(0, Math.min(15, event.properties.duration));
+    }
     sessions.push({
       id: first.session_id,
       gameId: first.game_id,
@@ -103,9 +109,10 @@ export function summarize(
       lastStep:
         typeof step === "string"
           ? step
-          : [...ev].reverse().find((e) => !["pointer", "exit"].includes(e.name))
-              ?.name || "visit",
+          : [...ev].reverse().find((e) => !["pointer", "exit", "active_play"].includes(e.name))
+              ?.name || "Unknown",
       errors: names.filter((x) => x === "error").length,
+      activePlaySeconds,
       duration: Math.max(
         0,
         (new Date(last.occurred_at).getTime() -
@@ -116,17 +123,18 @@ export function summarize(
     for (const e of ev)
       if (
         e.name === "pointer" &&
-        typeof e.properties.x === "number" &&
-        typeof e.properties.y === "number"
+        typeof e.properties.x === "number" && Number.isFinite(e.properties.x) && e.properties.x >= 0 && e.properties.x <= 1 &&
+        typeof e.properties.y === "number" && Number.isFinite(e.properties.y) && e.properties.y >= 0 && e.properties.y <= 1
       ) {
-        const x =
-            Math.floor(Math.max(0, Math.min(0.999, e.properties.x)) * 20) / 20 +
-            0.025,
-          y =
-            Math.floor(Math.max(0, Math.min(0.999, e.properties.y)) * 20) / 20 +
-            0.025;
-        const key = `${e.game_id}:${x}:${y}`,
-          v = heat.get(key) || { x, y, count: 0, gameId: e.game_id };
+        const legacy = e.properties.surface === undefined && e.properties.screen === undefined;
+        const surface = legacy ? "viewport" : e.properties.surface;
+        const screen = legacy ? "unknown" : e.properties.screen;
+        if ((surface !== "game" && surface !== "viewport") || typeof screen !== "string" || !/^[A-Za-z0-9_-]{1,40}$/.test(screen)) continue;
+        const device = ["mobile", "tablet", "desktop"].includes(e.device) ? e.device : "Unknown";
+        const bx = Math.min(19, Math.floor(e.properties.x * 20)), by = Math.min(19, Math.floor(e.properties.y * 20));
+        const x = bx / 20 + 0.025, y = by / 20 + 0.025;
+        const key = JSON.stringify([e.game_id,surface,screen,device,bx,by]),
+          v = heat.get(key) || { x, y, bx, by, surface, screen, device, count: 0, gameId: e.game_id };
         v.count++;
         heat.set(key, v);
       }
@@ -204,7 +212,14 @@ export function summarize(
   const human = events.filter(
     (e) => e.kind === "human" && new Date(e.occurred_at).getTime() >= cutoff,
   );
+  const measured = sessions.map((s) => s.activePlaySeconds).filter((n): n is number => n !== null && n !== undefined).sort((a,b) => a-b);
+  const totalSeconds = measured.length ? measured.reduce((a,b) => a+b, 0) : null;
+  const middle = Math.floor(measured.length / 2);
   return {
+    windowEnd: new Date(now).toISOString(),
+    loadedSessions: sessions.filter((s) => groups.get(`${s.gameId}:${s.id}`)!.some((e) => e.name === "loaded")).length,
+    progressionSessions: sessions.filter((s) => groups.get(`${s.gameId}:${s.id}`)!.some((e) => e.name === "progression")).length,
+    activePlay: { totalSeconds, averageSeconds: totalSeconds === null ? null : totalSeconds / measured.length, medianSeconds: measured.length ? (measured.length % 2 ? measured[middle] : (measured[middle-1] + measured[middle]) / 2) : null, measuredSessions: measured.length, eligibleSessions: sessions.filter((s) => groups.get(`${s.gameId}:${s.id}`)!.some((e) => e.name === "round_start")).length },
     sessions: sessions.length,
     players: players.size,
     starts: sessions.filter((s) =>
@@ -228,15 +243,20 @@ export function summarize(
     funnel: [
       "Visit",
       "Loaded",
-      "First action",
       "Round started",
+      "First action",
       "Round completed",
     ].map((name, i) => ({ name, count: orderedFunnel[i] })),
     countries: countBy(sessions.map((s) => s.country)),
     sources: countBy(sessions.map((s) => s.source)),
     devices: countBy(sessions.map((s) => s.device)),
     dropoffs: countBy(
-      sessions.filter((s) => !s.completed).map((s) => s.lastStep),
+      sessions.filter((s) => !s.completed).map((s) => {
+        const names = groups.get(`${s.gameId}:${s.id}`)!.map((event) => event.name);
+        if (names.includes("visit") && !names.includes("round_start")) return "Viewed, no round start";
+        if (names.includes("round_start") && !names.includes("first_action")) return "Started, no first action";
+        return s.lastStep;
+      }),
     ),
     retention,
     campaigns,
@@ -250,25 +270,5 @@ export function summarize(
   };
 }
 export async function analytics(workspace: string, gameId?: string, days = 14) {
-  const filters = gameId ? " AND game_id=$2" : "";
-  const params = gameId ? [workspace, gameId] : [workspace];
-  const events = await query<EventRow>(
-    `SELECT * FROM events WHERE workspace_id=$1${filters} AND occurred_at>now()-interval '90 days' ORDER BY occurred_at`,
-    params,
-  );
-  const first = await query<{
-    player_id: string;
-    first_at: Date;
-    session_id: string;
-  }>(
-    `SELECT DISTINCT ON (player_id) player_id,occurred_at AS first_at,session_id FROM events WHERE workspace_id=$1${filters} AND kind='human' ORDER BY player_id,occurred_at`,
-    params,
-  );
-  return summarize(
-    events,
-    new Map(first.map((x) => [x.player_id, new Date(x.first_at).getTime()])),
-    days,
-    Date.now(),
-    new Map(first.map((x) => [x.player_id, x.session_id])),
-  );
+  return sqlAnalytics(workspace, gameId, days);
 }

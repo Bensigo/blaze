@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Web Game Studio",
-  description: "A workspace for web game growth.",
+  title: "Blaze — see where players stop",
+  description: "Player analytics, consented capture, and a content workflow for web games.",
 };
 export default function RootLayout({
   children,

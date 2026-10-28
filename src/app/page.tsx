@@ -1,4 +1,5 @@
-import Dashboard from "@/components/dashboard";
+import Landing from "@/components/landing";
+
 export default function Home() {
-  return <Dashboard />;
+  return <Landing />;
 }

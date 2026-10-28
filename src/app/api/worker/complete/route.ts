@@ -5,6 +5,10 @@ import { get, put, query } from "@/lib/db";
 import { apiError, HttpError } from "@/lib/auth";
 import { mediaRecord } from "@/lib/media";
 import type { Recording, Clip } from "@/lib/types";
+import { queueClipCandidate, releaseRecordingGate } from "@/lib/game-automation";
+import type { Game } from "@/lib/types";
+import { after } from "next/server";
+import { drainContentAutomation, queueClipDraft } from "@/lib/content-automation";
 const input = z.object({
   recordingId: z.string().optional(),
   clipId: z.string().optional(),
@@ -74,6 +78,21 @@ export async function POST(request: Request) {
       job.id,
       body.status === "ready" ? "complete" : "failed",
     ]);
+    if (job.kind === "recording") {
+      const recording = next as Recording;
+      try {
+        await releaseRecordingGate(job.workspace_id, recording.gameId, recording.id);
+        if (recording.status === "ready") {
+          const game = await get<Game>(job.workspace_id, "game", recording.gameId);
+          if (game) await queueClipCandidate(job.workspace_id, recording, game.title);
+        }
+      } catch { console.error("Recording follow-up deferred to automation recovery"); }
+    }
+    if (job.kind === "clip" && next.status === "ready") {
+      try {
+        if (await queueClipDraft(job.workspace_id, next as Clip)) after(async () => { await drainContentAutomation(); });
+      } catch { console.error("Clip follow-up deferred to automation recovery"); }
+    }
     return Response.json({ ok: true });
   } catch (e) {
     if (e instanceof z.ZodError)

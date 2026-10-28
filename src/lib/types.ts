@@ -20,7 +20,7 @@ export interface Game {
   dailyEnabled: boolean;
   competitors: string[];
   metadataStatus?: string;
-  networkPolicy?: { resourceOrigins: string[]; webSocketOrigins: string[] };
+  networkPolicy?: { resourceOrigins: string[]; webSocketOrigins: string[]; frameUrls?: string[] };
   capture?: CaptureConfig;
 }
 export interface CaptureConfig {
@@ -29,6 +29,7 @@ export interface CaptureConfig {
   surfaceReviewed: boolean;
   sampleRate: number;
   maxDurationSeconds: number;
+  maxSegments?: number;
   retentionDays: number;
   maxCapturesPerDay: number;
   masks: { x: number; y: number; width: number; height: number }[];
@@ -37,6 +38,7 @@ export interface SessionCapture {
   id: string;
   gameId: string;
   sessionId: string;
+  segment?: number;
   playerId: string;
   status:
     | "pending"
@@ -103,6 +105,8 @@ export interface Post {
   channel: Channel;
   text: string;
   accountId: string;
+  deliveryMethod?: "manual" | "native";
+  timeZone?: string;
   status:
     | "draft"
     | "review"
@@ -119,6 +123,12 @@ export interface Post {
   approvedHash?: string;
   providerId?: string;
   publicationUrl?: string;
+  manualExportedAt?: string;
+  manualPublishedAt?: string;
+  manualConfirmedAt?: string;
+  manualPublishedBy?: string;
+  manualPublicationUrl?: string;
+  recommendation?: { confidence: "low" | "medium"; reason: string; time: string };
   error?: string;
   campaignId: string;
   trackingUrl?: string;
@@ -139,6 +149,11 @@ export interface Connection {
   checkedAt?: string;
   details?: string;
   model?: string;
+  authMethod?: "oauth" | "manual";
+  accountName?: string;
+  scopes?: string[];
+  expiresAt?: string;
+  requiresReconnect?: boolean;
 }
 export interface Finding {
   id: string;
@@ -205,10 +220,17 @@ export interface SessionSummary {
   lastStep: string;
   errors: number;
   duration: number;
+  activePlaySeconds?: number | null;
   captureStatus?: SessionCapture["status"];
   captureId?: string;
 }
 export interface Analytics {
+  windowEnd?: string;
+  activePlay?: { totalSeconds: number | null; averageSeconds: number | null; medianSeconds: number | null; measuredSessions: number; eligibleSessions: number };
+  loadedSessions?: number;
+  progressionSessions?: number;
+  sessionPage?: { limit: number; total: number; nextCursor?: string };
+  coverage?: Record<string, { total: number; shown: number }>;
   sessions: number;
   players: number;
   starts: number;
@@ -244,7 +266,7 @@ export interface Analytics {
     returns: number;
   }[];
   sessionsList: SessionSummary[];
-  heatmap: { x: number; y: number; count: number; gameId: string }[];
+  heatmap: { x: number; y: number; bx: number; by: number; count: number; gameId: string; surface: "game" | "viewport"; screen: string; device: string }[];
   syntheticSessions: number;
 }
 export interface WorkspaceSnapshot {
@@ -262,12 +284,14 @@ export interface WorkspaceSnapshot {
   analytics: Analytics;
   system: {
     database: boolean;
+    databaseUsage?: { bytes: number | null; limitBytes: number | null; paused: boolean; measuredAt: string | null; retentionDays: null; reason?: string };
     google: boolean;
     storage: boolean;
     worker: boolean;
     lastWorkerAt?: string;
     dailySchedule: string;
     publishingEnabled: boolean;
+    social?: { provider: string; configured: boolean; setup: string; callbackUrl: string }[];
   };
   error?: string;
 }

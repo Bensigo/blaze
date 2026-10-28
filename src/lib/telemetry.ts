@@ -2,6 +2,7 @@ import { z } from "zod";
 import { query, rateLimit } from "./db";
 import type { Game } from "./types";
 import { hash } from "./security";
+import { databaseUsage } from "./db-capacity";
 const short = z.string().max(100);
 const eventSchema = z.object({
   id: z.string().min(8).max(100),
@@ -16,6 +17,7 @@ const eventSchema = z.object({
     "error",
     "exit",
     "pointer",
+    "active_play",
   ]),
   sessionId: z.string().min(8).max(100),
   playerId: z.string().min(8).max(100),
@@ -54,12 +56,33 @@ function properties(input: Record<string, unknown>) {
 export async function ingest(
   request: Request,
   synthetic?: { workspace: string; game: Game; recordingId: string },
+  onAccepted?: (workspace: string, gameId: string) => Promise<void>,
 ) {
   if (Number(request.headers.get("content-length") || 0) > 65536)
     return Response.json({ error: "Event batch too large" }, { status: 413 });
-  const raw = await request.text();
-  if (Buffer.byteLength(raw) > 65536)
-    return Response.json({ error: "Event batch too large" }, { status: 413 });
+  const reader = request.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  if (reader) {
+    try {
+      for (;;) {
+        const part = await reader.read();
+        if (part.done) break;
+        size += part.value.byteLength;
+        if (size > 65536) {
+          await reader.cancel().catch(() => undefined);
+          return Response.json(
+            { error: "Event batch too large" },
+            { status: 413 },
+          );
+        }
+        chunks.push(part.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
   let input;
   try {
     input = JSON.parse(raw);
@@ -95,6 +118,8 @@ export async function ingest(
       { error: "This origin is not allowed for the game" },
       { status: 403 },
     );
+  const usage = await databaseUsage();
+  if (usage?.paused) return Response.json({ error: "Event ingestion is temporarily paused while database capacity is checked or managed." }, { status: 503, headers: { ...cors, "Retry-After": "30", "Cache-Control": "no-store" } });
   const ip = process.env.VERCEL
     ? (request.headers.get("x-forwarded-for") || "unknown").split(",")[0]
     : "local";
@@ -103,7 +128,7 @@ export async function ingest(
       { error: "Event limit reached" },
       { status: 429, headers: cors },
     );
-  let accepted = 0;
+  const rows: Array<Record<string, unknown>> = [];
   for (const e of parsed.data.events) {
     const at = new Date(e.timestamp).getTime();
     if (at > Date.now() + 60000 || at < Date.now() - 7 * 86400000) continue;
@@ -112,6 +137,15 @@ export async function ingest(
       (e.sessionId.startsWith("agent_") || e.sessionId.startsWith("rec_"))
     )
       continue;
+    if (e.name === "active_play" && (synthetic || typeof e.properties.duration !== "number" || !Number.isInteger(e.properties.duration) || e.properties.duration < 0 || e.properties.duration > 15)) continue;
+    let pointer: { x: number; y: number; surface: "game" | "viewport"; screen: string } | undefined;
+    if (e.name === "pointer") {
+      const { x, y, surface, screen } = e.properties;
+      if (typeof x !== "number" || !Number.isFinite(x) || x < 0 || x > 1 || typeof y !== "number" || !Number.isFinite(y) || y < 0 || y > 1) continue;
+      if (surface === undefined && screen === undefined) pointer = { x, y, surface: "viewport", screen: "unknown" };
+      else if ((surface === "game" || surface === "viewport") && typeof screen === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(screen)) pointer = { x, y, surface, screen };
+      else continue;
+    }
     const country = synthetic
       ? "Synthetic"
       : process.env.VERCEL
@@ -127,28 +161,44 @@ export async function ingest(
     }
     const session = synthetic ? synthetic.recordingId : e.sessionId,
       player = synthetic ? synthetic.recordingId : e.playerId;
-    const inserted = await query<{ id: string }>(
-      `INSERT INTO events(id,workspace_id,game_id,session_id,player_id,kind,name,occurred_at,country,device,source,campaign,page,properties) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb) ON CONFLICT(id) DO NOTHING RETURNING id`,
-      [
-        hash(`${game.id}:${e.id}:${synthetic ? "agent" : "human"}`),
-        workspace,
-        game.id,
-        session,
-        player,
-        synthetic ? "agent" : "human",
-        e.name,
-        e.timestamp,
-        country,
-        ["mobile", "tablet", "desktop"].includes(e.device || "")
-          ? e.device
-          : "Unknown",
-        source.slice(0, 100),
-        e.campaign || "",
-        safePage(e.page),
-        JSON.stringify(properties(e.properties)),
-      ],
-    );
-    accepted += inserted.length;
+    rows.push({
+      // A marker establishes coverage; positive increments are capped to one per
+      // 15-second session bucket, regardless of client event IDs or retries.
+      id: e.name === "active_play"
+        ? hash(`${workspace}:${game.id}:${session}:active_play:${e.properties.duration === 0 ? "marker" : Math.floor(at / 15000)}`)
+        : hash(`${game.id}:${e.id}:${synthetic ? "agent" : "human"}`),
+      session_id: session,
+      player_id: player,
+      name: e.name,
+      occurred_at: e.timestamp,
+      country,
+      device: ["mobile", "tablet", "desktop"].includes(e.device || "")
+        ? e.device
+        : "Unknown",
+      source: source.slice(0, 100),
+      campaign: e.campaign || "",
+      page: safePage(e.page),
+      properties: pointer || properties(e.properties),
+    });
+  }
+  if (!rows.length) return Response.json({ accepted: 0 }, { headers: cors });
+  const [result] = await query<{ accepted: number }>(
+    `WITH incoming AS (
+       SELECT item, ord FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS e(item,ord)
+     ), inserted AS (
+       INSERT INTO events(id,workspace_id,game_id,session_id,player_id,kind,name,occurred_at,country,device,source,campaign,page,properties)
+       SELECT item->>'id',$2,$3,item->>'session_id',item->>'player_id',$4,item->>'name',
+         (item->>'occurred_at')::timestamptz,item->>'country',item->>'device',item->>'source',
+         item->>'campaign',item->>'page',item->'properties'
+       FROM incoming ORDER BY ord ON CONFLICT(id) DO NOTHING
+       RETURNING workspace_id,game_id,player_id,kind,occurred_at,session_id
+     ) SELECT count(*)::int AS accepted FROM inserted`,
+    [JSON.stringify(rows), workspace, game.id, synthetic ? "agent" : "human"],
+  );
+  const accepted = result.accepted;
+  if (accepted > 0 && !synthetic && onAccepted) {
+    try { await onAccepted(workspace!, game.id); }
+    catch (error) { console.error("Human profile refresh deferred", error instanceof Error ? error.name : "UnknownError"); }
   }
   return Response.json({ accepted }, { headers: cors });
 }

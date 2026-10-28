@@ -30,7 +30,13 @@ export async function secretFor(
       [workspace, conn.id],
     )
   )[0];
-  return row ? decrypt(row.encrypted) : undefined;
+  if (!row) return;
+  const secret = await decrypt(row.encrypted);
+  if (conn.authMethod === "oauth") {
+    const { freshSocialSecret } = await import("./social-oauth");
+    return freshSocialSecret(workspace, conn, secret);
+  }
+  return secret;
 }
 export async function researchSecrets(workspace: string) {
   const result: Record<string, ProviderSecret> = {};

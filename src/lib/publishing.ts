@@ -14,6 +14,8 @@ export const approvalHash = (p: Post) =>
       channel: p.channel,
       text: p.text,
       account: p.accountId,
+      deliveryMethod: p.deliveryMethod || "native",
+      timeZone: p.timeZone || "",
       time: p.scheduledAt || "",
       tiktok: p.tiktokConsent || null,
     }),
@@ -95,6 +97,8 @@ export async function dispatch(
     );
   const post = await get<Post>(workspace, "post", postId);
   if (!post) throw new HttpError(404, "Post not found.");
+  if (post.deliveryMethod === "manual")
+    throw new HttpError(400, "This post uses manual export. Download its approved content and confirm publication separately.");
   if (!approvalValid(post))
     throw new HttpError(
       409,
@@ -131,6 +135,7 @@ export async function dispatch(
   return recordResult(workspace, locked, await publishPost(prepared));
 }
 export async function reconcile(workspace: string, post: Post) {
+  if (post.deliveryMethod === "manual") return post;
   if (!approvalValid(post)) return post;
   if (!post.providerId) return post; // An uncertain write without a provider ID is never retried.
   const prepared = await input(workspace, post);
@@ -157,7 +162,7 @@ export async function reconcile(workspace: string, post: Post) {
 export async function duePublications() {
   if (process.env.PUBLISHING_ENABLED !== "true") return { checked: 0 };
   const rows = await query<{ workspace_id: string; body: Post }>(
-    `SELECT workspace_id,body FROM records WHERE kind='post' AND ((body->>'status'='processing' AND body->>'providerId' IS NOT NULL) OR (body->>'status'='scheduled' AND (body->>'scheduledAt')::timestamptz<=now())) ORDER BY updated_at LIMIT 1`,
+    `SELECT workspace_id,body FROM records WHERE kind='post' AND COALESCE(body->>'deliveryMethod','native')<>'manual' AND ((body->>'status'='processing' AND body->>'providerId' IS NOT NULL) OR (body->>'status'='scheduled' AND (body->>'scheduledAt')::timestamptz<=now())) ORDER BY updated_at LIMIT 1`,
   );
   let checked = 0;
   for (const row of rows) {

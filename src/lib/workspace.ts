@@ -7,12 +7,15 @@ import type {
   Connection,
   Finding,
   ResearchRun,
-  SessionCapture,
 } from "./types";
 import type { Identity } from "./auth";
 import { list, query } from "./db";
 import { analytics } from "./analytics";
 import { measurementResults } from "./measurements";
+import { googleAvailable } from "./neon-auth";
+import { socialConfiguration } from "./social-oauth";
+import { databaseUsage } from "./db-capacity";
+import { mediaStorageConfigured } from "./media";
 export async function snapshot(
   user: Identity,
   gameId?: string,
@@ -29,6 +32,8 @@ export async function snapshot(
     runs,
     stats,
     worker,
+    google,
+    usage,
   ] = await Promise.all([
     list<Game>(workspace, "game"),
     list<Recording>(workspace, "recording"),
@@ -41,23 +46,11 @@ export async function snapshot(
     query<{ updated_at: Date }>(
       `SELECT updated_at FROM jobs WHERE kind='worker_heartbeat' ORDER BY updated_at DESC LIMIT 1`,
     ),
+    googleAvailable(),
+    databaseUsage(),
   ]);
   const match = <T extends { gameId: string }>(items: T[]) =>
     gameId ? items.filter((x) => x.gameId === gameId) : items;
-  const captures = await list<SessionCapture>(workspace, "session_capture");
-  stats.sessionsList = stats.sessionsList.map((session) => {
-    const capture = captures.find(
-      (c) => c.gameId === session.gameId && c.sessionId === session.id,
-    );
-    return {
-      ...session,
-      captureId: capture?.id,
-      captureStatus:
-        capture && Date.parse(capture.expiresAt) <= Date.now()
-          ? "expired"
-          : capture?.status,
-    };
-  });
   return {
     user: { name: user.name, email: user.email },
     workspace: { id: workspace, name: "Your workspace" },
@@ -73,10 +66,9 @@ export async function snapshot(
     analytics: stats,
     system: {
       database: true,
-      google: !!(
-        process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
-      ),
-      storage: !!process.env.BLOB_READ_WRITE_TOKEN || !process.env.VERCEL,
+      databaseUsage: usage,
+      google,
+      storage: mediaStorageConfigured(),
       worker:
         !!worker[0] &&
         Date.now() - new Date(worker[0].updated_at).getTime() < 90000,
@@ -86,6 +78,7 @@ export async function snapshot(
       dailySchedule:
         "Daily at 06:00 UTC; three games checked per cron invocation, additional queued games need the worker. Approved scheduled posts are checked every minute while the worker runs.",
       publishingEnabled: process.env.PUBLISHING_ENABLED === "true",
+      social: socialConfiguration(process.env.APP_URL || "http://localhost:3000"),
     },
   };
 }

@@ -16,7 +16,7 @@ it("orders events emitted in the same millisecond", () => {
     h.sdk.track("first_action");
     h.sdk.track("round_start");
     const times = h.requests.map((r) => Date.parse(r.events[0].timestamp));
-    expect(times).toEqual([fixed, fixed + 1, fixed + 2, fixed + 3]);
+    expect(times).toEqual([fixed, fixed + 1, fixed + 2, fixed + 3, fixed + 4]);
   } finally {
     clock.mockRestore();
   }
@@ -25,6 +25,7 @@ it("orders events emitted in the same millisecond", () => {
 function harness(agent = false) {
   const requests: any[] = [];
   const handlers: Record<string, Function[]> = {};
+  const timers = new Map<number, Function>(); let timerId = 0;
   const storage = () => {
     const items = new Map<string, string>();
     return {
@@ -36,6 +37,7 @@ function harness(agent = false) {
   const localStorage = storage(),
     sessionStorage = storage();
   const document = {
+    hidden: false,
     readyState: "complete",
     referrer: "https://ref.example/a?secret=1",
     addEventListener: (name: string, fn: Function) => {
@@ -72,16 +74,33 @@ function harness(agent = false) {
     Math,
     Number,
     Array,
+    setInterval: (fn: Function) => { const key = ++timerId; timers.set(key, fn); return key; },
+    clearInterval: (key: number) => timers.delete(key),
   });
   return {
-    sdk: window.GameMarketing,
+    sdk: window.Blaze,
+    legacy: window.GameMarketing,
     requests,
     handlers,
     localStorage,
     sessionStorage,
+    document,
+    tick: () => [...timers.values()].forEach((fn) => fn()),
   };
 }
 describe("SDK privacy and consent", () => {
+  it("exposes Blaze and the legacy name as one API and preserves identity storage keys", () => {
+    const h = harness();
+    expect(h.sdk).toBe(h.legacy);
+    h.legacy.init({ endpoint: "https://marketing.example", sdkKey: "key", consent: true });
+    h.sdk.track("round_start");
+    expect(h.requests.map((r) => r.events[0].name)).toEqual(["visit", "loaded", "round_start", "active_play"]);
+    expect(h.localStorage.items.has("gm_player_key")).toBe(true);
+    expect(h.sessionStorage.items.has("gm_session_key_id")).toBe(true);
+  });
+  it("ships identical SDK source and public copies", () => {
+    expect(readFileSync("sdk/sdk.js", "utf8")).toBe(readFileSync("public/sdk.js", "utf8"));
+  });
   it("does not send human events or write IDs in a marked worker session", async () => {
     const h = harness(true);
     h.sdk.init({ endpoint: "https://marketing.example", sdkKey: "key", consent: true });
@@ -106,7 +125,7 @@ describe("SDK privacy and consent", () => {
       secret: "no",
       message: "secret error detail",
     });
-    expect(h.requests).toHaveLength(3);
+    expect(h.requests).toHaveLength(4);
     const event = h.requests[2].events[0];
     expect(event.page).toBe("https://game.example/play");
     expect(event.referrer).toBe("https://ref.example/a");
@@ -115,7 +134,7 @@ describe("SDK privacy and consent", () => {
     expect(JSON.stringify(h.requests)).not.toContain("secret");
     h.sdk.disable();
     h.sdk.track("exit");
-    expect(h.requests).toHaveLength(3);
+    expect(h.requests).toHaveLength(4);
   });
   it("keeps pseudonymous IDs stable within the browser session and normalizes pointer samples", () => {
     const h = harness();
@@ -130,7 +149,7 @@ describe("SDK privacy and consent", () => {
     );
     h.sdk.track("first_action");
     const [visit, , pointer, first] = h.requests.map((r) => r.events[0]);
-    expect(pointer.properties).toEqual({ x: 0.5, y: 1 });
+    expect(pointer.properties).toEqual({ x: 0.5, y: 1, surface: "viewport", screen: "viewport" });
     expect(first.name).toBe("first_action");
     expect(first.sessionId).toBe(visit.sessionId);
     expect(first.playerId).toBe(visit.playerId);
@@ -165,4 +184,32 @@ describe("SDK privacy and consent", () => {
       vi.useRealTimers();
     }
   });
+});
+
+it("measures only consented foreground play after trusted input and stops on completion", () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const h = harness(); h.sdk.init({endpoint:"https://marketing.example",sdkKey:"key",consent:true});
+    h.handlers.keydown[0]({isTrusted:true});
+    h.sdk.track("round_start");
+    const durations = () => h.requests.filter((r) => r.events[0].name === "active_play").map((r) => r.events[0].properties.duration);
+    expect(durations()).toEqual([0]);
+    vi.setSystemTime(new Date("2026-01-01T00:00:15Z")); h.tick();
+    expect(durations()).toEqual([0]);
+    h.handlers.keydown[0]({isTrusted:false});
+    vi.setSystemTime(new Date("2026-01-01T00:00:30Z")); h.tick();
+    expect(durations()).toEqual([0]);
+    h.handlers.keydown[0]({isTrusted:true});
+    vi.setSystemTime(new Date("2026-01-01T00:00:40Z")); h.document.hidden=true; h.handlers.visibilitychange.forEach((fn) => fn());
+    vi.setSystemTime(new Date("2026-01-01T00:00:45Z")); h.tick();
+    expect(durations()).toEqual([0, 10]);
+    vi.setSystemTime(new Date("2026-01-01T00:01:00Z")); h.tick(); expect(durations()).toEqual([0, 10]);
+    h.document.hidden=false; h.handlers.visibilitychange.forEach((fn) => fn());
+    h.handlers.keydown[0]({isTrusted:true});
+    vi.setSystemTime(new Date("2026-01-01T00:01:15Z")); h.tick();
+    expect(durations()).toEqual([0, 10, 15]);
+    h.sdk.track("round_complete"); h.handlers.keydown[0]({isTrusted:true});
+    vi.setSystemTime(new Date("2026-01-01T00:01:30Z")); h.tick(); expect(durations()).toEqual([0,10,15]);
+  } finally { vi.useRealTimers(); }
 });

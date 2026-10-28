@@ -1,59 +1,23 @@
-import { Google } from "arctic";
-import { cookies } from "next/headers";
-import { createSession } from "@/lib/auth";
-import { constantEqual } from "@/lib/security";
+import { NextRequest } from "next/server";
+import { appOrigin } from "@/lib/app-origin";
+import { googleAvailable, neonAuth } from "@/lib/neon-auth";
+
 export async function GET(request: Request) {
-  const url = new URL(request.url),
-    jar = await cookies();
-  const state = jar.get("oauth_state")?.value,
-    verifier = jar.get("oauth_verifier")?.value;
-  jar.delete("oauth_state");
-  jar.delete("oauth_verifier");
-  if (
-    !state ||
-    !verifier ||
-    !constantEqual(url.searchParams.get("state") || "", state) ||
-    !url.searchParams.get("code")
-  )
-    return Response.json(
-      { error: "Sign-in expired. Start Google sign-in again." },
-      { status: 400 },
-    );
+  const origin = appOrigin(request);
+  if (!origin) return Response.json({ error: "Sign-in is not configured." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  const failed = () => new Response(null, { status: 303, headers: { Location: `${origin}/app?auth=failed`, "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" } });
+  const url = new URL(request.url), verifier = url.searchParams.get("neon_auth_session_verifier"), auth = neonAuth();
+  if (url.origin !== origin || !googleAvailable() || !auth || !verifier || verifier.length > 4096 || url.searchParams.has("error")) return failed();
   try {
-    const base = process.env.APP_URL || url.origin;
-    const client = new Google(
-      process.env.GOOGLE_CLIENT_ID!,
-      process.env.GOOGLE_CLIENT_SECRET!,
-      `${base}/api/auth/callback/google`,
-    );
-    const token = await client.validateAuthorizationCode(
-      url.searchParams.get("code")!,
-      verifier,
-    );
-    const result = await fetch(
-      "https://openidconnect.googleapis.com/v1/userinfo",
-      {
-        headers: { Authorization: `Bearer ${token.accessToken()}` },
-        signal: AbortSignal.timeout(10000),
-      },
-    );
-    if (!result.ok) throw new Error("Profile unavailable");
-    const user = await result.json();
-    if (!user.sub || !user.email_verified)
-      throw new Error("Verified Google email required");
-    await createSession({
-      id: `google:${user.sub}`,
-      email: user.email,
-      name: user.name || user.email,
-    });
-    return Response.redirect(`${base}/`);
-  } catch {
-    return Response.json(
-      {
-        error:
-          "Google sign-in failed. Check the OAuth application and callback URL.",
-      },
-      { status: 400 },
-    );
-  }
+    // The official middleware checks the browser challenge cookie and exchanges
+    // Neon's one-time session verifier; do not reflect the verifier in redirects.
+    const result = await auth.middleware({ loginUrl: "/app" })(new NextRequest(request));
+    const location = result.headers.get("location"), cookies = result.headers.getSetCookie();
+    if (!location || new URL(location).origin !== origin || new URL(location).pathname !== url.pathname ||
+        new URL(location).searchParams.has("neon_auth_session_verifier") ||
+        !cookies.some((cookie) => /^__Secure-neon-auth\.session_token=/.test(cookie))) return failed();
+    const headers = new Headers({ Location: `${origin}/app`, "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" });
+    for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+    return new Response(null, { status: 303, headers });
+  } catch { return failed(); }
 }

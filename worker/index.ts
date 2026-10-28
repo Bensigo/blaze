@@ -9,7 +9,8 @@ import { createRequire } from "node:module";
 import { validateGameUrl } from "./safety";
 import { installAgentMarker, installBrowserPolicy, prepareBrowserPolicy, resolverRules } from "./network-policy";
 import { startIsolatedBrowser, stopIsolatedBrowser } from "./egress-client";
-import { RunEvidence, failureCode, safePhase } from "./observations";
+import { RunEvidence, failureCode } from "./observations";
+import { validateAdapterSnapshot } from "./adapter";
 
 const app = new URL(process.env.APP_URL || "http://127.0.0.1:3000");
 const token = process.env.WORKER_TOKEN;
@@ -235,13 +236,13 @@ async function runRecording(job: any) {
     });
     await installAgentMarker(context);
     const page = await context.newPage();
-    await installBrowserPolicy(context, page, policy, () => evidence.blockedRequest(), app.origin);
+    await installBrowserPolicy(context, page, policy, () => evidence.blockedRequest(), app.origin, job.syntheticCapability ? { url: safe.url, capability: job.syntheticCapability } : undefined);
     page.on("pageerror", (error) => evidence.pageError(error.name));
     page.setDefaultTimeout(5000);
     page.setDefaultNavigationTimeout(15000);
     await page.goto(safe.url, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(
-      () => Boolean((window as any).gameMarketingAdapter),
+      () => Boolean((window as any).BlazeGameAdapter || (window as any).gameMarketingAdapter),
       null,
       { timeout: 10000 },
     );
@@ -251,7 +252,7 @@ async function runRecording(job: any) {
       if (!leaseValid) throw new Error("Worker lease heartbeat failed");
       const raw = await bounded(
         page.evaluate(async () => {
-          const a = (window as any).gameMarketingAdapter;
+          const a = (window as any).BlazeGameAdapter || (window as any).gameMarketingAdapter;
           const state = JSON.stringify(await a.getState());
           if (!state || state.length > 8000)
             throw new Error("Adapter state exceeds 8 KB");
@@ -275,30 +276,9 @@ async function runRecording(job: any) {
         state: JSON.parse(raw.state) as unknown,
         actions: raw.actions,
       };
-      if (
-        !Array.isArray(snap.actions) ||
-        snap.actions.length < 1 ||
-        snap.actions.length > 20
-      )
-        throw new Error("Adapter actions must contain 1–20 choices");
-      const actions: Action[] = snap.actions.map((a: any) => ({
-        id: a.id,
-        label: a.label,
-      }));
-      if (
-        actions.some(
-          (a) =>
-            typeof a.id !== "string" ||
-            !/^[a-zA-Z0-9_-]{1,40}$/.test(a.id) ||
-            typeof a.label !== "string" ||
-            a.label.length > 120,
-        ) ||
-        new Set(actions.map((a) => a.id)).size !== actions.length
-      )
-        throw new Error("Adapter actions invalid");
-      const phase = safePhase((snap.state as any)?.phase);
+      const { phase, terminal, actions } = validateAdapterSnapshot(snap.state, snap.actions);
       evidence.state(snap.state, raw.state);
-      if (phase === "won" || phase === "complete" || phase === "completed") {
+      if (terminal) {
         await event("round_complete", { result: String(phase) });
         break;
       }
@@ -313,7 +293,7 @@ async function runRecording(job: any) {
       if (!leaseValid) throw new Error("Worker lease heartbeat failed");
       await bounded(
         page.evaluate(async (id) => {
-          await (window as any).gameMarketingAdapter.act(id);
+          await ((window as any).BlazeGameAdapter || (window as any).gameMarketingAdapter).act(id);
         }, selected),
         5000,
       );

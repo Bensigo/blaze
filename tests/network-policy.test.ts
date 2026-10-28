@@ -96,6 +96,7 @@ describe("real Chromium network enforcement", () => {
     await context.close(); await browser.close();
     return { result, arrivals: [...arrivals], blocked, pins, calls };
   }
+  // This harness budget covers browser startup, negative network timers and browser cleanup; it is not an application latency target.
   it("permits an explicitly configured second resource origin and WSS, but blocks redirect and private escapes", async () => {
     const { result, arrivals, blocked, pins, calls } = await run(true);
     expect(result).toEqual({ asset: "asset-ok", ws: "ok", privateRedirect: "blocked", unknownRedirect: "blocked", socketRedirect: "blocked", directPrivate: "blocked", unknownSocket: "blocked", sameHostSocket: "open", worker: "blocked", frameSocket: "blocked", imageRedirect: "blocked", privateSocket: "blocked", marker: true, markerImmutable: true, collect: "blocked", capture: "blocked", collectRedirect: "blocked", encodedCollect: "blocked", telemetrySocket: "blocked", frameMarker: true });
@@ -103,10 +104,10 @@ describe("real Chromium network enforcement", () => {
     expect(blocked).toBeGreaterThanOrEqual(2);
     expect(pins.every(x => x === "8.8.8.8")).toBe(true);
     expect(calls).toBe(2);
-  }, 30000);
+  }, 60000);
   it("blocks the same CDN and socket when not explicitly configured", async () => {
     const { result, arrivals } = await run(false);
     expect(result.asset).toBe("blocked"); expect(result.ws).toBe("blocked"); expect(result.sameHostSocket).toBe("blocked");
     expect(arrivals.some(x => x.includes("/asset") || x.includes("/ws"))).toBe(false);
-  }, 30000);
+  }, 60000);
 });

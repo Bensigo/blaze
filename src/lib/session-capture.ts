@@ -26,6 +26,7 @@ export const captureConfigSchema = z
     surfaceReviewed: z.boolean(),
     sampleRate: z.number().min(0.01).max(1),
     maxDurationSeconds: z.number().int().min(3).max(30),
+    maxSegments: z.number().int().min(1).max(4).default(4),
     retentionDays: z.number().int().min(1).max(7),
     maxCapturesPerDay: z.number().int().min(1).max(100),
     masks: z.array(rect).max(8),
@@ -40,6 +41,7 @@ export const defaultCaptureConfig: CaptureConfig = {
   surfaceReviewed: false,
   sampleRate: 0.1,
   maxDurationSeconds: 30,
+  maxSegments: 4,
   retentionDays: 1,
   maxCapturesPerDay: 25,
   masks: [],
@@ -143,7 +145,7 @@ async function authenticate(
   return grant;
 }
 export async function startCapture(input: unknown, origin: string) {
-  const { sdkKey, sessionId } = z
+  const { sdkKey, sessionId, segment } = z
     .object({
       sdkKey: z.string().min(20).max(100),
       sessionId: z
@@ -152,6 +154,7 @@ export async function startCapture(input: unknown, origin: string) {
         .max(100)
         .refine((s) => !s.startsWith("rec_") && !s.startsWith("agent_")),
       consent: z.literal(true),
+      segment: z.number().int().min(0).max(3).default(0),
     })
     .parse(input);
   const { workspace_id: workspace, body: game } = await gameByKey(
@@ -160,6 +163,14 @@ export async function startCapture(input: unknown, origin: string) {
   );
   const config = captureSettings(game);
   if (!config.enabled) return { status: "disabled" };
+  if (segment >= (config.maxSegments || 1))
+    throw new HttpError(400, "This session reached its recording segment limit.");
+  if (segment > 0) {
+    const prior = await query(`SELECT capture_id FROM session_capture_grants WHERE workspace_id=$1 AND game_id=$2 AND session_id=$3 AND segment_index=$4 AND state='ready'`, [workspace, game.id, sessionId, segment - 1]);
+    if (!prior.length) throw new HttpError(409, "The previous recording segment must finish before another starts.");
+    const cancelled = await query(`SELECT capture_id FROM session_capture_grants WHERE workspace_id=$1 AND game_id=$2 AND session_id=$3 AND state='cancelled' LIMIT 1`, [workspace, game.id, sessionId]);
+    if (cancelled.length) throw new HttpError(403, "Recording consent was withdrawn for this session.");
+  }
   const event = (
     await query<{ player_id: string; page: string }>(
       `SELECT player_id,page FROM events WHERE workspace_id=$1 AND game_id=$2 AND session_id=$3 AND kind='human' AND name='visit' AND received_at>now()-interval '35 minutes' ORDER BY occurred_at DESC LIMIT 1`,
@@ -180,7 +191,7 @@ export async function startCapture(input: unknown, origin: string) {
       403,
       "The session does not belong to this game origin.",
     );
-  const captureId = `capture_${hash(`${workspace}:${game.id}:${sessionId}`).slice(0, 32)}`;
+  const captureId = `capture_${hash(`${workspace}:${game.id}:${sessionId}${segment ? `:${segment}` : ""}`).slice(0, 32)}`;
   const previous = await get<SessionCapture>(
     workspace,
     "session_capture",
@@ -202,6 +213,7 @@ export async function startCapture(input: unknown, origin: string) {
     id: captureId,
     gameId: game.id,
     sessionId,
+    segment,
     playerId: event.player_id,
     status: "pending",
     createdAt,
@@ -228,7 +240,7 @@ export async function startCapture(input: unknown, origin: string) {
   }
   const token = randomBytes(32).toString("base64url");
   const rows = await query(
-    `WITH granted AS (INSERT INTO session_capture_grants(capture_id,workspace_id,game_id,session_id,origin,token_hash,expires_at,state) VALUES($1,$2,$3,$4,$5,$6,now()+interval '5 minutes','issued') ON CONFLICT DO NOTHING RETURNING capture_id) INSERT INTO records(workspace_id,kind,id,body) SELECT $2,'session_capture',capture_id,$7::jsonb FROM granted RETURNING id`,
+    `WITH granted AS (INSERT INTO session_capture_grants(capture_id,workspace_id,game_id,session_id,origin,token_hash,expires_at,state,segment_index) SELECT $1,$2,$3,$4,$5,$6,now()+interval '5 minutes','issued',$8 WHERE NOT EXISTS (SELECT 1 FROM session_capture_grants WHERE workspace_id=$2 AND game_id=$3 AND session_id=$4 AND state='cancelled') ON CONFLICT DO NOTHING RETURNING capture_id) INSERT INTO records(workspace_id,kind,id,body) SELECT $2,'session_capture',capture_id,$7::jsonb FROM granted RETURNING id`,
     [
       captureId,
       workspace,
@@ -237,6 +249,7 @@ export async function startCapture(input: unknown, origin: string) {
       origin,
       hash(token),
       JSON.stringify(capture),
+      segment,
     ],
   );
   if (!rows.length)
@@ -360,7 +373,7 @@ export async function uploadCapture(form: FormData, origin: string) {
     config.maxDurationSeconds,
   );
   const claimed = await query(
-    `UPDATE session_capture_grants SET state='uploading' WHERE capture_id=$1 AND state='issued' AND expires_at>now() RETURNING capture_id`,
+    `UPDATE session_capture_grants g SET state='uploading' WHERE capture_id=$1 AND state='issued' AND expires_at>now() AND NOT EXISTS (SELECT 1 FROM session_capture_grants withdrawn WHERE withdrawn.workspace_id=g.workspace_id AND withdrawn.game_id=g.game_id AND withdrawn.session_id=g.session_id AND withdrawn.state='cancelled') RETURNING capture_id`,
     [captureId],
   );
   if (!claimed.length)
@@ -390,7 +403,7 @@ export async function uploadCapture(form: FormData, origin: string) {
     };
     const active = (
       await query<Grant>(
-        `SELECT * FROM session_capture_grants WHERE capture_id=$1 AND state='uploading'`,
+        `SELECT g.* FROM session_capture_grants g WHERE capture_id=$1 AND state='uploading' AND NOT EXISTS (SELECT 1 FROM session_capture_grants withdrawn WHERE withdrawn.workspace_id=g.workspace_id AND withdrawn.game_id=g.game_id AND withdrawn.session_id=g.session_id AND withdrawn.state='cancelled')`,
         [captureId],
       )
     )[0];
@@ -478,13 +491,22 @@ async function revokeCapture(
 export async function cancelCapture(input: unknown, origin: string) {
   const v = z.object({ captureId: z.string(), token: z.string() }).parse(input);
   const grant = await authenticate(v.captureId, v.token, origin);
-  return revokeCapture(grant.workspace_id, v.captureId, "consent_revoked");
+  // A single valid session grant withdraws all of that session's segments.
+  const rows = await query<{capture_id: string}>(`UPDATE session_capture_grants SET state='cancelled' WHERE workspace_id=$1 AND game_id=$2 AND session_id=$3 RETURNING capture_id`, [grant.workspace_id, grant.game_id, grant.session_id]);
+  for (const row of rows) await revokeCapture(grant.workspace_id, row.capture_id, "consent_revoked");
+  return { status: "cancelled" };
 }
 export async function deleteOwnerCapture(workspace: string, captureId: string) {
-  await revokeCapture(workspace, captureId, "owner_deleted");
+  const cap = await get<SessionCapture>(workspace, "session_capture", captureId);
+  if (!cap) throw new HttpError(404, "Session recording not found.");
+  const rows = await query<{capture_id: string}>(`UPDATE session_capture_grants SET state='cancelled' WHERE workspace_id=$1 AND game_id=$2 AND session_id=$3 RETURNING capture_id`, [workspace, cap.gameId, cap.sessionId]);
+  for (const row of rows) await revokeCapture(workspace, row.capture_id, "owner_deleted");
+  if (!rows.length) await revokeCapture(workspace, captureId, "owner_deleted");
 }
 export async function cleanupCaptures() {
   const storageCleanup = await cleanupStorageIntents();
+  const withdrawn = await query<{workspace_id: string; capture_id: string}>(`UPDATE session_capture_grants g SET state='cancelled' WHERE g.state<>'cancelled' AND EXISTS (SELECT 1 FROM session_capture_grants cancelled WHERE cancelled.workspace_id=g.workspace_id AND cancelled.game_id=g.game_id AND cancelled.session_id=g.session_id AND cancelled.state='cancelled') RETURNING workspace_id,capture_id`);
+  for (const row of withdrawn) await revokeCapture(row.workspace_id, row.capture_id, "consent_revoked");
   const rows = await query<{ workspace_id: string; body: SessionCapture }>(
     `SELECT workspace_id,body FROM records WHERE kind='session_capture' AND (((body->>'expiresAt')::timestamptz<=now() AND body->>'status'<>'expired') OR (body->>'status' IN ('cancelled','expired') AND body->>'videoUrl' IS NOT NULL)) ORDER BY updated_at LIMIT 100`,
   );

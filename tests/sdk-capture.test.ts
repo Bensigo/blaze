@@ -5,7 +5,7 @@ import { webcrypto } from 'node:crypto';
 
 function deferred<T>() { let resolve!: (value:T)=>void; const promise=new Promise<T>(r=>{resolve=r}); return {promise,resolve}; }
 function harness(options: {tainted?:boolean; delayedVisit?:boolean; delayedUpload?:boolean; oversized?:boolean; unsupported?:boolean} = {}) {
-  const calls: {url:string; options:any}[]=[]; const events:any[]=[]; const drawings:any[]=[]; const handlers:Record<string,Function>={};
+  const calls: {url:string; options:any}[]=[]; const events:any[]=[]; const notifications:any[]=[]; const drawings:any[]=[]; const handlers:Record<string,Function>={};
   const visit=deferred<any>(), upload=deferred<any>();
   class Canvas {
     width=1920; height=1080;
@@ -22,14 +22,25 @@ function harness(options: {tainted?:boolean; delayedVisit?:boolean; delayedUploa
   }
   const store=()=>({getItem:()=>null,setItem:()=>{}});
   const document:any={readyState:'complete',referrer:'',hidden:false,addEventListener(name:string, fn:Function){handlers[name]=fn;},querySelectorAll:()=>[source],createElement:()=>new Canvas()};
-  const window:any={crypto:webcrypto,localStorage:store(),sessionStorage:store(),HTMLCanvasElement:Canvas,MediaRecorder:Recorder,addEventListener(name:string,fn:Function){handlers[name]=fn;},dispatchEvent:(e:any)=>events.push(e.detail),CustomEvent:class {detail:any;constructor(_name:string, args:any){this.detail=args.detail}}};
+  const window:any={crypto:webcrypto,localStorage:store(),sessionStorage:store(),HTMLCanvasElement:Canvas,MediaRecorder:Recorder,addEventListener(name:string,fn:Function){handlers[name]=fn;},dispatchEvent:(e:any)=>{events.push(e.detail);notifications.push({type:e.type,detail:e.detail});},CustomEvent:class {type:string;detail:any;constructor(name:string, args:any){this.type=name;this.detail=args.detail}}};
   const grant={status:'pending',captureId:'capture-1',token:'secret-token',config:{enabled:true,surfaceReviewed:true,canvasSelector:'#game',maxDurationSeconds:30,masks:[{x:.25,y:.25,width:.5,height:.5}]}};
   const fetch=vi.fn((url:string, request:any)=>{calls.push({url,options:request});if(url.endsWith('/api/collect')) return options.delayedVisit && JSON.parse(request.body).events[0].name==='visit'?visit.promise:Promise.resolve({ok:true});if(url.endsWith('/api/capture/start'))return Promise.resolve({ok:true,json:async()=>grant});if(url.endsWith('/api/capture/upload'))return options.delayedUpload?upload.promise:Promise.resolve({ok:true,json:async()=>({status:'ready'})});return Promise.resolve({ok:true,json:async()=>({})});});
   runInNewContext(readFileSync('public/sdk.js','utf8'),{window,document,crypto:webcrypto,location:{href:'https://game.example/'},navigator:{userAgent:'test'},innerWidth:100,innerHeight:100,URL,fetch,Date,Math,Number,Array,Blob,FormData,AbortController,Promise,setInterval,clearInterval,setTimeout,clearTimeout});
-  return {sdk:window.GameMarketing,calls,events,drawings,visit,upload,grant,document,handlers};
+  return {sdk:window.Blaze,legacy:window.GameMarketing,calls,events,notifications,drawings,visit,upload,grant,document,handlers};
 }
 
 describe('consented canvas capture',()=>{
+  it('emits matching Blaze and legacy capture events without exposing tokens',async()=>{
+    const h=harness();expect(h.sdk).toBe(h.legacy);
+    h.legacy.init({endpoint:'https://marketing.example',sdkKey:'key',consent:true});
+    await h.sdk.startCapture({consent:true});
+    const blaze=h.notifications.filter(e=>e.type==='blaze:capturestatus');
+    const legacy=h.notifications.filter(e=>e.type==='gm:capturestatus');
+    expect(blaze.length).toBeGreaterThan(0);expect(blaze.map(e=>e.detail)).toEqual(legacy.map(e=>e.detail));
+    expect(JSON.stringify(h.notifications)).not.toContain('secret-token');
+    expect((await h.legacy.stopCapture({discard:true})).status).toBe('cancelled');
+  });
+
   it('requires both consents and waits for the stored visit',async()=>{
     const h=harness({delayedVisit:true});h.sdk.init({endpoint:'https://marketing.example',sdkKey:'key'});
     expect((await h.sdk.startCapture({consent:true})).status).toBe('consent_required');
@@ -69,16 +80,16 @@ describe('consented canvas capture',()=>{
     await h.sdk.startCapture({consent:true});expect((await h.sdk.stopCapture())).toMatchObject({status:'failed',reason:'size_limit'});
     expect(h.calls.some(c=>c.url.endsWith('/api/capture/upload'))).toBe(false);
   });
-  it('finalizes when hidden and discards a recording on page exit',async()=>{
+  it('finalizes when hidden or leaving the page without treating exit as consent withdrawal',async()=>{
     const hidden=harness();hidden.sdk.init({endpoint:'https://marketing.example',sdkKey:'key',consent:true});
     await hidden.sdk.startCapture({consent:true});hidden.document.hidden=true;hidden.handlers.visibilitychange();
     await new Promise(r=>setTimeout(r,0));
     expect(hidden.sdk.getCaptureState().status).toBe('ready');
     const exiting=harness();exiting.sdk.init({endpoint:'https://marketing.example',sdkKey:'key',consent:true});
     await exiting.sdk.startCapture({consent:true});exiting.handlers.pagehide();await new Promise(r=>setTimeout(r,0));
-    expect(exiting.sdk.getCaptureState().status).toBe('cancelled');
-    expect(exiting.calls.some(c=>c.url.endsWith('/api/capture/upload'))).toBe(false);
-    expect(exiting.calls.some(c=>c.url.endsWith('/api/capture/cancel'))).toBe(true);
+    expect(exiting.sdk.getCaptureState().status).toBe('ready');
+    expect(exiting.calls.some(c=>c.url.endsWith('/api/capture/upload'))).toBe(true);
+    expect(exiting.calls.some(c=>c.url.endsWith('/api/capture/cancel'))).toBe(false);
   });
   it('cancels again after a late upload response when consent is withdrawn',async()=>{
     const h=harness({delayedUpload:true});h.sdk.init({endpoint:'https://marketing.example',sdkKey:'key',consent:true});

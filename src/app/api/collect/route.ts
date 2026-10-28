@@ -1,8 +1,13 @@
 import { ingest } from "@/lib/telemetry";
 import { query } from "@/lib/db";
 import type { Game } from "@/lib/types";
+import { after } from "next/server";
+import { drainProfile, queueHumanProfileRefresh } from "@/lib/game-profile";
 export async function POST(request: Request) {
-  return ingest(request);
+  return ingest(request, undefined, async (workspace, gameId) => {
+    const job = await queueHumanProfileRefresh(workspace, gameId, process.env.APP_URL || new URL(request.url).origin);
+    if (job) after(async () => { await drainProfile(job); });
+  });
 }
 export async function OPTIONS(request: Request) {
   const origin = request.headers.get("origin");

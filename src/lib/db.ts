@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-type Client = {
-  query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
-};
+import { applyMigrations, validateSchema } from "./migrations";
+import type { Pool } from "pg";
+import type { PGlite } from "@electric-sql/pglite";
+type Database = { kind: "pg"; pool: Pool } | { kind: "local"; db: PGlite };
 export function postgresConnectionString(value: string) {
   const url = new URL(value);
   if (
@@ -17,59 +18,119 @@ export function postgresConnectionString(value: string) {
   return url.toString();
 }
 const globalDb = globalThis as unknown as {
-  studioDb?: Promise<Client>;
+  studioDb?: Promise<Database>;
   studioSchema?: Promise<void>;
 };
-async function client(): Promise<Client> {
-  if (!globalDb.studioDb)
-    globalDb.studioDb = (async () => {
+async function client(): Promise<Database> {
+  const requiresPostgres = process.env.NODE_ENV === "production" || !!process.env.VERCEL;
+  if (requiresPostgres && !process.env.DATABASE_URL)
+    throw new Error("Database is not configured. Connect a PostgreSQL database.");
+  if (!globalDb.studioDb) {
+    const pending = (async (): Promise<Database> => {
       if (process.env.DATABASE_URL) {
         const { Pool } = await import("pg");
-        return new Pool({
-          connectionString: postgresConnectionString(process.env.DATABASE_URL),
-          max: 4,
-          connectionTimeoutMillis: 10000,
-          idleTimeoutMillis: 20000,
-        });
+        return {
+          kind: "pg",
+          pool: new Pool({
+            connectionString: postgresConnectionString(
+              process.env.DATABASE_URL,
+            ),
+            max: 4,
+            connectionTimeoutMillis: 10000,
+            idleTimeoutMillis: 20000,
+            statement_timeout: 15000,
+          }),
+        };
       }
-      if (process.env.VERCEL)
-        throw new Error(
-          "Database is not configured. Connect a PostgreSQL database.",
-        );
       const { PGlite } = await import("@electric-sql/pglite");
       const path = process.env.LOCAL_DATABASE_PATH || resolve(".data/postgres");
       if (path !== "memory://") await mkdir(path, { recursive: true });
-      return new PGlite(path);
+      return { kind: "local", db: new PGlite(path) };
     })();
-  return globalDb.studioDb;
+    globalDb.studioDb = pending;
+    pending.catch(() => {
+      if (globalDb.studioDb === pending) globalDb.studioDb = undefined;
+    });
+  }
+  const db = await globalDb.studioDb;
+  // A cached development client must never become a production fallback.
+  if (requiresPostgres && db.kind !== "pg")
+    throw new Error("Database is not configured. Connect a PostgreSQL database.");
+  return db;
 }
-const schema = [
-  `CREATE TABLE IF NOT EXISTS users (id text PRIMARY KEY, email text NOT NULL, name text NOT NULL, workspace_id text NOT NULL UNIQUE, created_at timestamptz NOT NULL DEFAULT now())`,
-  `CREATE TABLE IF NOT EXISTS auth_sessions (token_hash text PRIMARY KEY, user_id text NOT NULL REFERENCES users(id), expires_at timestamptz NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS records (workspace_id text NOT NULL, kind text NOT NULL, id text NOT NULL, body jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(workspace_id,kind,id))`,
-  `CREATE INDEX IF NOT EXISTS records_kind_idx ON records(kind,updated_at)`,
-  `CREATE TABLE IF NOT EXISTS credentials (workspace_id text NOT NULL, provider text NOT NULL, encrypted text NOT NULL, PRIMARY KEY(workspace_id,provider))`,
-  `CREATE TABLE IF NOT EXISTS events (id text PRIMARY KEY,workspace_id text NOT NULL,game_id text NOT NULL,session_id text NOT NULL,player_id text NOT NULL,kind text NOT NULL CHECK(kind IN ('human','agent')),name text NOT NULL,occurred_at timestamptz NOT NULL,received_at timestamptz NOT NULL DEFAULT now(),country text NOT NULL,device text NOT NULL,source text NOT NULL,campaign text NOT NULL,page text NOT NULL,properties jsonb NOT NULL)`,
-  `CREATE INDEX IF NOT EXISTS events_scope_idx ON events(workspace_id,game_id,kind,occurred_at)`,
-  `CREATE INDEX IF NOT EXISTS events_session_idx ON events(workspace_id,session_id,occurred_at)`,
-  `CREATE TABLE IF NOT EXISTS jobs (id text PRIMARY KEY, workspace_id text NOT NULL,kind text NOT NULL,state text NOT NULL,body jsonb NOT NULL,available_at timestamptz NOT NULL DEFAULT now(),lease_until timestamptz,updated_at timestamptz NOT NULL DEFAULT now())`,
-  `CREATE INDEX IF NOT EXISTS jobs_queue_idx ON jobs(kind,state,available_at)`,
-  `CREATE TABLE IF NOT EXISTS rate_windows (id text PRIMARY KEY,count integer NOT NULL,expires_at timestamptz NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS daily_runs (workspace_id text NOT NULL,game_id text NOT NULL,day text NOT NULL,run_id text NOT NULL,lease_until timestamptz NOT NULL,PRIMARY KEY(workspace_id,game_id,day))`,
-  `CREATE TABLE IF NOT EXISTS publish_dispatches (workspace_id text NOT NULL,post_id text NOT NULL,approval_hash text NOT NULL,state text NOT NULL,updated_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(workspace_id,post_id,approval_hash))`,
-  `CREATE TABLE IF NOT EXISTS session_capture_grants (capture_id text PRIMARY KEY, workspace_id text NOT NULL, game_id text NOT NULL, session_id text NOT NULL, origin text NOT NULL, token_hash text NOT NULL, expires_at timestamptz NOT NULL, state text NOT NULL, UNIQUE(workspace_id,game_id,session_id))`,
-];
+export async function migrateDatabase() {
+  const db = await client();
+  if (db.kind === "local") {
+    await db.db.transaction(async (tx) => {
+      await applyMigrations(tx);
+    });
+  } else {
+    const tx = await db.pool.connect();
+    try {
+      await tx.query("BEGIN");
+      await tx.query("SET LOCAL lock_timeout = '10s'");
+      await tx.query("SET LOCAL statement_timeout = '120s'");
+      await tx.query("SELECT pg_advisory_xact_lock(744110219)");
+      await applyMigrations(tx);
+      await tx.query("COMMIT");
+    } catch (error) {
+      await tx.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      tx.release();
+    }
+  }
+}
+export async function closeDatabase() {
+  const pending = globalDb.studioDb;
+  globalDb.studioSchema = undefined;
+  globalDb.studioDb = undefined;
+  if (!pending) return;
+  const db = await pending;
+  if (db.kind === "local") await db.db.close();
+  else await db.pool.end();
+}
+// PgBouncer can discard startup timeout settings, so set it within each transaction.
+async function pgQuery(pool: Pool, sql: string, params: unknown[] = []) {
+  const tx = await pool.connect();
+  try {
+    await tx.query("BEGIN; SET LOCAL statement_timeout = '15s'");
+    const result = await tx.query(sql, params);
+    await tx.query("COMMIT");
+    return result;
+  } catch (error) {
+    await tx.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    tx.release();
+  }
+}
+async function ensureSchema(db: Database) {
+  if (!globalDb.studioSchema) {
+    const pending = (async () => {
+      if (db.kind === "local") await migrateDatabase();
+      else
+        await validateSchema({
+          query: (sql, params) => pgQuery(db.pool, sql, params),
+        });
+    })();
+    globalDb.studioSchema = pending;
+    pending.catch(() => {
+      if (globalDb.studioSchema === pending) globalDb.studioSchema = undefined;
+    });
+  }
+  await globalDb.studioSchema;
+}
 export async function query<T = Record<string, unknown>>(
   sql: string,
   params: unknown[] = [],
 ): Promise<T[]> {
   const db = await client();
-  if (!globalDb.studioSchema)
-    globalDb.studioSchema = (async () => {
-      for (const s of schema) await db.query(s);
-    })();
-  await globalDb.studioSchema;
-  const result = await db.query(sql, params);
+  await ensureSchema(db);
+  const result =
+    db.kind === "local"
+      ? await db.db.query(sql, params)
+      : await pgQuery(db.pool, sql, params);
   return result.rows as T[];
 }
 export function id(prefix: string) {

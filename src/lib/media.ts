@@ -6,6 +6,11 @@ import {
   del as blobDelete,
 } from "@vercel/blob";
 import { id, put, get, query, remove } from "./db";
+const localStorageAllowed = () => process.env.NODE_ENV !== "production" && !process.env.VERCEL;
+export const mediaStorageConfigured = () => !!process.env.BLOB_READ_WRITE_TOKEN?.trim() || localStorageAllowed();
+function requireLocalStorage() {
+  if (!localStorageAllowed()) throw new Error("Private media storage is not configured");
+}
 export interface MediaRecord {
   id: string;
   recordingId: string;
@@ -47,11 +52,8 @@ export async function saveAsset(
   )
     contentType = "video/mp4";
   if (!contentType) throw new Error("Unsupported media data");
-  const backend: "blob" | "local" = process.env.BLOB_READ_WRITE_TOKEN
-    ? "blob"
-    : "local";
-  if (backend === "local" && process.env.VERCEL)
-    throw new Error("Private media storage is not configured");
+  const backend: "blob" | "local" = process.env.BLOB_READ_WRITE_TOKEN?.trim() ? "blob" : "local";
+  if (backend === "local") requireLocalStorage();
   const storagePath =
     backend === "blob"
       ? `${workspace}/${mid}`
@@ -115,7 +117,7 @@ export async function mediaRecord(workspace: string, mid: string) {
 export async function mediaBytes(record: MediaRecord) {
   if (record.expiresAt && Date.parse(record.expiresAt) <= Date.now())
     throw new Error("Media expired");
-  if (record.backend === "local") return readFile(record.location);
+  if (record.backend === "local") { requireLocalStorage(); return readFile(record.location); }
   const blob = await blobGet(record.location, { access: "private" });
   if (!blob || blob.statusCode !== 200) throw new Error("Media unavailable");
   return Buffer.from(await new Response(blob.stream).arrayBuffer());
@@ -134,7 +136,7 @@ export async function serveMedia(record: MediaRecord, request: Request) {
   if (record.captureId) {
     const grant = (
       await query<{ state: string }>(
-        `SELECT state FROM session_capture_grants WHERE capture_id=$1`,
+        `SELECT g.state FROM session_capture_grants g WHERE g.capture_id=$1 AND NOT EXISTS (SELECT 1 FROM session_capture_grants withdrawn WHERE withdrawn.workspace_id=g.workspace_id AND withdrawn.game_id=g.game_id AND withdrawn.session_id=g.session_id AND withdrawn.state='cancelled')`,
         [record.captureId],
       )
     )[0];
@@ -186,6 +188,7 @@ export async function serveMedia(record: MediaRecord, request: Request) {
     }
     return new Response(blob.stream, { status: range ? 206 : 200, headers });
   }
+  requireLocalStorage();
   const bytes = await readFile(record.location);
   return new Response(new Uint8Array(bytes.subarray(start, end + 1)), {
     status: range ? 206 : 200,
@@ -204,12 +207,14 @@ export async function deleteAsset(
   if (captureId && record.captureId !== captureId)
     throw new Error("Media belongs to another recording");
   if (record.backend === "blob") await blobDelete(record.location);
-  else
+  else {
+    requireLocalStorage();
     try {
       await unlink(record.location);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
     }
+  }
   await remove(workspace, "media", mid);
 }
 
@@ -226,12 +231,14 @@ export async function cleanupStorageIntents() {
       const registered = await mediaRecord(row.workspace_id, row.body.id);
       if (!registered) {
         if (row.body.backend === "blob") await blobDelete(row.body.location);
-        else
+        else {
+          requireLocalStorage();
           try {
             await unlink(row.body.location);
           } catch (e) {
             if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
           }
+        }
       }
       await remove(row.workspace_id, "media_storage_intent", row.body.id);
     } catch {

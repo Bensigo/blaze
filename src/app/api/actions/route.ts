@@ -1,4 +1,6 @@
 import { loadAgentHistory } from "@/lib/agent-history";
+import { after } from "next/server";
+import { createGameWithProfile, drainProfile } from "@/lib/game-profile";
 import { verifyNetworkPolicy } from "@/lib/network-policy";
 import {
   captureConfigSchema,
@@ -52,6 +54,8 @@ const postFields = z.object({
   channel,
   text: z.string().trim().min(1).max(5000),
   accountId: z.string().max(200),
+  deliveryMethod: z.enum(["manual", "native"]).optional(),
+  timeZone: z.string().max(100).optional(),
   scheduledAt: z.iso.datetime().nullish(),
   tiktokConsent: tiktokSchema.optional(),
 });
@@ -133,7 +137,8 @@ export async function POST(request: Request) {
         dailyEnabled: true,
         competitors: [],
       };
-      await put(workspace, "game", game);
+      const jobId = await createGameWithProfile(workspace, game, metadata, publicOrigin(request));
+      try { after(async () => { await drainProfile(jobId); }); } catch { /* The durable job remains for the worker or cron. */ }
       return Response.json({ game });
     }
     if (action === "update_game") {
@@ -154,7 +159,13 @@ export async function POST(request: Request) {
       let networkPolicy = game.networkPolicy;
       if (body.networkPolicy !== undefined) {
         try {
-          networkPolicy = await verifyNetworkPolicy(body.networkPolicy);
+          const incoming = body.networkPolicy;
+          const policyInput = incoming && typeof incoming === "object" && !Array.isArray(incoming)
+            ? { ...incoming, frameUrls: "frameUrls" in incoming ? incoming.frameUrls : game.networkPolicy?.frameUrls || [] }
+            : incoming;
+          networkPolicy = await verifyNetworkPolicy(policyInput);
+          if (networkPolicy.frameUrls?.some(url => new URL(url).origin !== new URL(game.url).origin))
+            throw new Error("Reviewed frame URLs must share the game origin.");
         } catch (e) {
           throw new HttpError(
             400,
@@ -276,6 +287,11 @@ export async function POST(request: Request) {
     }
     if (action === "create_post" || action === "update_post") {
       const v = postFields.parse(body);
+      if (v.timeZone) {
+        try { new Intl.DateTimeFormat("en", { timeZone: v.timeZone }); }
+        catch { throw new HttpError(400, "Use a valid time zone."); }
+      }
+      if (v.deliveryMethod === "manual" && !v.accountId.trim()) throw new HttpError(400, "Enter the manual destination handle.");
       const game = await requireRecord<Game>("game", v.gameId);
       if (v.clipId) {
         const clip = await requireRecord<Clip>("clip", v.clipId);
@@ -303,6 +319,11 @@ export async function POST(request: Request) {
           approvedHash: undefined,
           error: undefined,
           providerId: undefined,
+          manualExportedAt: undefined,
+          manualPublishedAt: undefined,
+          manualConfirmedAt: undefined,
+          manualPublishedBy: undefined,
+          manualPublicationUrl: undefined,
         };
       } else
         post = {
@@ -374,23 +395,24 @@ export async function POST(request: Request) {
             409,
             "Submit the current draft for review first.",
           );
-        if (
-          !post.accountId ||
-          !(await secretFor(workspace, post.channel, post.accountId))
-        )
+        if (!post.accountId.trim() || (post.deliveryMethod !== "manual" && !(await secretFor(workspace, post.channel, post.accountId))))
           throw new HttpError(
             400,
             "Connect and verify this destination account before approving.",
           );
+        if (post.deliveryMethod === "manual") {
+          if (!post.scheduledAt || !Number.isFinite(Date.parse(post.scheduledAt)) || !post.timeZone) throw new HttpError(400, "Set a planned time and time zone before approval.");
+          try { if (/^[+-]/.test(post.timeZone)) throw new Error(); new Intl.DateTimeFormat("en", { timeZone: post.timeZone }); } catch { throw new HttpError(400, "Use a valid IANA time zone."); }
+        }
         if (post.clipId) {
           const clip = await requireRecord<Clip>("clip", post.clipId);
           if (clip.status !== "ready")
             throw new HttpError(400, "Wait for the selected clip to finish.");
-        } else if (post.channel !== "x")
+        } else if (post.channel !== "x" || post.deliveryMethod === "manual")
           throw new HttpError(400, "This channel requires a video clip.");
         if (post.channel === "x" && Array.from(post.text).length > 280)
           throw new HttpError(400, "Keep the X post within 280 characters.");
-        if (post.channel === "tiktok") {
+        if (post.channel === "tiktok" && post.deliveryMethod !== "manual") {
           if (!post.tiktokConsent)
             throw new HttpError(
               400,
@@ -465,8 +487,11 @@ export async function POST(request: Request) {
           refreshToken: z.string().max(10000).optional(),
           workspaceId: z.string().max(200).optional(),
           model: z.string().max(100).optional(),
+          advanced: z.boolean().optional(),
         })
         .parse(body);
+      if (["x", "youtube", "instagram", "tiktok"].includes(v.provider) && v.advanced !== true)
+        throw new HttpError(400, "Use official account authorization. Manual tokens require the explicit advanced fallback.");
       const secret: ProviderSecret = {
         token: v.token,
         ...(v.accountId ? { accountId: v.accountId } : {}),
@@ -489,6 +514,7 @@ export async function POST(request: Request) {
         checkedAt: new Date().toISOString(),
         details: checked.details,
         model: v.model,
+        authMethod: "manual",
       };
       await saveSecret(workspace, connection.id, secret);
       await put(workspace, "connection", connection);
@@ -496,6 +522,8 @@ export async function POST(request: Request) {
     }
     if (action === "delete_connection") {
       const connection = await requireRecord<Connection>("connection", body.id);
+      if (connection.authMethod === "oauth")
+        throw new HttpError(400, "Use the account disconnect action so provider revocation is attempted.");
       await query(
         "DELETE FROM credentials WHERE workspace_id=$1 AND provider=$2",
         [workspace, connection.id],

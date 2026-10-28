@@ -1,7 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-export type NetworkPolicy = { resourceOrigins: string[]; webSocketOrigins: string[] };
+export type NetworkPolicy = { resourceOrigins: string[]; webSocketOrigins: string[]; frameUrls?: string[] };
 export type Resolver = (hostname: string) => Promise<{ address: string; family: number }[]>;
 export const resolveHost: Resolver = (hostname) => lookup(hostname, { all: true, verbatim: true });
 
@@ -38,11 +38,20 @@ export function normalizeNetworkPolicy(value: unknown): NetworkPolicy {
   if (typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid network policy");
   const p = value as Record<string, unknown>;
   if (!Array.isArray(p.resourceOrigins) || !Array.isArray(p.webSocketOrigins) ||
-      p.resourceOrigins.length > 30 || p.webSocketOrigins.length > 30)
+      p.resourceOrigins.length > 30 || p.webSocketOrigins.length > 30 || (p.frameUrls !== undefined && (!Array.isArray(p.frameUrls) || p.frameUrls.length > 2)))
     throw new Error("Network policy requires up to 30 origins per list");
+  const frames = (p.frameUrls || []) as unknown[];
+  const frameUrls = frames.map(value => {
+    if (typeof value !== "string" || value !== value.trim() || /[?#*\\\\]/.test(value)) throw new Error("Frame URLs must be exact HTTPS URLs without query or fragment");
+    const u = new URL(value);
+    origin(u.origin, "https:");
+    if (u.href !== value || u.pathname === "/" || /%(?:2e|2f|5c)/i.test(u.pathname)) throw new Error("Frame URL must be canonical and have an exact path");
+    return u.href;
+  });
   return {
     resourceOrigins: [...new Set(p.resourceOrigins.map((v) => origin(v, "https:")))],
     webSocketOrigins: [...new Set(p.webSocketOrigins.map((v) => origin(v, "wss:")))],
+    ...(frameUrls.length ? { frameUrls: [...new Set(frameUrls)] } : {}),
   };
 }
 
@@ -65,7 +74,7 @@ export async function resolvePublicHost(host: string, resolver: Resolver = resol
 /** Save-time validation. Resolve again for every worker run; do not persist DNS results. */
 export async function verifyNetworkPolicy(value: unknown): Promise<NetworkPolicy> {
   const policy = normalizeNetworkPolicy(value);
-  const hosts = new Set([...policy.resourceOrigins, ...policy.webSocketOrigins].map((x) => new URL(x).hostname));
+  const hosts = new Set([...policy.resourceOrigins, ...policy.webSocketOrigins, ...(policy.frameUrls || [])].map((x) => new URL(x).hostname));
   await Promise.all([...hosts].map((host) => resolvePublicHost(host)));
   return policy;
 }

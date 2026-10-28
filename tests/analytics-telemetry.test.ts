@@ -199,4 +199,14 @@ describe("persistent origin-scoped ingestion", () => {
       ).json(),
     ).toEqual({ accepted: 0 });
   });
+  it("signals refresh only for newly accepted human events", async () => {
+    const calls: string[] = [];
+    const callback = async (workspace: string, gameId: string) => { calls.push(`${workspace}:${gameId}`); };
+    await ingest(req("https://play.example", "refresh-human-event"), undefined, callback);
+    await ingest(req("https://play.example", "refresh-human-event"), undefined, callback);
+    await ingest(req("", "refresh-agent-event"), { workspace: "workspace-a", game, recordingId: "rec_refresh" }, callback);
+    expect(calls).toEqual(["workspace-a:game-test"]);
+    const result = await ingest(req("https://play.example", "refresh-failure-event"), undefined, async () => { throw new Error("private details"); });
+    expect(result.status).toBe(200); expect(await result.json()).toEqual({ accepted: 1 });
+  });
 });
