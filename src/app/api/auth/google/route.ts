@@ -1,5 +1,5 @@
 import { appOrigin } from "@/lib/app-origin";
-import { googleAvailable, neonAuth } from "@/lib/neon-auth";
+import { googleAvailable, neonAuth, neonAuthConfig } from "@/lib/neon-auth";
 
 export async function GET(request: Request) {
   const origin = appOrigin(request);
@@ -18,7 +18,17 @@ export async function GET(request: Request) {
     if (!result.ok) return unavailable();
     const body = await result.json();
     const target = new URL(body?.url);
-    if (target.protocol !== "https:" || target.hostname !== "accounts.google.com") return unavailable();
+    const config = neonAuthConfig();
+    if (!config || target.protocol !== "https:" || target.username || target.password || target.href.includes("#")) return unavailable();
+    const base = new URL(config.baseUrl);
+    const token = target.searchParams.get("token");
+    const neonInit = target.origin === base.origin &&
+      target.pathname === `${base.pathname.replace(/\/$/, "")}/sign-in/social/init` &&
+      target.search.length <= 8192 && /^\?token=[^&]+$/.test(target.search) &&
+      target.searchParams.getAll("token").length === 1 && !!token?.trim() &&
+      token.length <= 4096 && !/[\x00-\x1f\x7f]/.test(token);
+    const directGoogle = target.origin === "https://accounts.google.com";
+    if (!neonInit && !directGoogle) return unavailable();
     const setCookies = result.headers.getSetCookie();
     if (!setCookies.some((cookie) => /^__Secure-neon-auth\.session_chall(?:enge|ange)=/.test(cookie))) return unavailable();
     const headers = new Headers({ Location: target.toString(), "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" });

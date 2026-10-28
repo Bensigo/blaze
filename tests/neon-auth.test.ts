@@ -19,12 +19,13 @@ const origin="http://localhost:3000", base="https://auth.example.test/neondb/aut
 const challengeName="__Secure-neon-auth.session_challenge", sessionName="__Secure-neon-auth.session_token";
 const verifiedUser={ id:"provider-id", email:"person@example.test", name:"Person", emailVerified:true, workspace_id:"attacker-workspace", role:"admin" };
 let calls: {url:string;body:string;headers:Headers}[] = [], verified=true, online=true;
+let upstreamTarget="https://accounts.google.com/o/oauth2/v2/auth?state=provider-state", upstreamChallenge=true;
 function fetchFake(input:string | URL | Request, init?:RequestInit) {
   const url=String(input instanceof Request ? input.url : input), headers=new Headers(init?.headers);
   calls.push({url,body:String(init?.body || ""),headers});
   if(!online) return Promise.reject(new Error("offline"));
   if(url===`${base}/sign-in/social`) {
-    return Promise.resolve(Response.json({url:"https://accounts.google.com/o/oauth2/v2/auth?state=provider-state",redirect:true},{headers:{"Set-Cookie":`${challengeName}=challenge-secret; Path=/; HttpOnly; Secure; SameSite=Lax`}}));
+    return Promise.resolve(Response.json({url:upstreamTarget,redirect:true},{headers:upstreamChallenge ? {"Set-Cookie":`${challengeName}=challenge-secret; Path=/; HttpOnly; Secure; SameSite=Lax`} : {}}));
   }
   if(url.startsWith(`${base}/get-session`)) {
     const u=new URL(url), cookie=headers.get("cookie") || "";
@@ -47,6 +48,7 @@ function callbackRequest(params="neon_auth_session_verifier=verifier") {return n
 beforeAll(()=>{process.env.LOCAL_DATABASE_PATH="memory://";delete process.env.DATABASE_URL;delete process.env.VERCEL;});
 beforeEach(async()=>{
   browser.jar.clear();browser.writes.length=0;calls=[];verified=true;online=true;
+  upstreamTarget="https://accounts.google.com/o/oauth2/v2/auth?state=provider-state";upstreamChallenge=true;
   vi.stubEnv("APP_URL",origin);vi.stubEnv("NEON_AUTH_BASE_URL",base);vi.stubEnv("NEON_AUTH_COOKIE_SECRET","test-cookie-secret-32-characters-long");vi.stubEnv("NEON_AUTH_GOOGLE_CONFIGURED","true");
   vi.stubGlobal("fetch",vi.fn(fetchFake));await db.query("DELETE FROM auth_sessions");await db.query("DELETE FROM users");
 });
@@ -69,6 +71,42 @@ describe("Neon Managed Better Auth",()=>{
     expect(a?.workspace_id).not.toBe("attacker-workspace");expect(b?.workspace_id).toBe(a?.workspace_id);
     expect(calls.some(c=>c.url.includes("disableCookieCache=true"))).toBe(true);
     verified=false;expect(await auth.identity()).toBeNull();
+  });
+  it("redirects the browser to the exact Neon initialization URL with its challenge cookie",async()=>{
+    upstreamTarget=`${base}/sign-in/social/init?token=one-time-test-token`;
+    const response=await start(new Request(`${origin}/api/auth/google`));
+    expect(response.status).toBe(303); expect(response.headers.get("location")).toBe(upstreamTarget);
+    expect(response.headers.get("cache-control")).toContain("no-store"); expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.getSetCookie().some(c=>c.startsWith(`${challengeName}=`) && /httponly/i.test(c) && /secure/i.test(c))).toBe(true);
+    expect(calls.map(c=>c.url)).toEqual([`${base}/sign-in/social`]);
+    upstreamChallenge=false;
+    const missing=await start(new Request(`${origin}/api/auth/google`));
+    expect(missing.headers.get("location")).toBe(`${origin}/app?auth=setup`);
+    expect(JSON.stringify([...missing.headers])).not.toContain("one-time-test-token");
+  });
+  it("rejects altered Neon init URLs and never reflects their tokens",async()=>{
+    const privateToken="private-init-test-token";
+    const invalid=[
+      `https://other.example.test/neondb/auth/sign-in/social/init?token=${privateToken}`,
+      `https://auth.example.test/other/auth/sign-in/social/init?token=${privateToken}`,
+      `${base}/sign-in/social/init?token=${privateToken}&next=https%3A%2F%2Fevil.test`,
+      `${base}/sign-in/social/init?token=${privateToken}&token=second`,
+      `${base}/sign-in/social/init`, `${base}/sign-in/social/init?token=`,
+      `${base}/sign-in/social/init?token=%20`,
+      `${base}/sign-in/social/init?token=${privateToken}#fragment`,
+      `https://user:pass@auth.example.test/neondb/auth/sign-in/social/init?token=${privateToken}`,
+      `http://auth.example.test/neondb/auth/sign-in/social/init?token=${privateToken}`,
+      `${base}/sign-in/social/init?token=${"x".repeat(4097)}`,
+      `https://user:pass@accounts.google.com/o/oauth2/v2/auth?state=${privateToken}`,
+    ];
+    for (const target of invalid) {
+      upstreamTarget=target;
+      const response=await start(new Request(`${origin}/api/auth/google`));
+      expect(response.status).toBe(303); expect(response.headers.get("location")).toBe(`${origin}/app?auth=setup`);
+      expect(response.headers.getSetCookie()).toEqual([]);
+      expect(JSON.stringify([...response.headers])).not.toContain(privateToken);
+      expect(await response.text()).not.toContain(privateToken);
+    }
   });
   it("rejects absent challenge, invalid verifier, cross-origin callback, and never reflects secrets",async()=>{
     const absent=await callback(callbackRequest());expect(absent.headers.get("location")).toBe(`${origin}/app?auth=failed`);

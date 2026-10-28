@@ -4,6 +4,8 @@ App: https://web-game-marketing.vercel.app. Independent source: `/Users/macbook/
 
 ## Current source checks
 
+- Live managed-auth configuration exposed a newer legitimate response shape: `sign-in/social` returns an initialization URL on the exact configured Neon Auth origin/path, which then redirects to Google. The route now permits that bounded token URL while preserving challenge-cookie and origin checks. The focused auth suite passed 6/6 and typecheck/production build passed after this change. An actual initialization request returned only `email`, `openid`, and `profile` scopes; no user sign-in or workspace creation occurred. The earlier 193-test full run predates this focused auth change.
+
 - After the non-Vercel production database/media guards, the full suite passed **193/193 tests across 39 files** in 172.61 seconds, and the optimized production build passed again. Missing PostgreSQL or private media configuration now fails closed in production on any host; development/test local storage remains available.
 
 - Final production browser checks at 1440px and 390px passed for the actual landing, signed-out gate and explicit example choice, with no page exceptions or document overflow. A displayed local-login button caused by a development env flag was fixed; the production build was repeated with that flag intentionally true, and the button stayed hidden while its endpoint returned 404. Anonymous workspace access returned 401. Google configuration remains false until the owner client is installed. Controlled dashboard and investigation UI interactions passed on the preceding build; only the development-button guard changed afterward.
