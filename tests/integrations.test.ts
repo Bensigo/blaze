@@ -97,7 +97,7 @@ describe("provider adapters", () => {
       .fn()
       .mockResolvedValue(
         new Response(
-          JSON.stringify({ content: [{ type: "text", text: "A real draft" }] }),
+          JSON.stringify({ id:"msg_1", type:"message", role:"assistant", model:"claude-model", content: [{ type: "text", text: "A real draft" }], stop_reason:"end_turn", stop_sequence:null, usage:{input_tokens:10,output_tokens:5} }),
         ),
       );
     vi.stubGlobal("fetch", fetch);

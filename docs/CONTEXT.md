@@ -8,6 +8,8 @@ Web games only. Multi-game workspaces, Google login, server-held user provider k
 
 ## Architecture
 
+The in-product research agent uses Vercel AI SDK 7 `ToolLoopAgent` with read-only evidence/history tools, structured proposals, a four-step limit and a 12-second deadline. Content drafts use the same SDK's Anthropic provider with the owner's encrypted key and selected model. Fresh per-game history includes bounded 90-day human aggregates, observed campaign traffic, prior post copy/status, past findings and measured changes. Raw player/session identifiers, credentials and private capture footage are excluded. Missing model access remains an explicit coverage gap; deterministic checks still run. AI suggestions require review, and no model tool can approve or publish. Jev keeps its separate TypeSafe typed-action adapter for gameplay.
+
 Next.js App Router + TypeScript. PostgreSQL for deployed persistent state, PGlite local PostgreSQL for development/tests. Workspace-scoped document records and indexed event/session records. Google OAuth with Arctic; opaque DB sessions. AES-256-GCM encrypts credentials with an environment key. Public SDK ingestion is origin restricted, bounded, deduplicated, and never accepts synthetic flags from untrusted bodies. Worker has its own authenticated claim/upload API and bounded lease. Vercel daily Cron executes research and approved publishing checks. Always-running browser recording requires the separately run worker; Vercel is the dashboard/API host. Blob stores private assets; authenticated media routes serve them. Local files are development only.
 
 ## Shared implementation boundaries
@@ -20,4 +22,4 @@ Google OAuth application/client credentials; user's Jev and Anthropic keys; actu
 
 ## Visual direction
 
-Quiet operational workspace, warm white surfaces, dark narrow navigation, single blue-violet accent, real game media. Primary workspace: trends/funnels and evidence table; contextual media inspector and calendar. Utility copy, no homepage hero. Motion only for navigation, drawer, loading and direct manipulation. Wide screens and narrow screens must be inspected in a real browser.
+The user selected a light workspace: cleaner typography, fewer boxes and more whitespace. Light grouped navigation, neutral surfaces, strong ink text, a restrained green accent and actual game art. Overview pairs readable metrics and trends with a focused game and actions; session tables, contextual media and calendar remain working surfaces. Utility copy, no homepage hero. Motion is limited to navigation, drawer, loading and direct manipulation. Inspect wide and narrow screens in a real browser.

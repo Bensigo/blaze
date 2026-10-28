@@ -53,6 +53,8 @@ export function buildDemo(gameId?: string, days = 30): WorkspaceSnapshot {
     }
   }
   const analytics = summarize(events, firstSeen, duration, now);
+  // This sample describes an unsupported attempt; it does not imply footage exists.
+  if (analytics.sessionsList[0]) analytics.sessionsList[0].captureStatus = "unsupported";
   return {
     user: null,
     workspace: { id: "example", name: "Example workspace" },

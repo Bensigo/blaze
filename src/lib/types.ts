@@ -20,6 +20,45 @@ export interface Game {
   dailyEnabled: boolean;
   competitors: string[];
   metadataStatus?: string;
+  networkPolicy?: { resourceOrigins: string[]; webSocketOrigins: string[] };
+  capture?: CaptureConfig;
+}
+export interface CaptureConfig {
+  enabled: boolean;
+  canvasSelector: string;
+  surfaceReviewed: boolean;
+  sampleRate: number;
+  maxDurationSeconds: number;
+  retentionDays: number;
+  maxCapturesPerDay: number;
+  masks: { x: number; y: number; width: number; height: number }[];
+}
+export interface SessionCapture {
+  id: string;
+  gameId: string;
+  sessionId: string;
+  playerId: string;
+  status:
+    | "pending"
+    | "ready"
+    | "failed"
+    | "unsupported"
+    | "cancelled"
+    | "expired"
+    | "not_sampled"
+    | "quota_reached";
+  createdAt: string;
+  expiresAt: string;
+  completedAt?: string;
+  durationSeconds?: number;
+  width?: number;
+  height?: number;
+  fps?: number;
+  size?: number;
+  contentType?: string;
+  videoUrl?: string;
+  reason?: string;
+  cleanupPending?: boolean;
 }
 export interface Recording {
   id: string;
@@ -165,6 +204,8 @@ export interface SessionSummary {
   lastStep: string;
   errors: number;
   duration: number;
+  captureStatus?: SessionCapture["status"];
+  captureId?: string;
 }
 export interface Analytics {
   sessions: number;

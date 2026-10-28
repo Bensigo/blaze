@@ -1,31 +1,34 @@
 # Verification — 28 October 2026
 
-Production: https://web-game-marketing.vercel.app
+App: https://web-game-marketing.vercel.app. Independent source: `/Users/macbook/work/web-game-marketing`.
 
-Independent local repository: `/Users/macbook/work/web-game-marketing`.
+## Current source checks
 
-## Evidence
+- 74 tests across 17 suites pass. Coverage includes account/game isolation, encrypted secrets, consented SDK ingestion, ordered analytics, approval/publication concurrency, durable queues, private capture grants/playback/cancellation/expiry, storage-intent recovery, real video metadata limits, guarded HTTPS/WSS, and the AI SDK tool loop and historical context.
+- TypeScript and the optimized Next.js 16.4.3 production build pass. Production dependency audit reports zero vulnerabilities.
+- AI SDK 7.0.155 and its Anthropic provider power the bounded research agent and draft generation. Tests execute the actual SDK with controlled model/provider responses, including tools, evidence validation, step bounds, missing/offline providers, fresh game history, foreign-workspace/game exclusion, separate history caps, and preservation of resolved findings. No live Anthropic or Jev decision is claimed.
+- A real local browser sent explicitly consented game-canvas footage through the capture API and private storage. The one-second WebM decoded correctly, contained no audio, masked a painted private region black, and excluded HTML inputs/chat. Owner playback/range reads worked; anonymous access and access after cancellation were denied. Foreign/worker/public-share/expired access and the cancel/upload race have route/service tests.
+- Authenticated Sessions playback and real event click-to-seek were checked: a pointer event moved the 2.202-second video to 0.579 seconds, matching its timestamp relative to capture start.
+- All ten UI destinations were checked at 1440×900, 1024×768 and 390×844. Global overflow was fixed; wide tables/calendar scroll internally. Focused game filtering and analytics/record actions worked. No page exceptions were observed. Screenshots show the user-selected light design.
+- Real Chromium tests exercised separate controlled TLS origins, an actual WebSocket handshake, redirect enforcement, public-address validation, the egress proxy, a remote browser and video transfer. Loopback remapping/self-signed allowances are test-only.
 
-- 43 tests across eight suites pass. They exercise encrypted credentials/tamper rejection, account/workspace isolation and session expiry, origin validation/event deduplication/privacy filtering, ordered funnels, distinct-session mature retention, atomic recording queues, daily research queue idempotency/recovery beyond 30 games, SDK consent/inactivity rollover/timestamp ordering, worker evidence, real-adapter fixture responses, approval/publication concurrency, explicit strict PostgreSQL TLS verification, and real HTTP connections using both Node DNS callback modes.
-- TypeScript passes. Local optimized production build passes; the remote Vercel build also passed.
-- Production dependencies: `npm audit --omit=dev` reports zero vulnerabilities, with the vulnerable transitive Zod version overridden to the patched installed version.
-- Local real-browser journey: consented human SDK events persisted; agent events used a separate stream; actual video/screenshot and portrait clip reached ready state; private media accepted authenticated byte ranges and rejected unauthenticated reads. A draft could be reviewed and edited; disconnected approval/publication were denied and editing reset review. Its campaign tracking link was verified.
-- Deployed isolated journey: persistent Neon PostgreSQL, real browser human session, separate worker synthetic session, actual browser video/screenshot, encoded portrait clip, direct private Blob upload and authenticated media range reads all passed. Exactly one human and one agent session existed in the isolated test workspace. Production `/api/workspace` returned 401 without authentication and `/api/auth/dev` returned 404. Its records and newly generated cloud assets were removed after the test; footage copies remain in the delivery outputs.
-- Direct storage acceptance transferred a 6 MiB synthetic payload through the actual private Blob client-token/finalize path and checked a 1 KiB private range. That test Blob was deleted.
-- The in-product daily cron is enabled in Vercel at `0 6 * * *` (06:00 UTC). Its unauthorized call returned 401; an authorized call returned 200 with zero enabled games after isolated release cleanup. The cron queues every game; three are checked per invocation and a running worker drains additional jobs. Publication work is bounded to one destination per tick and rotates pending checks; uncertain writes without provider IDs are held for manual reconciliation.
-- Public production UI was inspected at 1440×900 and 390×844, with additional local 1920px inspection. Overview, research, calendar, recordings and missing-Google setup were checked. The illustrative workspace is labeled read-only and example data never enters owner telemetry. No runtime page exception was reported. The missing icon request observed in the initial browser pass is addressed by the app icon in the final release.
+## Container acceptance limitation
 
-## Live external acceptance still required
+The Docker firewall/container topology remains unverified. Docker Desktop was started within authorization, but its socket and read-only cached-image queries timed out. After deletion of only the two explicitly approved generated `.next` folders, a repeat ping still timed out after five seconds and cached-image inspection after eight seconds (396 MiB then free). No Docker pulls, builds, containers or cleanup were performed for this acceptance attempt. Existing workloads were preserved. Arbitrary-game recording requires the isolated browser/guard and fails closed when unavailable; select a healthy persistent host and verify the topology before operating it.
 
-- **Google**: register the owner's OAuth web app and set its client ID/secret. Callback: `https://web-game-marketing.vercel.app/api/auth/callback/google`. No real Google account sign-in was claimed.
-- **Jev**: enter the owner's key and install/validate the game state/action adapter. Real model decisions remain unverified; fixture decisions prove recording mechanics only.
-- **Anthropic**: enter a valid key/model and, for a multi-workspace key, workspace ID. Live writing remains unverified.
-- **Research**: authorized X/Reddit, optional Brave and Search Console tokens/property access. Public-source coverage and API availability are explicit. No fabricated discussion, ranking or competitor traffic is used.
-- **Publishing**: real authorized destination tokens/scopes, provider app configuration/reviews and TikTok per-post creator consent/audit where required. Social access currently uses verified token entry; native social OAuth onboarding and automatic token refresh are not implemented. Adapter tests intercept provider calls; no social post was published during implementation.
-- **Worker**: select/run a trusted persistent host. The local worker used for acceptance was stopped afterward. Vercel hosts the API/dashboard and daily cron, not an always-running browser. Minute-level approved publishing checks, recordings, clips and extra queued research need the worker.
-- **Actual games**: install the SDK/adapters in the owning game project. Forever was not integrated or changed in this standalone build. The worker currently blocks cross-origin game resources and WebSockets; games depending on them require a deliberately expanded and verified network policy. Arbitrary URL-only gameplay is not claimed.
-- **Experience**: physical-device feel, audio, human fun/retention and causal improvement are not established by automated play. V1 clips have no audio track, and human sessions expose event investigation rather than automatic full gameplay video replay.
+## Deployment evidence
 
-No final brand, billing plan, publishing intermediary or AI-search optimization service has been selected. “Web Game Studio” is the working interface label.
+The initial production release verified dedicated Neon PostgreSQL, private Blob storage, actual controlled browser/agent video and a portrait clip, authenticated ranges, public metadata/SEO fetching and daily cron authorization. Those earlier fixture artifacts remain labeled by their evidence files.
 
-The positive public-URL acceptance exposed and fixed a Node 22 DNS callback mismatch that the same-origin fixture shortcut did not exercise. The pinned resolver now honors both one-address and all-address callback shapes while retaining the public IPv4 restriction. A real local HTTP transport regression and public metadata/SEO fetch verify that path.
+The final release revision, deployment identity, readiness, production acceptance and runtime-log result are recorded in the task outputs `revision-alignment.json`, `release-checks.json`, `human-capture-production-evidence.json` and `runtime-check.json`. They must be checked after deployment; local checks alone do not establish production acceptance.
+
+## External acceptance and setup
+
+- Google OAuth owner app credentials and a real Google-account sign-in remain required. Production development login must stay unavailable.
+- Anthropic/Jev keys and a selected available model/validated game adapter are required for live model calls. Missing AI access appears as a coverage gap while deterministic research remains available.
+- Authorized X/Reddit, optional Brave and Search Console access are needed for those sources. No fabricated mentions, private competitor traffic or ranking results are used.
+- Publishing needs actual authorized account tokens/scopes and platform app configuration/reviews. TikTok additionally needs per-post creator choices/consent and appropriate audit. Native social OAuth onboarding and automatic token refresh are not implemented. No social post was published during tests.
+- Worker hosting/uptime is still a deployment choice. Vercel runs the dashboard/API and daily cron, not a continuously running recording browser. Offline recording/clip jobs wait.
+- Install the SDK and adapter in the owning actual game project; Forever was not modified here. Physical-device feel, audio, fun/retention and causal improvement remain unestablished by controlled browser tests.
+
+History uses bounded 90-day human aggregates and existing posts/findings/measurements. Observed campaign traffic is not causal content uplift; unpublished drafts are not failed posts, resolved findings are not proof of success, and social impressions/likes are unavailable.

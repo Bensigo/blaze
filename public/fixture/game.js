@@ -11,5 +11,14 @@
   window.gameMarketingAdapter={getState:function(){return Object.assign({},state)},get actions(){return state.phase==='playing'?[{id:'left',label:'Move one lane left'},{id:'right',label:'Move one lane right'},{id:'wait',label:'Wait for the falling star'}]:[{id:'start',label:'Start or retry the round'}]},act:function(id){if(id==='start'&&state.phase!=='playing')start();else if(id==='left')move(-1);else if(id==='right')move(1);else if(id!=='wait')throw Error('Invalid action');}};
   document.querySelector('#enable-tracking').onclick=function(){var key=document.querySelector('#sdk-key').value.trim();if(!key){document.querySelector('#tracking-status').textContent='Enter the game SDK key first.';return;}window.GameMarketing.init({endpoint:location.origin,sdkKey:key,consent:true});document.querySelector('#tracking-status').textContent='Tracking enabled for this session.';};
   document.querySelector('#disable-tracking').onclick=function(){window.GameMarketing.disable();document.querySelector('#tracking-status').textContent='Tracking disabled.';};
+  var captureStatus=document.querySelector('#capture-status');
+  function showCapture(state) {
+    var messages={idle:'Recording is off.',starting:'Checking recording availability…',recording:'Recording the game canvas. Stop to save or discard.',uploading:'Saving recording…',ready:'Recording saved privately.',cancelled:'Recording discarded.',consent_required:'Opt in to tracking and recording first.',not_sampled:'This session was not selected for recording.',quota_reached:'The game’s daily recording limit has been reached.',disabled:'The game owner has not enabled recording.',unsupported:'Recording is not supported in this browser.',failed:'Recording could not be saved.'};
+    captureStatus.textContent=(messages[state.status]||'Recording unavailable.')+(state.reason?' ('+state.reason+')':'');
+  }
+  window.addEventListener('gm:capturestatus',function(e){showCapture(e.detail)});
+  document.querySelector('#start-capture').onclick=async function(){showCapture(await window.GameMarketing.startCapture({consent:true}));};
+  document.querySelector('#stop-capture').onclick=async function(){showCapture(await window.GameMarketing.stopCapture());};
+  document.querySelector('#discard-capture').onclick=async function(){showCapture(await window.GameMarketing.stopCapture({discard:true}));};
   draw();requestAnimationFrame(tick);
 })();

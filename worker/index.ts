@@ -7,6 +7,8 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { validateGameUrl } from "./safety";
+import { installAgentMarker, installBrowserPolicy, prepareBrowserPolicy, resolverRules } from "./network-policy";
+import { startIsolatedBrowser, stopIsolatedBrowser } from "./egress-client";
 import { RunEvidence, failureCode, safePhase } from "./observations";
 
 const app = new URL(process.env.APP_URL || "http://127.0.0.1:3000");
@@ -176,9 +178,13 @@ async function runRecording(job: any) {
       new URL(safe.url).pathname !== "/fixture/index.html")
   )
     throw new Error("Fixture mode is limited to this app’s controlled fixture");
+  if (safe.local && recording.mode !== "fixture")
+    throw new Error("Local fixture requires fixture mode");
+  const policy = await prepareBrowserPolicy(safe, game.networkPolicy, recording.mode === "fixture");
   const dir = await mkdtemp(join(tmpdir(), "game-recording-"));
   let context: BrowserContext | undefined;
   let browser;
+  let isolated = false;
   const started = Date.now();
   let leaseValid = true;
   const heartbeat = setInterval(() => {
@@ -213,45 +219,23 @@ async function runRecording(job: any) {
     });
   }
   try {
-    browser = await chromium.launch({
-      headless: true,
-      args: [
-        "--no-proxy-server",
-        `--host-resolver-rules=MAP ${safe.host} ${safe.ip}, EXCLUDE localhost`,
-      ],
-    });
+    if (safe.local && recording.mode === "fixture") {
+      // Only the app's exact controlled local fixture may run without the container boundary.
+      browser = await chromium.launch({ headless: true, args: ["--no-proxy-server", "--disable-quic", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp", `--host-resolver-rules=${resolverRules(policy)}`] });
+    } else {
+      const endpoint = await startIsolatedBrowser(policy);
+      isolated = true;
+      browser = await chromium.connect(endpoint);
+    }
     context = await browser.newContext({
       viewport: { width: 960, height: 540 },
       recordVideo: { dir, size: { width: 960, height: 540 } },
       serviceWorkers: "block",
       acceptDownloads: false,
     });
-    const origin = new URL(safe.url).origin;
-    await context.route("**/*", async (route) => {
-      try {
-        const u = new URL(route.request().url());
-        if (
-          u.origin !== origin ||
-          u.username ||
-          u.password ||
-          (recording.mode === "fixture" &&
-            !u.pathname.startsWith("/fixture/") &&
-            u.pathname !== "/sdk.js")
-        ) {
-          evidence.blockedRequest();
-          await route.abort();
-          return;
-        }
-        await route.continue();
-      } catch {
-        await route.abort();
-      }
-    });
-    await context.routeWebSocket("**/*", (ws) => {
-      evidence.blockedRequest();
-      ws.close();
-    });
+    await installAgentMarker(context);
     const page = await context.newPage();
+    await installBrowserPolicy(context, page, policy, () => evidence.blockedRequest(), app.origin);
     page.on("pageerror", (error) => evidence.pageError(error.name));
     page.setDefaultTimeout(5000);
     page.setDefaultNavigationTimeout(15000);
@@ -356,7 +340,8 @@ async function runRecording(job: any) {
     await event("exit");
     await context.close();
     context = undefined;
-    const videoPath = await video.path();
+    const videoPath = join(dir, "recording.webm");
+    await video.saveAs(videoPath);
     const screenshotUrl = await upload(recording.id, "screenshot", screenshot),
       videoUrl = await upload(recording.id, "video", videoPath);
     await api("/api/worker/complete", {
@@ -396,6 +381,7 @@ async function runRecording(job: any) {
     clearInterval(heartbeat);
     if (context) await context.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});
+    if (isolated) await stopIsolatedBrowser();
     await rm(dir, { recursive: true, force: true });
   }
 }

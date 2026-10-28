@@ -1,0 +1,53 @@
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    user: pwuser
+    command: ["./node_modules/.bin/tsx", "worker/index.ts"]
+    environment:
+      APP_URL: ${APP_URL:?APP_URL is required}
+      WORKER_TOKEN: ${WORKER_TOKEN:?WORKER_TOKEN is required}
+      EGRESS_TOKEN: ${EGRESS_TOKEN:?EGRESS_TOKEN is required}
+      BLOB_CLIENT_UPLOAD: ${BLOB_CLIENT_UPLOAD:-false}
+    networks:
+      outbound: {}
+      browser_net:
+        ipv4_address: 172.28.22.4
+    depends_on: [egress, browser]
+    restart: unless-stopped
+  egress:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    user: pwuser
+    command: ["./node_modules/.bin/tsx", "worker/egress-proxy.ts"]
+    environment:
+      EGRESS_TOKEN: ${EGRESS_TOKEN:?EGRESS_TOKEN is required}
+    networks:
+      outbound: {}
+      browser_net:
+        ipv4_address: 172.28.22.2
+    restart: unless-stopped
+  browser:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    user: root
+    entrypoint: ["/app/worker/egress-browser-entrypoint.sh"]
+    environment:
+      EGRESS_TOKEN: ${EGRESS_TOKEN:?EGRESS_TOKEN is required}
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, SETUID, SETGID, SETPCAP]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      browser_net:
+        ipv4_address: 172.28.22.3
+    restart: unless-stopped
+networks:
+  outbound: {}
+  browser_net:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.28.22.0/24

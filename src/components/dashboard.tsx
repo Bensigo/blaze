@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -57,6 +58,7 @@ import type {
   Post,
   Recording,
   SessionSummary,
+  SessionCapture,
   TelemetryEvent,
   WorkspaceSnapshot,
 } from "@/lib/types";
@@ -146,6 +148,22 @@ const dateInput = (v?: string) =>
         .slice(0, 16)
     : "";
 
+function captureMessage(status?: SessionCapture["status"], demo = false, missingVideo = false) {
+  if (demo) return status === "unsupported"
+    ? "Example status: capture unsupported. No player video was recorded."
+    : "Example session: no player video was recorded.";
+  if (missingVideo) return "The capture is marked ready, but playback is unavailable.";
+  switch (status) {
+    case "pending": return "Capture is pending; footage is not available yet.";
+    case "unsupported": return "Capture was unsupported by this browser or canvas.";
+    case "failed": return "Capture failed; no playable footage is available.";
+    case "cancelled": return "Capture was cancelled or consent was withdrawn.";
+    case "expired": return "Capture has expired and its footage is no longer available.";
+    case "not_sampled": return "This session was not selected for capture.";
+    case "quota_reached": return "The daily capture limit was reached.";
+    default: return "No player capture was recorded for this session.";
+  }
+}
 function Status({ value }: { value: string }) {
   return (
     <span className={`status status-${value}`}>
@@ -338,7 +356,15 @@ export default function Dashboard() {
     [chosenPost, setChosenPost] = useState<Post | null>(null),
     [chosenSession, setChosenSession] = useState<SessionSummary | null>(null),
     [sessionEvents, setSessionEvents] = useState<TelemetryEvent[]>([]),
-    [sessionLoading, setSessionLoading] = useState(false);
+    [sessionCapture, setSessionCapture] = useState<SessionCapture | null>(null),
+    [sessionLoading, setSessionLoading] = useState(false),
+    [sessionError, setSessionError] = useState("");
+  const sessionVideo = useRef<HTMLVideoElement>(null);
+  const sessionRequest = useRef(0);
+  const formError = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error && modal) formError.current?.scrollIntoView({ block: "nearest" });
+  }, [error, modal]);
   const [origin, setOrigin] = useState("");
   const [creator, setCreator] = useState<{
     privacyOptions: string[];
@@ -377,6 +403,16 @@ export default function Dashboard() {
     dailyEnabled: true,
     competitors: "",
     origins: "",
+    resourceOrigins: "",
+    webSocketOrigins: "",
+    captureEnabled: false,
+    canvasSelector: "",
+    surfaceReviewed: false,
+    sampleRate: "0.1",
+    maxDurationSeconds: "30",
+    retentionDays: "1",
+    maxCapturesPerDay: "25",
+    masks: "[]",
     tiktokPrivacy: "",
     disableComment: false,
     disableDuet: false,
@@ -511,22 +547,34 @@ export default function Dashboard() {
   const changePage = (p: Page) => {
     setPage(p);
     setMobileNav(false);
+    sessionRequest.current++;
+    setChosenSession(null);
+  };
+  const closeSession = () => {
+    sessionRequest.current++;
     setChosenSession(null);
   };
   const openSession = async (s: SessionSummary) => {
+    const request = ++sessionRequest.current;
     setChosenSession(s);
     setSessionEvents([]);
-    if (snapshot?.demo) return;
+    setSessionCapture(null);
+    setSessionError("");
+    if (snapshot?.demo) { setSessionLoading(false); return; }
     setSessionLoading(true);
     try {
-      const r = await fetch(`/api/sessions/${encodeURIComponent(s.id)}`);
+      const query = new URLSearchParams({ gameId: s.gameId });
+      const r = await fetch(`/api/sessions/${encodeURIComponent(s.id)}?${query}`, { cache: "no-store" });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Unable to load session");
-      setSessionEvents(d.events || []);
+      if (request === sessionRequest.current) {
+        setSessionEvents(d.events || []);
+        setSessionCapture(d.capture || null);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to load session");
+      if (request === sessionRequest.current) setSessionError(e instanceof Error ? e.message : "Unable to load session");
     } finally {
-      setSessionLoading(false);
+      if (request === sessionRequest.current) setSessionLoading(false);
     }
   };
   const resetDraft = () => {
@@ -556,6 +604,16 @@ export default function Dashboard() {
       dailyEnabled: true,
       competitors: "",
       origins: "",
+      resourceOrigins: "",
+      webSocketOrigins: "",
+      captureEnabled: false,
+      canvasSelector: "",
+      surfaceReviewed: false,
+      sampleRate: "0.1",
+      maxDurationSeconds: "30",
+      retentionDays: "1",
+      maxCapturesPerDay: "25",
+      masks: "[]",
       tiktokPrivacy: "",
       disableComment: false,
       disableDuet: false,
@@ -565,6 +623,7 @@ export default function Dashboard() {
     });
   };
   const openModal = (m: Modal) => {
+    setError("");
     resetDraft();
     setChosenGame(null);
     setChosenPost(null);
@@ -576,6 +635,7 @@ export default function Dashboard() {
     setModal("measurement");
   };
   const editGame = (g: Game) => {
+    setError("");
     setChosenGame(g);
     setDraft((d) => ({
       ...d,
@@ -586,6 +646,16 @@ export default function Dashboard() {
       dailyEnabled: g.dailyEnabled,
       competitors: g.competitors.join("\n"),
       origins: g.origins.join("\n"),
+      resourceOrigins: (g.networkPolicy?.resourceOrigins || []).join("\n"),
+      webSocketOrigins: (g.networkPolicy?.webSocketOrigins || []).join("\n"),
+      captureEnabled: g.capture?.enabled || false,
+      canvasSelector: g.capture?.canvasSelector || "",
+      surfaceReviewed: g.capture?.surfaceReviewed || false,
+      sampleRate: String(g.capture?.sampleRate ?? 0.1),
+      maxDurationSeconds: String(g.capture?.maxDurationSeconds ?? 30),
+      retentionDays: String(g.capture?.retentionDays ?? 1),
+      maxCapturesPerDay: String(g.capture?.maxCapturesPerDay ?? 25),
+      masks: JSON.stringify(g.capture?.masks || [], null, 2),
     }));
     setModal("game");
   };
@@ -593,6 +663,7 @@ export default function Dashboard() {
     analytics = snapshot?.analytics;
   const filteredGames =
     selectedGame === "all" ? games : games.filter((g) => g.id === selectedGame);
+  const featuredGame = filteredGames[0];
   const records = (snapshot?.recordings || []).filter(
       (x) => selectedGame === "all" || x.gameId === selectedGame,
     ),
@@ -687,7 +758,21 @@ export default function Dashboard() {
   };
   const formSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (modal === "game")
+    if (modal === "game") {
+      let masks: { x: number; y: number; width: number; height: number }[] = [];
+      if (chosenGame) {
+        try {
+          const parsed: unknown = JSON.parse(draft.masks);
+          if (!Array.isArray(parsed) || parsed.length > 8 || !parsed.every((m) =>
+            m && typeof m === "object" && ["x", "y", "width", "height"].every((k) => typeof m[k] === "number" && Number.isFinite(m[k])) &&
+            m.x >= 0 && m.y >= 0 && m.width > 0 && m.height > 0 && m.x + m.width <= 1 && m.y + m.height <= 1
+          )) throw new Error();
+          masks = parsed;
+        } catch {
+          setError("Masks must be a JSON array of up to 8 normalized rectangles within the canvas.");
+          return;
+        }
+      }
       await action(
         chosenGame
           ? {
@@ -705,6 +790,20 @@ export default function Dashboard() {
                 .split("\n")
                 .map((x) => x.trim())
                 .filter(Boolean),
+              networkPolicy: {
+                resourceOrigins: draft.resourceOrigins.split("\n").map((x) => x.trim()).filter(Boolean),
+                webSocketOrigins: draft.webSocketOrigins.split("\n").map((x) => x.trim()).filter(Boolean),
+              },
+              capture: {
+                enabled: draft.captureEnabled,
+                canvasSelector: draft.canvasSelector.trim(),
+                surfaceReviewed: draft.surfaceReviewed,
+                sampleRate: Number(draft.sampleRate),
+                maxDurationSeconds: Number(draft.maxDurationSeconds),
+                retentionDays: Number(draft.retentionDays),
+                maxCapturesPerDay: Number(draft.maxCapturesPerDay),
+                masks,
+              },
             }
           : {
               action: "add_game",
@@ -714,7 +813,7 @@ export default function Dashboard() {
               genre: draft.genre || undefined,
             },
       );
-    else if (modal === "recording")
+    } else if (modal === "recording")
       await action({
         action: "queue_recording",
         gameId: draft.gameId,
@@ -916,21 +1015,27 @@ export default function Dashboard() {
             <span>{snapshot.demo ? "Example workspace" : "Workspace"}</span>
           </div>
         </div>
-        <div className="nav-label">WORKSPACE</div>
-        <nav>
-          {nav.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => changePage(n.id)}
-              className={`nav-item ${page === n.id ? "active" : ""}`}
-            >
-              <n.icon size={17} />
-              <span>{n.label}</span>
-              {n.id === "content" &&
-                posts.filter((p) => p.status === "review").length > 0 && (
-                  <i>{posts.filter((p) => p.status === "review").length}</i>
-                )}
-            </button>
+        <nav aria-label="Workspace navigation">
+          {[
+            { title: "Player evidence", items: nav.slice(0, 4) },
+            { title: "Production", items: nav.slice(4) },
+          ].map((group) => (
+            <div className="nav-group" key={group.title}>
+              <div className="nav-label">{group.title}</div>
+              {group.items.map((n) => (
+                <button
+                  key={n.id}
+                  onClick={() => changePage(n.id)}
+                  className={`nav-item ${page === n.id ? "active" : ""}`}
+                >
+                  <n.icon size={17} />
+                  <span>{n.label}</span>
+                  {n.id === "content" && posts.filter((p) => p.status === "review").length > 0 && (
+                    <i>{posts.filter((p) => p.status === "review").length}</i>
+                  )}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="sidebar-bottom">
@@ -982,8 +1087,6 @@ export default function Dashboard() {
             >
               <Menu size={20} />
             </button>
-            <span className="breadcrumb">Workspace</span>
-            <span className="crumb-sep">/</span>
             <strong>{title}</strong>
           </div>
           <div className="topbar-right">
@@ -1044,7 +1147,6 @@ export default function Dashboard() {
         <main className="main-content">
           <div className="page-heading">
             <div>
-              <div className="eyebrow">WORKSPACE / {title.toUpperCase()}</div>
               <h1>{title}</h1>
               <p>{pageDescriptions[page]}</p>
             </div>
@@ -1101,74 +1203,44 @@ export default function Dashboard() {
                   <Metrics a={analytics} />
                   <Chart data={trend} />
                 </div>
-                <div className="overview-side">
-                  <div className="side-section">
-                    <div className="section-kicker">WORKSPACE HEALTH</div>
-                    <h3>At a glance</h3>
-                    <div className="health-row">
-                      <span>Games added</span>
-                      <strong>{games.length}</strong>
+                <aside className="overview-side">
+                  <div className="featured-game">
+                    <div className="featured-heading">
+                      <h2>{selectedGame === "all" ? "Game in focus" : "Selected game"}</h2>
+                      {snapshot.demo && <span className="featured-example">Example</span>}
                     </div>
-                    <div className="health-row">
-                      <span>Recordings ready</span>
-                      <strong>
-                        {records.filter((r) => r.status === "ready").length}
-                      </strong>
-                    </div>
-                    <div className="health-row">
-                      <span>Awaiting review</span>
-                      <strong>
-                        {posts.filter((p) => p.status === "review").length}
-                      </strong>
-                    </div>
-                    <div className="health-row">
-                      <span>Worker</span>
-                      <Status
-                        value={
-                          snapshot.system.worker ? "connected" : "disconnected"
-                        }
-                      />
-                    </div>
-                    <button
-                      className="inline-link"
-                      onClick={() => changePage("connections")}
-                    >
-                      View connections <ArrowRight size={14} />
-                    </button>
-                  </div>
-                  <div className="side-section">
-                    <div className="section-kicker">NEXT UP</div>
-                    <h3>Publishing queue</h3>
-                    {posts
-                      .filter((p) => p.scheduledAt)
-                      .slice(0, 3)
-                      .map((p) => (
-                        <button
-                          className="queue-row"
-                          key={p.id}
-                          onClick={() => reviewPost(p)}
-                        >
-                          <div>
-                            <strong>{label(p.channel)}</strong>
-                            <span>
-                              {gameName(games, p.gameId)} ·{" "}
-                              {dateTime(p.scheduledAt)}
-                            </span>
-                          </div>
-                          <Status value={p.status} />
-                        </button>
-                      ))}
-                    {!posts.some((p) => p.scheduledAt) && (
-                      <p className="muted">No scheduled posts yet.</p>
+                    {featuredGame ? (
+                      <>
+                        <Media src={featuredGame.image} title={featuredGame.title} />
+                        <div className="featured-copy">
+                          <h3>{featuredGame.title}</h3>
+                          <p>{featuredGame.genre || "Web game"}{featuredGame.genre === "Fixture" ? " · Controlled fixture" : ""}</p>
+                        </div>
+                        <div className="featured-actions">
+                          <Button onClick={() => { setSelectedGame(featuredGame.id); changePage("analytics"); }}>
+                            View analytics <ArrowRight size={14} />
+                          </Button>
+                          <Button onClick={() => {
+                            setSelectedGame(featuredGame.id);
+                            openModal("recording");
+                            setDraft((d) => ({ ...d, gameId: featuredGame.id }));
+                          }}>
+                            <Video size={14} /> Record game
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="featured-empty">
+                        <p>No game selected or added yet.</p>
+                        <button className="inline-link" onClick={() => openModal("game")}>Add a game <ArrowRight size={14} /></button>
+                      </div>
                     )}
-                    <button
-                      className="inline-link"
-                      onClick={() => changePage("calendar")}
-                    >
-                      Open calendar <ArrowRight size={14} />
-                    </button>
+                    <div className="featured-status">
+                      <div><span>Recording worker</span><Status value={snapshot.system.worker ? "connected" : "disconnected"} /></div>
+                      <div><span>Posts awaiting review</span><strong>{posts.filter((p) => p.status === "review").length}</strong></div>
+                    </div>
                   </div>
-                </div>
+                </aside>
               </div>
               <div className="lower-grid">
                 <div>
@@ -1211,6 +1283,18 @@ export default function Dashboard() {
                   />
                 </div>
               </div>
+              <section className="overview-queue">
+                <SectionHead title="Publishing queue" detail="Scheduled posts and their current status." action={
+                  <button className="inline-link" onClick={() => changePage("calendar")}>Open calendar <ArrowRight size={15} /></button>
+                } />
+                {posts.filter((p) => p.scheduledAt).slice(0, 3).map((p) => (
+                  <button className="queue-row" key={p.id} onClick={() => reviewPost(p)}>
+                    <div><strong>{label(p.channel)}</strong><span>{gameName(games, p.gameId)} · {dateTime(p.scheduledAt)}</span></div>
+                    <Status value={p.status} />
+                  </button>
+                ))}
+                {!posts.some((p) => p.scheduledAt) && <p className="muted">No scheduled posts yet.</p>}
+              </section>
             </>
           )}
           {page === "games" && (
@@ -1486,7 +1570,7 @@ export default function Dashboard() {
             <>
               <SectionHead
                 title="Session explorer"
-                detail="Human sessions in the selected date range. Select a row to inspect events."
+                detail="Human sessions in the selected date range. Select a row to inspect events and any consented canvas capture."
               />
               <SessionsTable
                 sessions={sessions}
@@ -1980,7 +2064,7 @@ export default function Dashboard() {
         <div className="drawer-wrap">
           <div
             className="drawer-backdrop"
-            onClick={() => setChosenSession(null)}
+            onClick={closeSession}
           />
           <aside className="drawer">
             <div className="drawer-head">
@@ -1993,7 +2077,7 @@ export default function Dashboard() {
               </div>
               <button
                 className="icon-button"
-                onClick={() => setChosenSession(null)}
+                onClick={closeSession}
                 aria-label="Close session"
               >
                 <X size={19} />
@@ -2014,17 +2098,52 @@ export default function Dashboard() {
                   <strong>{chosenSession.errors}</strong>
                 </div>
               </div>
+              <div className="session-capture">
+                <div className="capture-heading">
+                  <h3>Player canvas capture</h3>
+                  {!sessionLoading && !sessionError && <Status value={sessionCapture?.status || chosenSession.captureStatus || "not_recorded"} />}
+                </div>
+                {sessionLoading ? <p className="muted">Loading capture…</p> : sessionError ? <p className="error-text">{sessionError}</p> : sessionCapture?.status === "ready" && sessionCapture.videoUrl ? (
+                  <>
+                    <video ref={sessionVideo} controls preload="metadata" src={sessionCapture.videoUrl} aria-label="Player canvas capture" />
+                    <p className="muted">Started {dateTime(sessionCapture.createdAt)} · {sessionCapture.durationSeconds === undefined ? "Duration unavailable" : timecode(sessionCapture.durationSeconds)} · {sessionCapture.width && sessionCapture.height ? `${sessionCapture.width} × ${sessionCapture.height}` : "Dimensions unavailable"} · expires {dateTime(sessionCapture.expiresAt)}</p>
+                    <p className="muted">Canvas only, with configured masks. Select an event within the capture to seek.</p>
+                  </>
+                ) : (
+                  <p className="muted">{captureMessage(sessionCapture?.status || chosenSession.captureStatus, snapshot.demo, sessionCapture?.status === "ready")}{sessionCapture?.reason ? ` (${label(sessionCapture.reason)})` : ""}</p>
+                )}
+                {sessionCapture && !snapshot.demo && !["expired", "cancelled"].includes(sessionCapture.status) && (
+                  <Button variant="danger" disabled={busy} onClick={() => {
+                    if (window.confirm("Delete this player capture? This cannot be undone.")) {
+                      void (async () => {
+                        const result = await action({ action: "delete_session_capture", id: sessionCapture.id }, false);
+                        if (result) await openSession(chosenSession);
+                      })();
+                    }
+                  }}>Delete capture</Button>
+                )}
+              </div>
               <h3>Event timeline</h3>
               <p className="muted">Ordered activity captured by the SDK.</p>
               {sessionLoading ? (
                 <p>Loading events…</p>
+              ) : sessionError ? (
+                <p className="error-text">{sessionError}</p>
               ) : sessionEvents.length ? (
                 <div className="timeline">
                   {sessionEvents.map((e, i) => (
                     <div key={e.id || i}>
                       <span className="timeline-dot" />
                       <div>
-                        <strong>{label(e.name)}</strong>
+                        {sessionCapture?.status === "ready" && sessionCapture.videoUrl && sessionCapture.durationSeconds !== undefined && Number.isFinite(Date.parse(e.timestamp)) && (() => {
+                          const offset = (Date.parse(e.timestamp) - Date.parse(sessionCapture.createdAt)) / 1000;
+                          return Number.isFinite(offset) && offset >= 0 && offset <= sessionCapture.durationSeconds! ? (
+                            <button className="timeline-seek" type="button" onClick={() => { if (sessionVideo.current) sessionVideo.current.currentTime = offset; }}>
+                              {label(e.name)} <small>Seek to {timecode(offset)}</small>
+                            </button>
+                          ) : <strong>{label(e.name)}</strong>;
+                        })()}
+                        {!(sessionCapture?.status === "ready" && sessionCapture.videoUrl && sessionCapture.durationSeconds !== undefined && Number.isFinite(Date.parse(e.timestamp))) && <strong>{label(e.name)}</strong>}
                         <p>{dateTime(e.timestamp)}</p>
                         {e.properties &&
                           Object.keys(e.properties).length > 0 && (
@@ -2166,6 +2285,7 @@ export default function Dashboard() {
             </>
           ) : (
             <form onSubmit={formSubmit}>
+              {error && <div ref={formError} className="alert error" role="alert">{error}</div>}
               {modal === "game" && (
                 <>
                   <Field
@@ -2239,6 +2359,34 @@ export default function Dashboard() {
                           }
                         />
                       </Field>
+                      <div className="settings-section">
+                        <h3>Browser network permissions</h3>
+                        <p className="muted">Same-origin HTTPS resources work by default. Only verified public destinations are allowed; unknown, private and local destinations are blocked, including redirects. WebSockets require an explicit origin, even on the game host.</p>
+                        <Field label="Additional HTTPS resource origins" hint="Exact origins only, one per line; for example https://cdn.example.com. No paths or wildcards.">
+                          <textarea rows={2} value={draft.resourceOrigins} onChange={(e) => setDraft({ ...draft, resourceOrigins: e.target.value })} />
+                        </Field>
+                        <Field label="Allowed WSS origins" hint="Exact origins only, one per line; for example wss://socket.example.com. Sockets are opt-in.">
+                          <textarea rows={2} value={draft.webSocketOrigins} onChange={(e) => setDraft({ ...draft, webSocketOrigins: e.target.value })} />
+                        </Field>
+                      </div>
+                      <div className="settings-section">
+                        <h3>Human canvas capture</h3>
+                        <p className="muted">Off by default. Capture also requires analytics consent and a separate, explicit recording consent from each player. Only the reviewed canvas is recorded; no audio or DOM content. Limits: 5 fps, up to 960 × 540 and 3 MiB.</p>
+                        <label className="checkbox"><input type="checkbox" checked={draft.captureEnabled} onChange={(e) => setDraft({ ...draft, captureEnabled: e.target.checked })} /> Enable capture for this game</label>
+                        <Field label="Unique canvas selector" hint="Select exactly one origin-clean canvas on the game page.">
+                          <input value={draft.canvasSelector} required={draft.captureEnabled} onChange={(e) => setDraft({ ...draft, canvasSelector: e.target.value })} placeholder="#game-canvas" />
+                        </Field>
+                        <label className="checkbox"><input type="checkbox" required={draft.captureEnabled} checked={draft.surfaceReviewed} onChange={(e) => setDraft({ ...draft, surfaceReviewed: e.target.checked })} /> I reviewed the canvas for private content and configured masks where needed.</label>
+                        <div className="form-grid">
+                          <Field label="Sample rate" hint="0–1; default 0.1 (10%)."><input type="number" min="0" max="1" step="0.01" required value={draft.sampleRate} onChange={(e) => setDraft({ ...draft, sampleRate: e.target.value })} /></Field>
+                          <Field label="Maximum duration (seconds)"><input type="number" min="1" max="30" step="1" required value={draft.maxDurationSeconds} onChange={(e) => setDraft({ ...draft, maxDurationSeconds: e.target.value })} /></Field>
+                          <Field label="Retention (days)"><input type="number" min="1" max="7" step="1" required value={draft.retentionDays} onChange={(e) => setDraft({ ...draft, retentionDays: e.target.value })} /></Field>
+                          <Field label="Maximum captures per day"><input type="number" min="1" max="100" step="1" required value={draft.maxCapturesPerDay} onChange={(e) => setDraft({ ...draft, maxCapturesPerDay: e.target.value })} /></Field>
+                        </div>
+                        <Field label="Privacy masks" hint={'JSON array of up to 8 rectangles with normalized coordinates (0–1), e.g. [{"x":0,"y":0,"width":0.2,"height":0.1}]. Masks cover these regions in black.'}>
+                          <textarea rows={4} value={draft.masks} onChange={(e) => setDraft({ ...draft, masks: e.target.value })} spellCheck={false} />
+                        </Field>
+                      </div>
                       <Field
                         label="Competitor public URLs"
                         hint="One public URL per line. Research inspects public pages only."
@@ -2848,7 +2996,7 @@ const modalDetails: Record<Exclude<Modal, null>, string> = {
 };
 const providerDescriptions: Record<string, string> = {
   jev: "Agent gameplay decisions",
-  anthropic: "Draft generation and analysis",
+  anthropic: "Content drafts and history-informed research",
   x: "Posting and public research",
   youtube: "Video publishing",
   instagram: "Publishing to an authorized account",
@@ -2905,23 +3053,25 @@ function Chart({ data }: { data: Analytics["trend"] }) {
               data={data}
               margin={{ top: 12, right: 8, left: -25, bottom: 0 }}
             >
-              <CartesianGrid vertical={false} stroke="#edeaf0" />
+              <CartesianGrid vertical={false} stroke="#e8eae6" />
               <XAxis
                 dataKey="date"
                 axisLine={false}
                 tickLine={false}
-                tick={{ fontSize: 10, fill: "#8d8996" }}
+                tick={{ fontSize: 10, fill: "#777f78" }}
                 tickFormatter={(v) => String(v).slice(5)}
               />
               <YAxis
                 allowDecimals={false}
                 axisLine={false}
                 tickLine={false}
-                tick={{ fontSize: 10, fill: "#8d8996" }}
+                tick={{ fontSize: 10, fill: "#777f78" }}
               />
               <Tooltip
                 contentStyle={{
-                  border: "1px solid #e8e5ed",
+                  border: "1px solid #dfe4df",
+                  background: "#fff",
+                  color: "#18241d",
                   borderRadius: 8,
                   fontSize: 12,
                 }}
@@ -2929,9 +3079,9 @@ function Chart({ data }: { data: Analytics["trend"] }) {
               <Area
                 type="monotone"
                 dataKey="visits"
-                stroke="#6a5ae0"
+                stroke="#447f61"
                 strokeWidth={2}
-                fill="#eeeafe"
+                fill="#e7f1e8"
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -2988,6 +3138,7 @@ function SessionsTable({
             <th>LOCATION / DEVICE</th>
             <th>LAST STEP</th>
             <th>EVENTS</th>
+            <th>CAPTURE</th>
             <th></th>
           </tr>
         </thead>
@@ -3011,6 +3162,7 @@ function SessionsTable({
               </td>
               <td>{label(s.lastStep || "Unknown")}</td>
               <td>{s.events}</td>
+              <td><Status value={s.captureStatus || "not_recorded"} /></td>
               <td>
                 <ChevronRight size={16} />
               </td>
@@ -3407,11 +3559,23 @@ function Help({
           </div>
         </div>
         <div className="help-step">
+          <span>↗</span>
+          <div>
+            <h3>Configure network access and player capture</h3>
+            <p>In Edit game, add exact HTTPS resource origins and opt-in WSS origins needed by the browser worker. Only verified public destinations are allowed; unknown, private and local destinations are blocked.</p>
+            <p>Player capture is off by default. Review a unique origin-clean canvas and add privacy masks before enabling it. Ask for recording consent separately from analytics consent; call <code>await GameMarketing.startCapture(&#123;consent:true&#125;)</code> only after both are granted. Stop with <code>await GameMarketing.stopCapture()</code>, or discard with <code>await GameMarketing.stopCapture(&#123;discard:true&#125;)</code>. Analytics withdrawal also discards capture.</p>
+            <p>Capture is sampled and limited to 30 seconds, 5 fps, 960 × 540, and 3 MiB. It contains the canvas only, no audio or DOM. Inspect private footage in Sessions; it is separate from agent recordings and content clips.</p>
+          </div>
+        </div>
+        <div className="help-step">
           <span>03</span>
           <div>
             <h3>Connect providers and worker</h3>
             <p>
-              Add Jev for agent decisions and Anthropic for generated text. Run
+              Add Jev for gameplay decisions and Anthropic for drafts and
+              research suggestions. Each request uses this game's past posts,
+              observed campaign traffic, player trends and measured changes.
+              Missing data and small samples limit conclusions. Run
               the separate browser worker with authenticated access and
               configure storage. Jev needs a supported state and action adapter;
               a URL alone is insufficient.

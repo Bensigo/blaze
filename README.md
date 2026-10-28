@@ -6,6 +6,8 @@ Working name for an independent web-game marketing and player-evidence product. 
 
 Node 22+, then `npm ci`, copy `.env.example` to `.env.local`, set a random `WORKER_TOKEN`, and run `npm run dev`. Open `http://127.0.0.1:3000`. The local development sign-in is unavailable in production. PGlite persists local PostgreSQL data in `.data/postgres`; PostgreSQL is used when `DATABASE_URL` is set.
 
+On a constrained development disk, use `NEXT_DEV_DISK_CACHE=false npm run dev` to avoid writing new Turbopack filesystem cache entries. This does not clear existing caches or change production caching.
+
 The public example workspace uses explicitly illustrative Star Catch data. It is read-only and never enters real analytics.
 
 ## First real workflow
@@ -14,7 +16,7 @@ The public example workspace uses explicitly illustrative Star Catch data. It is
 2. Add a public web-game URL. Its actual metadata supplies title, description and art; edit metadata, origins and artwork as needed. A URL provides no private player data.
 3. Install [the SDK](docs/SDK.md), connect it to the game's meaningful actions and obtain the player's appropriate consent. Check events in Sessions and human analytics. Country comes from approximate hosting geography, while source and campaign use referral/campaign data.
 4. Configure Jev, Anthropic and required research/account tokens in Connections. Tokens are encrypted server-side and verified before a connection is shown as connected. Native provider OAuth app registration and token issuance happen with the provider. Stored refresh tokens are not automatically refreshed in V1; expired access fails visibly and requires reconnection.
-5. Run [the recording worker](docs/WORKER.md) on a trusted host. It polls the API, uses a structured game adapter and records actual browser video. A controlled fixture is included at `/fixture/index.html`. Fixture decisions are explicitly labeled and do not validate Jev. The worker currently blocks cross-origin resources and WebSockets, so third-party game compatibility requires deliberate validation.
+5. Run [the recording worker](docs/WORKER.md) on a trusted host. It polls the API, uses a structured game adapter and records actual browser video. Configure exact public HTTPS resource and WSS origins per game. Other destinations remain denied. Arbitrary games require the isolated browser and egress guard; container firewall acceptance remains pending. A controlled fixture is included at `/fixture/index.html`. Fixture decisions are explicitly labeled and do not validate Jev.
 6. Create landscape, square or portrait clips. Portrait/square use padding, preserving the full gameplay image. V1 clips have no audio track; actual phone audio and human enjoyment remain untested.
 7. Create a channel draft, insert its tracked link, select a verified account, and request review. Review the exact text, clip, account, time and TikTok creator settings if applicable. Approval binds those fields. Editing clears approval. Publish approved items immediately or at the approved scheduled time.
 
@@ -28,11 +30,13 @@ The public example workspace uses explicitly illustrative Star Catch data. It is
 
 ## Analytics interpretation
 
+The research agent uses Vercel AI SDK's bounded `ToolLoopAgent`, and content generation uses its Anthropic provider with the workspace owner's configured model and key. Both reload scoped game history: up to 90 days of human activity and campaign traffic, previous post copy and status, recommendations, and measured changes. History informs drafts and reviewable suggestions; missing data, small samples and unavailable social impressions stay explicit. Jev retains its separate TypeSafe typed-action adapter for gameplay. No model call can approve or publish a post.
+
 Human reports exclude server-issued agent sessions. Event ingestion validates game origin and schema and deduplicates IDs, but public browser telemetry is not a verified human identity or fraud detector. Funnels require event order within a session. Completion totals can differ from the funnel when earlier instrumentation is absent.
 
 Returning players need a distinct later session at least 24 hours after first observation. D1 retention uses a distinct visit in the 24–48 hour window, and only cohorts at least 48 hours old enter the denominator. Player IDs are anonymous browser/device identifiers, not cross-device accounts. Ad blockers, consent refusal, cleared storage, absent SDK events and platform referrer policies create coverage gaps.
 
-Pointer density is a normalized 2D interaction view, not a semantic canvas replay. Human sessions have event timelines; automatic human gameplay video/session replay is not installed by default. Agent recordings are actual footage. Before/after game-change comparisons show samples and elapsed windows; they do not establish causality or prove human fun/retention.
+Pointer density is a normalized 2D interaction view, not a semantic canvas replay. Human sessions have event timelines and optional private canvas recordings. Recording requires owner configuration and surface review, analytics consent, and separate affirmative player recording consent; it stays off by default. Capture excludes DOM and audio, applies configured masks, and is bounded by duration, dimensions, frame rate and bytes. Authenticated Sessions playback expires at the retention deadline; daily cleanup removes stored bytes and retries failures. Agent recordings remain separate. Before/after game-change comparisons show samples and elapsed windows; they do not establish causality or prove human fun/retention.
 
 ## Provider details and verification
 

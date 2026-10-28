@@ -1,9 +1,17 @@
 import { get, list, put, query, id } from "./db";
 import { analytics } from "./analytics";
-import { researchSecrets } from "./credentials";
+import { loadAgentHistory } from "./agent-history";
+import { anthropicModel, interpretResearch } from "./agent";
+import { researchSecrets, secretFor } from "./credentials";
 import { runResearch } from "./integrations";
 import { hash } from "./security";
-import type { Game, Finding, ResearchRun, Recording } from "./types";
+import type {
+  Game,
+  Finding,
+  ResearchRun,
+  Recording,
+  ProviderSecret,
+} from "./types";
 export async function researchJob(
   workspace: string,
   game: Game,
@@ -46,10 +54,30 @@ export async function researchJob(
       observedAt: string;
       words: number;
     }>(workspace, "seo_baseline", game.id);
+    const connections: Record<string, ProviderSecret> = await researchSecrets(
+      workspace,
+    ).catch(async () => {
+      // A broken credential must not discard healthy integrations or abort baseline research.
+      const result: Record<string, ProviderSecret> = {};
+      for (const provider of [
+        "jev",
+        "anthropic",
+        "x",
+        "reddit",
+        "brave",
+        "search_console",
+      ]) {
+        const secret = await secretFor(workspace, provider).catch(
+          () => undefined,
+        );
+        if (secret) result[provider] = secret;
+      }
+      return result;
+    });
     const result = await runResearch({
       game,
       analytics: await analytics(workspace, game.id, 30),
-      connections: await researchSecrets(workspace),
+      connections,
       previous,
     });
     if (
@@ -107,6 +135,50 @@ export async function researchJob(
           });
         run.findings.push(fid);
       }
+    }
+    try {
+      const secret = connections.anthropic;
+      if (!secret?.token || !secret.model) {
+        result.coverage.push({
+          source: "AI research agent",
+          status: "disconnected",
+          detail:
+            "Connect Anthropic and configure a model to enable AI interpretation.",
+        });
+      } else {
+        const history = await loadAgentHistory(workspace, game.id);
+        const suggestions = await interpretResearch({
+          model: anthropicModel(secret),
+          gameId: game.id,
+          findings: result.findings,
+          history,
+        });
+        for (const suggestion of suggestions) {
+          // Evidence and type define the durable issue, so wording changes do not reopen it.
+          const fid = `finding_${hash(`ai:${game.id}:${suggestion.aiTopic}:${suggestion.type}:${JSON.stringify([...suggestion.evidence].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))}`).slice(0, 24)}`;
+          const existing = await get<Finding>(workspace, "finding", fid);
+          if (!existing || existing.status === "open")
+            await put(workspace, "finding", {
+              ...suggestion,
+              id: fid,
+              status: existing?.status || "open",
+              createdAt: existing?.createdAt || new Date().toISOString(),
+            });
+          run.findings.push(fid);
+        }
+        result.coverage.push({
+          source: "AI research agent",
+          status: "complete",
+          detail: `Anthropic interpreted same-game research and 90-day human history; ${suggestions.length} supported proposals. Suggestions require human review.`,
+        });
+      }
+    } catch {
+      result.coverage.push({
+        source: "AI research agent",
+        status: "failed",
+        detail:
+          "AI interpretation or scoped history was unavailable; deterministic research remains available. Check the configured Anthropic connection and model.",
+      });
     }
     run.coverage = result.coverage;
     run.status = result.coverage.some((c) => c.status !== "complete")

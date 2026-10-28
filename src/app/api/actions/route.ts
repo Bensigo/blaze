@@ -1,3 +1,10 @@
+import { loadAgentHistory } from "@/lib/agent-history";
+import { verifyNetworkPolicy } from "@/lib/network-policy";
+import {
+  captureConfigSchema,
+  defaultCaptureConfig,
+  deleteOwnerCapture,
+} from "@/lib/session-capture";
 import { z } from "zod";
 import { requireIdentity, apiError, HttpError } from "@/lib/auth";
 import {
@@ -140,8 +147,21 @@ export async function POST(request: Request) {
           origins: z.array(z.string().url()).max(10).optional(),
           competitors: z.array(z.string().url()).max(5).optional(),
           dailyEnabled: z.boolean().optional(),
+          networkPolicy: z.unknown().optional(),
+          capture: captureConfigSchema.optional(),
         })
         .parse(body);
+      let networkPolicy = game.networkPolicy;
+      if (body.networkPolicy !== undefined) {
+        try {
+          networkPolicy = await verifyNetworkPolicy(body.networkPolicy);
+        } catch (e) {
+          throw new HttpError(
+            400,
+            e instanceof Error ? e.message : "Invalid network permissions.",
+          );
+        }
+      }
       const origins = v.origins?.map((s) => {
         const u = new URL(s);
         if (
@@ -155,6 +175,7 @@ export async function POST(request: Request) {
       await put(workspace, "game", {
         ...game,
         ...v,
+        networkPolicy,
         ...(origins ? { origins } : {}),
         image: v.image === undefined ? game.image : imageUrl(v.image, game.url),
       });
@@ -249,6 +270,7 @@ export async function POST(request: Request) {
           channel: channel.parse(body.channel),
           secret,
           context,
+          history: await loadAgentHistory(workspace, game.id),
         }),
       });
     }
@@ -495,6 +517,10 @@ export async function POST(request: Request) {
           `manual:${new Date().toISOString().slice(0, 16)}`,
         ),
       });
+    }
+    if (action === "delete_session_capture") {
+      await deleteOwnerCapture(workspace, rid.parse(body.id));
+      return Response.json({ ok: true });
     }
     if (action === "start_measurement") {
       const finding = await requireRecord<Finding>("finding", body.findingId);

@@ -22,7 +22,7 @@ it("orders events emitted in the same millisecond", () => {
   }
 });
 
-function harness() {
+function harness(agent = false) {
   const requests: any[] = [];
   const handlers: Record<string, Function[]> = {};
   const storage = () => {
@@ -44,6 +44,7 @@ function harness() {
   };
   const window: any = {
     crypto: webcrypto,
+    __WEB_GAME_STUDIO_AGENT__: agent,
     localStorage,
     sessionStorage,
     addEventListener: (name: string, fn: Function) => {
@@ -81,6 +82,17 @@ function harness() {
   };
 }
 describe("SDK privacy and consent", () => {
+  it("does not send human events or write IDs in a marked worker session", async () => {
+    const h = harness(true);
+    h.sdk.init({ endpoint: "https://marketing.example", sdkKey: "key", consent: true });
+    h.sdk.setConsent(true);
+    h.sdk.track("first_action");
+    expect((await h.sdk.startCapture({ consent: true })).status).toBe("agent_session");
+    expect(h.requests).toHaveLength(0);
+    expect(h.localStorage.items.size).toBe(0);
+    expect(h.sessionStorage.items.size).toBe(0);
+  });
+
   it("sends and stores nothing before consent; strips URLs and ignores synthetic flags", () => {
     const h = harness();
     h.sdk.init({ endpoint: "https://marketing.example", sdkKey: "key" });

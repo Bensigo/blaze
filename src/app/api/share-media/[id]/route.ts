@@ -15,6 +15,6 @@ export async function GET(
   )
     return new Response(null, { status: 403 });
   const row = await lookupMedia(id);
-  if (!row) return new Response(null, { status: 404 });
+  if (!row || row.body.captureId) return new Response(null, { status: 404 });
   return serveMedia(row.body, request);
 }

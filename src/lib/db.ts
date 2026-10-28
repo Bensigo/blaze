@@ -57,6 +57,7 @@ const schema = [
   `CREATE TABLE IF NOT EXISTS rate_windows (id text PRIMARY KEY,count integer NOT NULL,expires_at timestamptz NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS daily_runs (workspace_id text NOT NULL,game_id text NOT NULL,day text NOT NULL,run_id text NOT NULL,lease_until timestamptz NOT NULL,PRIMARY KEY(workspace_id,game_id,day))`,
   `CREATE TABLE IF NOT EXISTS publish_dispatches (workspace_id text NOT NULL,post_id text NOT NULL,approval_hash text NOT NULL,state text NOT NULL,updated_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(workspace_id,post_id,approval_hash))`,
+  `CREATE TABLE IF NOT EXISTS session_capture_grants (capture_id text PRIMARY KEY, workspace_id text NOT NULL, game_id text NOT NULL, session_id text NOT NULL, origin text NOT NULL, token_hash text NOT NULL, expires_at timestamptz NOT NULL, state text NOT NULL, UNIQUE(workspace_id,game_id,session_id))`,
 ];
 export async function query<T = Record<string, unknown>>(
   sql: string,

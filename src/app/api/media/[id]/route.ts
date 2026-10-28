@@ -13,6 +13,7 @@ export async function GET(
     const row = await lookupMedia(id);
     if (!row || (user && row.workspace_id !== user.workspace_id))
       return new Response(null, { status: 404 });
+    if (row.body.captureId && !user) return new Response(null, { status: 401 });
     return serveMedia(row.body, request);
   } catch (e) {
     return apiError(e);

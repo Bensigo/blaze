@@ -7,6 +7,7 @@ import type {
   Connection,
   Finding,
   ResearchRun,
+  SessionCapture,
 } from "./types";
 import type { Identity } from "./auth";
 import { list, query } from "./db";
@@ -43,6 +44,20 @@ export async function snapshot(
   ]);
   const match = <T extends { gameId: string }>(items: T[]) =>
     gameId ? items.filter((x) => x.gameId === gameId) : items;
+  const captures = await list<SessionCapture>(workspace, "session_capture");
+  stats.sessionsList = stats.sessionsList.map((session) => {
+    const capture = captures.find(
+      (c) => c.gameId === session.gameId && c.sessionId === session.id,
+    );
+    return {
+      ...session,
+      captureId: capture?.id,
+      captureStatus:
+        capture && Date.parse(capture.expiresAt) <= Date.now()
+          ? "expired"
+          : capture?.status,
+    };
+  });
   return {
     user: { name: user.name, email: user.email },
     workspace: { id: workspace, name: "Your workspace" },
