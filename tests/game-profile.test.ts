@@ -46,6 +46,17 @@ describe("game profile investigation", () => {
     expect((await routes.GET(new Request("http://localhost:3000/api/games/game-1/profile"), routeContext)).status).toBe(404);
     expect((await routes.PATCH(new Request("http://localhost:3000/api/games/game-1/profile", { method: "PATCH", headers: { origin: "http://localhost:3000" }, body: JSON.stringify({ overrides: { controls: "private" } }) }), routeContext)).status).toBe(404);
   });
+  it("keeps already queued page metadata distinct from validated manifest evidence", async () => {
+    const job = await profile.createGameWithProfile("ws-a", game, metadata, "http://localhost:3000");
+    const { manifestSource, ...legacy } = metadata;
+    await db.query("UPDATE jobs SET body=jsonb_set(body,'{metadata}',$2::jsonb) WHERE id=$1", [job, JSON.stringify({ ...legacy, metadataStatus: "Public page metadata" })]);
+    await profile.drainProfile(job);
+    const result = await profile.readProfile("ws-a", game.id);
+    const fact = result.facts.find(f => f.key === "page_title");
+    expect(fact?.evidence).toMatchObject({ source: "Legacy public page metadata", url: game.url });
+    expect(fact?.evidence).not.toHaveProperty("sha256");
+    expect(fact?.evidence.url).not.toBe(manifestSource.url);
+  });
   it("rejects cross-origin edits and merges edits without erasing other fields", async () => {
     await profile.createGameWithProfile("ws-a", game, metadata, "http://localhost:3000");
     await profile.updateProfileOverrides("ws-a", game.id, { audience: "Players", rules: "Collect stars" });

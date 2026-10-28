@@ -87,7 +87,9 @@ export async function drainProfile(jobId?: string) {
       catch (error) { prerequisites.push(error instanceof Error ? error.message : "The game manifest could not be retrieved safely."); }
     }
     if (metadata) {
-      const evidence = { source: metadata.metadataStatus === "Controlled fixture manifest" ? "Controlled fixture manifest" : "Forever game manifest", ...metadata.manifestSource };
+      const evidence = metadata.manifestSource
+        ? { source: metadata.metadataStatus === "Controlled fixture manifest" ? "Controlled fixture manifest" : "Forever game manifest", ...metadata.manifestSource }
+        : { source: "Legacy public page metadata", url: metadata.url, observedAt: row.body.metadataAt || now };
       if (metadata.title && metadata.title !== new URL(metadata.url).hostname) facts.push({ key: "page_title", label: "Imported name", value: metadata.title, evidence });
       if (metadata.description) facts.push({ key: "page_description", label: "Imported description", value: metadata.description, evidence });
     }
