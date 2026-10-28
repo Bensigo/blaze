@@ -372,6 +372,7 @@ export default function Dashboard() {
     token: "",
     refreshToken: "",
     model: "",
+    workspaceId: "",
     label: "",
     dailyEnabled: true,
     competitors: "",
@@ -550,6 +551,7 @@ export default function Dashboard() {
       token: "",
       refreshToken: "",
       model: "",
+      workspaceId: "",
       label: "",
       dailyEnabled: true,
       competitors: "",
@@ -741,6 +743,10 @@ export default function Dashboard() {
         token: draft.token,
         accountId: draft.accountId || undefined,
         model: draft.model || undefined,
+        workspaceId:
+          draft.provider === "anthropic"
+            ? draft.workspaceId || undefined
+            : undefined,
         refreshToken: draft.refreshToken || undefined,
       });
     else if (modal === "post") {
@@ -2722,6 +2728,19 @@ export default function Dashboard() {
                       }
                     />
                   </Field>
+                  {draft.provider === "anthropic" && (
+                    <Field
+                      label="Anthropic workspace ID (optional)"
+                      hint="Required for multi-workspace keys; omit for workspace-scoped keys."
+                    >
+                      <input
+                        value={draft.workspaceId}
+                        onChange={(e) =>
+                          setDraft({ ...draft, workspaceId: e.target.value })
+                        }
+                      />
+                    </Field>
+                  )}
                   <Field label="Refresh token (optional)">
                     <input
                       type="password"

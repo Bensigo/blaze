@@ -10,8 +10,8 @@ export async function enqueue(
   body: { id: string },
 ) {
   await query(
-    `INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES($1,$2,$3,'queued',$4::jsonb)`,
-    [body.id, workspace, kind, JSON.stringify(body)],
+    `WITH created AS (INSERT INTO records(workspace_id,kind,id,body) VALUES($1,$2,$3,$4::jsonb) RETURNING id) INSERT INTO jobs(id,workspace_id,kind,state,body) SELECT id,$1,$2,'queued',$4::jsonb FROM created`,
+    [workspace, kind, body.id, JSON.stringify(body)],
   );
 }
 export async function activeJob(jobId: string) {

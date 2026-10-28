@@ -182,7 +182,6 @@ export async function POST(request: Request) {
         mode,
         createdAt: new Date().toISOString(),
       };
-      await put(workspace, "recording", recording);
       await enqueue(workspace, "recording", recording);
       return Response.json({ recording });
     }
@@ -218,7 +217,6 @@ export async function POST(request: Request) {
         status: "queued",
         createdAt: new Date().toISOString(),
       };
-      await put(workspace, "clip", clip);
       await enqueue(workspace, "clip", clip);
       return Response.json({ clip });
     }
@@ -443,6 +441,7 @@ export async function POST(request: Request) {
           token: z.string().min(8).max(10000),
           accountId: z.string().max(200).optional(),
           refreshToken: z.string().max(10000).optional(),
+          workspaceId: z.string().max(200).optional(),
           model: z.string().max(100).optional(),
         })
         .parse(body);
@@ -451,6 +450,7 @@ export async function POST(request: Request) {
         ...(v.accountId ? { accountId: v.accountId } : {}),
         ...(v.refreshToken ? { refreshToken: v.refreshToken } : {}),
         ...(v.model ? { model: v.model } : {}),
+        ...(v.workspaceId ? { workspaceId: v.workspaceId } : {}),
       };
       const checked = await testConnection(v.provider, secret);
       if (!checked.connected) throw new HttpError(400, checked.details);

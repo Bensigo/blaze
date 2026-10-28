@@ -1,7 +1,7 @@
 /* Game Marketing SDK. No data is sent or stored until consent is granted. */
 (function (global) {
   'use strict';
-  var config = null, active = false, lastPointer = 0;
+  var config = null, active = false, lastPointer = 0, lastTimestamp = 0;
   var names = ['visit','loaded','first_action','round_start','round_complete','retry','progression','error','exit','pointer'];
   function id() { return global.crypto && crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), function (n) { return n.toString(16).padStart(2,'0'); }).join(''); }
   function safeUrl(value) { try { var u = new URL(value); return u.origin + u.pathname; } catch (_) { return ''; } }
@@ -16,7 +16,7 @@
   }
   function emit(name, properties) {
     var u = new URL(location.href), campaign = u.searchParams.get('utm_campaign') || '', source = u.searchParams.get('utm_source') || '';
-    var event = { id:id(), name:name, sessionId:config.sessionId, playerId:config.playerId, timestamp:new Date().toISOString(), properties:props(properties), page:safeUrl(location.href), referrer:safeUrl(document.referrer), campaign:campaign.slice(0,100), source:source.slice(0,100), device:/Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop' };
+    var event = { id:id(), name:name, sessionId:config.sessionId, playerId:config.playerId, timestamp:new Date(lastTimestamp = Math.max(Date.now(), lastTimestamp + 1)).toISOString(), properties:props(properties), page:safeUrl(location.href), referrer:safeUrl(document.referrer), campaign:campaign.slice(0,100), source:source.slice(0,100), device:/Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop' };
     fetch(config.endpoint + '/api/collect', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({sdkKey:config.sdkKey, events:[event]}), keepalive:true, credentials:'omit'}).catch(function () {});
   }
   function newSession() {config.sessionId=id();config.firstAction=false;write('sessionStorage',config.prefix+'id',config.sessionId);write('sessionStorage',config.prefix+'first','0');}

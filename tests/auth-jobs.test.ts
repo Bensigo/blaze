@@ -36,6 +36,18 @@ beforeEach(async () => {
   await db.query("DELETE FROM daily_runs");
 });
 describe("authentication and daily job isolation", () => {
+  it("commits recording records and queue entries atomically", async () => {
+    const { enqueue } = await import("../src/lib/jobs");
+    const body = { id: "atomic-recording", title: "Fixture", status: "queued" };
+    await enqueue("ws-a", "recording", body);
+    expect(await db.get("ws-a", "recording", body.id)).toEqual(body);
+    await db.query(
+      "INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES('conflict-job','ws-a','recording','queued','{}')",
+    );
+    const conflicting = { id: "conflict-job", title: "Must roll back" };
+    await expect(enqueue("ws-a", "recording", conflicting)).rejects.toThrow();
+    expect(await db.get("ws-a", "recording", conflicting.id)).toBeUndefined();
+  });
   it("creates independent opaque sessions and expires them server-side", async () => {
     const a = await auth.createSession({
       id: "google:user-a",

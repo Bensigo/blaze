@@ -130,6 +130,31 @@ describe("workspace isolation and encrypted credentials", () => {
   });
 });
 describe("publication approval and concurrency", () => {
+  it("does not let uncertain posts without provider IDs block scheduled work", async () => {
+    const uncertain = approved({
+      ...base,
+      id: "uncertain-old",
+      status: "processing",
+    });
+    const scheduled = approved({
+      ...base,
+      id: "scheduled-next",
+      status: "scheduled",
+      scheduledAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    await db.put("ws-a", "post", uncertain);
+    await db.put("ws-a", "post", scheduled);
+    adapters.publishPost.mockResolvedValue({
+      state: "processing",
+      providerId: "pending-provider",
+    });
+    expect(await publishing.duePublications()).toEqual({ checked: 1 });
+    expect(adapters.publishPost).toHaveBeenCalledTimes(1);
+    expect(adapters.publishPost.mock.calls[0][0].post.id).toBe(scheduled.id);
+    expect(
+      (await db.get<Post>("ws-a", "post", uncertain.id))?.providerId,
+    ).toBeUndefined();
+  });
   it("rejects unapproved, changed, and foreign workspace posts without provider calls", async () => {
     const p = approved();
     await db.put("ws-a", "post", { ...p, text: "Changed after approval" });

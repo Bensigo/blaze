@@ -26,7 +26,7 @@ async function api(path: string, body?: unknown) {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(path === "/api/worker/claim" ? 65000 : 15000),
   });
   if (!response.ok)
     throw new Error(`Worker API ${path} returned ${response.status}`);

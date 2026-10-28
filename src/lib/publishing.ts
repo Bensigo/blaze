@@ -157,7 +157,7 @@ export async function reconcile(workspace: string, post: Post) {
 export async function duePublications() {
   if (process.env.PUBLISHING_ENABLED !== "true") return { checked: 0 };
   const rows = await query<{ workspace_id: string; body: Post }>(
-    `SELECT workspace_id,body FROM records WHERE kind='post' AND (body->>'status'='processing' OR (body->>'status'='scheduled' AND (body->>'scheduledAt')::timestamptz<=now())) ORDER BY updated_at LIMIT 30`,
+    `SELECT workspace_id,body FROM records WHERE kind='post' AND ((body->>'status'='processing' AND body->>'providerId' IS NOT NULL) OR (body->>'status'='scheduled' AND (body->>'scheduledAt')::timestamptz<=now())) ORDER BY updated_at LIMIT 1`,
   );
   let checked = 0;
   for (const row of rows) {
@@ -176,6 +176,14 @@ export async function duePublications() {
           ...row.body,
           status: "failed",
           error: error.message,
+        });
+      else if (row.body.status === "processing")
+        await comparePut(row.workspace_id, "post", row.body, {
+          ...row.body,
+          error:
+            error instanceof HttpError
+              ? error.message
+              : "Status check failed. Verify the connection and media before checking again.",
         });
     }
   }

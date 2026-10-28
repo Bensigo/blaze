@@ -3,6 +3,25 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { webcrypto } from "node:crypto";
 
+it("orders events emitted in the same millisecond", () => {
+  const fixed = Date.now();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(fixed);
+  try {
+    const h = harness();
+    h.sdk.init({
+      endpoint: "https://marketing.example",
+      sdkKey: "key",
+      consent: true,
+    });
+    h.sdk.track("first_action");
+    h.sdk.track("round_start");
+    const times = h.requests.map((r) => Date.parse(r.events[0].timestamp));
+    expect(times).toEqual([fixed, fixed + 1, fixed + 2, fixed + 3]);
+  } finally {
+    clock.mockRestore();
+  }
+});
+
 function harness() {
   const requests: any[] = [];
   const handlers: Record<string, Function[]> = {};
