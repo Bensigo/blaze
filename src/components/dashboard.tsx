@@ -56,6 +56,8 @@ import type {
   Channel,
   Clip,
   Finding,
+  Measurement,
+  MeasurementMetrics,
   Game,
   Post,
   Recording,
@@ -88,26 +90,6 @@ type Modal =
 type InvestigationEvidence = { eventId: string; name: string; timestamp: string; replay?: { captureId: string; offsetSeconds: number; segment?: number } };
 type InvestigationMatch = { session: SessionSummary; evidence: InvestigationEvidence };
 type InvestigationState = { kind: "heatmap" | "dropoff"; title: string; loading: boolean; error?: string; results: InvestigationMatch[]; hasMore: boolean; windowStart?: string; windowEnd?: string };
-type Measurement = {
-  id: string;
-  gameId: string;
-  findingId: string;
-  note: string;
-  startedAt: string;
-  baseline: {
-    sessions: number;
-    starts: number;
-    completions: number;
-    errorSessions: number;
-  };
-  after: {
-    sessions: number;
-    starts: number;
-    completions: number;
-    errorSessions: number;
-  };
-  daysObserved: number;
-};
 const nav: { id: Page; label: string; icon: typeof Activity }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "games", label: "Games", icon: Gamepad2 },
@@ -147,12 +129,11 @@ const validTimeZone = (zone?: string) => {
 };
 const validPlannedTime = (time?: string, zone?: string) => !!time && Number.isFinite(Date.parse(time)) && validTimeZone(zone);
 const captureTime = (v: string) => new Date(v).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" });
-const observedDays = (n: number) =>
-  n < 1 ? "<1" : String(Math.min(14, Math.floor(n)));
 const timecode = (n: number) =>
   `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2, "0")}`;
 const label = (v: string) =>
   v.replaceAll("_", " ").replace(/^\w/, (c) => c.toUpperCase());
+const eventLabel = (name: string) => name === "ui_click" ? "UI click" : label(name);
 const trackingUrl = (post: Post) =>
   (post as Post & { trackingUrl?: string }).trackingUrl;
 const gameName = (games: Game[], id: string) =>
@@ -370,6 +351,7 @@ export default function Dashboard() {
   const [heatDevice, setHeatDevice] = useState("");
   const [investigation, setInvestigation] = useState<InvestigationState | null>(null);
   const investigationRequest = useRef(0);
+  const [eventFilter, setEventFilter] = useState("all");
   const [sessionEvidence, setSessionEvidence] = useState<InvestigationEvidence | null>(null);
   const [evidenceReplayAvailable, setEvidenceReplayAvailable] = useState(false);
   const [chosenFinding, setChosenFinding] = useState<Finding | null>(null);
@@ -463,6 +445,8 @@ export default function Dashboard() {
     disableStitch: false,
     tiktokConsent: false,
     note: "",
+    releaseVersion: "", releaseDescription: "", releaseEvidenceUrl: "", releaseEffectiveAt: "",
+    baselineStart: "", baselineEnd: "", followupStart: "", followupEnd: "",
   });
   const refresh = useCallback(
     async (game = selectedGame, demo = snapshot?.demo, days = period) => {
@@ -669,6 +653,7 @@ export default function Dashboard() {
     setChosenSession(null);
   };
   const openSession = async (s: SessionSummary, evidence?: InvestigationEvidence) => {
+    setEventFilter("all");
     const request = ++sessionRequest.current;
     setChosenSession(s);
     setSessionEvidence(evidence || null);
@@ -790,6 +775,8 @@ export default function Dashboard() {
       disableStitch: false,
       tiktokConsent: false,
       note: "",
+      releaseVersion: "", releaseDescription: "", releaseEvidenceUrl: "", releaseEffectiveAt: "",
+      baselineStart: "", baselineEnd: "", followupStart: "", followupEnd: "",
     });
   };
   const openModal = (m: Modal) => {
@@ -801,6 +788,7 @@ export default function Dashboard() {
   };
   const startMeasurement = (f: Finding) => {
     resetDraft();
+    setError("");
     setChosenFinding(f);
     setModal("measurement");
   };
@@ -1049,12 +1037,16 @@ export default function Dashboard() {
         end: Number(draft.end),
         layout: draft.layout,
       });
-    else if (modal === "measurement" && chosenFinding)
+    else if (modal === "measurement" && chosenFinding) {
+      const values = [draft.releaseEffectiveAt, draft.baselineStart, draft.baselineEnd, draft.followupStart, draft.followupEnd];
+      if (values.some((value) => !value || !Number.isFinite(new Date(value).getTime()))) { setError("Enter valid release and comparison times."); return; }
+      const [effectiveAt, baselineStart, baselineEnd, followupStart, followupEnd] = values.map((value) => new Date(value).toISOString());
       await action({
-        action: "start_measurement",
-        findingId: chosenFinding.id,
-        note: draft.note,
+        action: "start_measurement", findingId: chosenFinding.id, gameId: chosenFinding.gameId, note: draft.note,
+        release: { version: draft.releaseVersion, description: draft.releaseDescription, evidenceUrl: draft.releaseEvidenceUrl, effectiveAt },
+        baselineWindow: { start: baselineStart, end: baselineEnd }, followupWindow: { start: followupStart, end: followupEnd },
       });
+    }
     else if (modal === "connection")
       await action({
         action: "save_connection",
@@ -2371,6 +2363,8 @@ export default function Dashboard() {
               </div>
               <h3>Event timeline</h3>
               <p className="muted">Ordered activity captured by the SDK.</p>
+              {sessionEvents.length > 0 && <><p className="muted">Counts in this {eventsTruncated ? "limited timeline" : "session"}: {(["ui_click", "player_action", "milestone"] as const).map((name) => `${eventLabel(name)} ${sessionEvents.filter((event) => event.name === name).length}`).join(" · ")}</p><Field label="Filter events"><select value={eventFilter} onChange={(e) => setEventFilter(e.target.value)}><option value="all">All events</option><option value="ui_click">UI clicks</option><option value="player_action">Player actions</option><option value="milestone">Milestones</option></select></Field></>}
+              {!sessionLoading && <KeyEventBreakdown events={sessionEvents} truncated={eventsTruncated} />}
               {!sessionLoading && eventsTruncated && <p className="data-note">Showing the first {fmt(sessionEvents.length)} events. This timeline was limited to 5,000 events.</p>}
               {sessionLoading ? (
                 <p>Loading events…</p>
@@ -2378,25 +2372,22 @@ export default function Dashboard() {
                 <p className="error-text">{sessionError}</p>
               ) : sessionEvents.length ? (
                 <div className="timeline">
-                  {sessionEvents.map((e, i) => (
+                  {sessionEvents.filter((e) => eventFilter === "all" || e.name === eventFilter).map((e, i) => (
                     <div key={e.id || i}>
                       <span className="timeline-dot" />
                       <div>
                         {(() => {
                           const timestamp = Date.parse(e.timestamp);
                           const capture = sessionCaptures.find((item) => item.status === "ready" && !!item.videoUrl && !!item.recordedAt && item.durationSeconds !== undefined && Number.isFinite(timestamp) && timestamp >= Date.parse(item.recordedAt) && timestamp <= Date.parse(item.recordedAt) + item.durationSeconds * 1000);
-                          if (!capture || !capture.recordedAt) return <strong>{label(e.name)}</strong>;
+                          if (!capture || !capture.recordedAt) return <strong>{eventLabel(e.name)}</strong>;
                           const offset = (timestamp - Date.parse(capture.recordedAt)) / 1000;
                           return <button className="timeline-seek" type="button" onClick={() => {
                             if (sessionCapture?.id === capture.id && sessionVideo.current) sessionVideo.current.currentTime = offset;
                             else { pendingSegmentSeek.current = { id: capture.id, offset }; setSessionCapture(capture); }
-                          }}>{label(e.name)} <small>Seek to {timecode(offset)} in segment {capture.segment === undefined ? sessionCaptures.indexOf(capture) + 1 : capture.segment + 1}</small></button>;
+                          }}>{eventLabel(e.name)} <small>Seek to {timecode(offset)} in segment {capture.segment === undefined ? sessionCaptures.indexOf(capture) + 1 : capture.segment + 1}</small></button>;
                         })()}
                         <p>{dateTime(e.timestamp)}</p>
-                        {e.properties &&
-                          Object.keys(e.properties).length > 0 && (
-                            <small>{JSON.stringify(e.properties)}</small>
-                          )}
+                        {["ui_click", "player_action", "milestone"].includes(e.name) && typeof e.properties?.key === "string" ? <small>Key: {e.properties.key}{typeof e.properties.value === "number" ? ` · Value: ${e.properties.value}` : ""}</small> : e.properties && Object.keys(e.properties).length > 0 && <small>{JSON.stringify(e.properties)}</small>}
                       </div>
                     </div>
                   ))}
@@ -3047,26 +3038,14 @@ export default function Dashboard() {
               )}
               {modal === "measurement" && (
                 <>
-                  <p className="muted">Finding: {chosenFinding?.title}</p>
-                  <Field
-                    label="What changed?"
-                    hint="Describe the change clearly enough to interpret the before and after periods."
-                  >
-                    <textarea
-                      required
-                      rows={4}
-                      value={draft.note}
-                      onChange={(e) =>
-                        setDraft({ ...draft, note: e.target.value })
-                      }
-                      placeholder="e.g. Simplified the first-round instructions"
-                    />
-                  </Field>
-                  <div className="data-note">
-                    The comparison uses the previous 14 days and up to 14 days
-                    after this record. Observed changes do not establish
-                    causation.
-                  </div>
+                  <p className="muted">Finding: {chosenFinding?.title} · Game: {games.find((game) => game.id === chosenFinding?.gameId)?.title || chosenFinding?.gameId}</p>
+                  <p>Record a change that has already shipped. Release details are owner-reported; comparisons show association, not causation.</p>
+                  <Field label="Release version"><input required maxLength={500} value={draft.releaseVersion} onChange={(e) => setDraft({ ...draft, releaseVersion: e.target.value })} /></Field>
+                  <Field label="Release description"><textarea required maxLength={500} rows={3} value={draft.releaseDescription} onChange={(e) => setDraft({ ...draft, releaseDescription: e.target.value })} /></Field>
+                  <Field label="Release evidence URL" hint="HTTPS link to a release record, commit or other evidence."><input required type="url" pattern="https://.*" maxLength={2000} value={draft.releaseEvidenceUrl} onChange={(e) => setDraft({ ...draft, releaseEvidenceUrl: e.target.value })} /></Field>
+                  <Field label="Measurement note"><textarea required rows={2} value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} /></Field>
+                  <p className="data-note">Times use your browser’s local time zone ({localTimeZone || "local time"}) and are saved in UTC. Baseline must end no later than release; follow-up must begin at or after release. Each window can span at most 90 days.</p>
+                  {([ ["releaseEffectiveAt", "Actual release time"], ["baselineStart", "Baseline start"], ["baselineEnd", "Baseline end"], ["followupStart", "Follow-up start"], ["followupEnd", "Follow-up end"] ] as const).map(([key, title]) => <Field key={key} label={title} hint={draft[key] && Number.isFinite(new Date(draft[key]).getTime()) ? `UTC: ${new Date(draft[key]).toISOString()}` : undefined}><input required type="datetime-local" value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} /></Field>)}
                 </>
               )}
               {modal === "connection" && (
@@ -3233,7 +3212,7 @@ type GameProfileData = {
   gameId: string;
   status: "queued" | "running" | "partial" | "complete" | "failed" | "not_started";
   lastRefresh: string | null;
-  facts: { key: string; label: string; value: string; evidence: { source: string; url?: string; observedAt: string; recordingId?: string; at?: number } }[];
+  facts: { key: string; label: string; value: string; evidence: { source: string; url?: string; observedAt: string; recordingId?: string; at?: number; formatVersion?: number; sha256?: string } }[];
   overrides: Partial<Record<"description" | "genre" | "audience" | "rules" | "controls", string>>;
   prerequisites: string[];
 };
@@ -3307,8 +3286,8 @@ function GameProfile({ gameId, demo }: { gameId: string; demo: boolean }) {
       <Button type="submit" variant="primary" disabled={busy || !dirty}>Save owner details</Button>
     </form> : <dl className="profile-details">{profileFields.filter((field) => profile?.overrides[field]).map((field) => <div key={field}><dt>{field === "audience" ? "Audience hypothesis" : label(field)} · Owner</dt><dd>{profile?.overrides[field]}</dd></div>)}</dl>}
     <GameAutomation gameId={gameId} />
-    <h3>Observed evidence</h3>
-    {profile?.facts.length ? <ul className="profile-facts">{profile.facts.map((fact, index) => <li key={`${fact.key}-${index}`}><strong>{fact.label}</strong><span>{fact.value}</span><small>{fact.evidence.source} · {dateTime(fact.evidence.observedAt)}{fact.evidence.recordingId ? ` · Recording ${fact.evidence.recordingId}${fact.evidence.at !== undefined ? ` at ${timecode(fact.evidence.at)}` : ""}` : ""}{fact.evidence.url && /^https?:\/\//i.test(fact.evidence.url) && <> · <a href={fact.evidence.url} target="_blank" rel="noreferrer">Source</a></>}</small></li>)}</ul> : <p className="muted">No observed facts available yet.</p>}
+    <h3>Observed evidence</h3><p className="muted">Each fact retains its source and observation time. Owner details above are separate overrides; an unavailable source is listed under investigation needs.</p>
+    {profile?.facts.length ? <ul className="profile-facts">{profile.facts.map((fact, index) => <li key={`${fact.key}-${index}`}><strong>{fact.label}</strong><span>{fact.value}</span><small>{fact.evidence.source} · {dateTime(fact.evidence.observedAt)}{fact.evidence.formatVersion !== undefined ? ` · Format v${fact.evidence.formatVersion}` : ""}{fact.evidence.sha256 ? ` · SHA-256 ${fact.evidence.sha256}` : ""}{fact.evidence.recordingId ? ` · Recording ${fact.evidence.recordingId}${fact.evidence.at !== undefined ? ` at ${timecode(fact.evidence.at)}` : ""}` : ""}{fact.evidence.url && /^https?:\/\//i.test(fact.evidence.url) && <> · <a href={fact.evidence.url} target="_blank" rel="noreferrer">Source</a></>}</small></li>)}</ul> : <p className="muted">No observed facts available yet.</p>}
   </section>;
 }
 
@@ -3689,6 +3668,23 @@ function Findings({
     <p className="table-empty">No findings to show.</p>
   );
 }
+function MeasurementRow({ name, metrics }: { name: string; metrics: MeasurementMetrics }) {
+  const ratio = (numerator: number, denominator: number, rate: number | null) => `${fmt(numerator)} / ${fmt(denominator)} (${rate === null ? "unknown" : `${(rate * 100).toFixed(1)}%`})`;
+  return <tr><td>{name}</td><td>{fmt(metrics.players)}</td><td>{fmt(metrics.sessions)}</td><td>{fmt(metrics.starts)}</td><td>{metrics.activePlay.totalSeconds === null ? "Unknown" : timecode(metrics.activePlay.totalSeconds)} · {fmt(metrics.activePlay.measuredSessions)} / {fmt(metrics.activePlay.eligibleSessions)} measured</td><td>{ratio(metrics.completion.numerator, metrics.completion.denominator, metrics.completion.rate)}</td><td>{ratio(metrics.conversion.numerator, metrics.conversion.denominator, metrics.conversion.rate)}</td><td>{fmt(metrics.returningPlayers)}</td><td>{ratio(metrics.d1.returned, metrics.d1.eligible, metrics.d1.rate)} · cohort {fmt(metrics.d1.cohortPlayers)}</td><td>{fmt(metrics.errorSessions)}</td></tr>;
+}
+function KeyEventBreakdown({ events, truncated }: { events: TelemetryEvent[]; truncated: boolean }) {
+  const counts = new Map<string, { name: string; key: string; count: number }>();
+  for (const event of events) {
+    if (!["ui_click", "player_action", "milestone"].includes(event.name) || typeof event.properties?.key !== "string") continue;
+    const id = `${event.name}:${event.properties.key}`;
+    const current = counts.get(id);
+    if (current) current.count++;
+    else counts.set(id, { name: event.name, key: event.properties.key, count: 1 });
+  }
+  const entries = [...counts.values()].sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  if (!entries.length) return null;
+  return <div className="data-note"><strong>Event key counts</strong><p>Counts from this {truncated ? "limited timeline" : "session"}{entries.length > 20 ? "; showing the top 20 keys" : ""}.</p><ul>{entries.slice(0, 20).map((entry) => <li key={`${entry.name}:${entry.key}`}>{eventLabel(entry.name)} · {entry.key}: {fmt(entry.count)}</li>)}</ul></div>;
+}
 function Measurements({
   items,
   findings,
@@ -3700,58 +3696,25 @@ function Measurements({
     <div className="section-spacer">
       <SectionHead
         title="Change outcomes"
-        detail="14 days before versus up to 14 days after each recorded change. These comparisons do not establish causation."
+        detail="Compare the recorded windows. Differences show association, not causation."
       />
       {items.length ? (
         items.map((m) => (
           <div className="measurement" key={m.id}>
-            <div className="measurement-heading">
-              <div>
-                <strong>{m.note}</strong>
-                <p>
-                  {findings.find((f) => f.id === m.findingId)?.title ||
-                    "Recorded game change"}{" "}
-                  · Started {shortDate(m.startedAt)}
-                </p>
-              </div>
-              <span>{observedDays(m.daysObserved)} of 14 days observed</span>
-            </div>
-            <p className="mobile-scroll-hint">
-              Scroll sideways to see all metrics.
-            </p>
-            <div className="table-wrap" tabIndex={0}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>PERIOD</th>
-                    <th>SESSIONS</th>
-                    <th>STARTS</th>
-                    <th>COMPLETIONS</th>
-                    <th>SESSIONS WITH ERRORS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>Before · 14 days</td>
-                    <td>{fmt(m.baseline.sessions)}</td>
-                    <td>{fmt(m.baseline.starts)}</td>
-                    <td>{fmt(m.baseline.completions)}</td>
-                    <td>{fmt(m.baseline.errorSessions)}</td>
-                  </tr>
-                  <tr>
-                    <td>After · {observedDays(m.daysObserved)} days</td>
-                    <td>{fmt(m.after.sessions)}</td>
-                    <td>{fmt(m.after.starts)}</td>
-                    <td>{fmt(m.after.completions)}</td>
-                    <td>{fmt(m.after.errorSessions)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <p className="muted">
-              Sessions are the sample denominators. Compare cautiously when
-              periods or sample sizes differ.
-            </p>
+            <div className="measurement-heading"><div><strong>{m.note}</strong><p>{findings.find((f) => f.id === m.findingId)?.title || "Recorded game change"} · Recorded {dateTime(m.startedAt)}</p></div><span>{m.releaseContextStatus === "recorded" ? "Release context recorded" : m.releaseContextStatus === "invalid" ? "Release context invalid" : "Release context missing"}</span></div>
+            {m.release && m.releaseContextStatus === "recorded" && <p>Owner-reported release <strong>{m.release.version}</strong> · Effective {m.release.effectiveAt} · {m.release.description} · <a href={m.release.evidenceUrl} target="_blank" rel="noreferrer">Evidence</a></p>}
+            {m.releaseContextStatus !== "recorded" || !m.outcome || !m.baselineWindow || !m.followupWindow ? <p className="data-note">A reliable release comparison is unavailable. The release context or calculated outcome is missing or invalid; record a new comparison with a shipped release and explicit windows.</p> : <>
+              <p className="muted">Baseline: {m.baselineWindow.start} to {m.baselineWindow.end} UTC · Follow-up: {m.followupWindow.start} to {m.followupWindow.end} UTC. Windows are start-inclusive and end-exclusive.</p>
+              <p className="muted">Follow-up {m.outcome.mature ? "window ended" : "window incomplete"}; observed through {m.outcome.observedFollowupEnd || "no follow-up yet"}. D1 eligibility is evaluated separately for each cohort.</p>
+              <p className="mobile-scroll-hint">Scroll sideways to see all metrics.</p>
+              <div className="table-wrap" tabIndex={0}><table><thead><tr><th>PERIOD</th><th>PLAYERS</th><th>SESSIONS</th><th>STARTS</th><th>ACTIVE PLAY</th><th>COMPLETION</th><th>VISIT TO START</th><th>RETURNING PLAYERS</th><th>D1 RETURN</th><th>ERROR SESSIONS</th></tr></thead><tbody>
+                <MeasurementRow name="Baseline" metrics={m.outcome.baseline} />
+                <MeasurementRow name="Follow-up observed" metrics={m.outcome.followup} />
+              </tbody></table></div>
+              <p className="muted">Active play is a foreground, recent-input estimate; coverage shows measured / eligible sessions. Completion is completed / started sessions. Visit to start requires an ordered visit, load and start. D1 shows returned / eligible new players, with the full cohort in brackets.</p>
+              {m.outcome.caveats.length > 0 && <ul>{m.outcome.caveats.map((caveat, index) => <li key={index}>{caveat}</li>)}</ul>}
+              <p><strong>Next review:</strong> {m.outcome.nextAction}</p>
+            </>}
           </div>
         ))
       ) : (
@@ -3974,6 +3937,8 @@ function Help({
               actions, round starts and completions, retries, progression,
               errors and exits.
             </p>
+            <p className="data-note">Semantic <code>ui_click</code>, <code>player_action</code> and <code>milestone</code> events require the direct SDK. The embedded Frame v1 integration does not carry these events.</p>
+            <p><a href="/docs/sdk/quickstart.md" target="_blank" rel="noreferrer">SDK quickstart</a> · <a href="/docs/sdk/v1.md" target="_blank" rel="noreferrer">SDK v1 reference</a> (Markdown)</p>
             {game ? (
               <>
                 <p>

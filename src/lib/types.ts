@@ -184,6 +184,21 @@ export interface ResearchRun {
   coverage: { source: string; status: string; detail: string }[];
   error?: string;
 }
+export interface MeasurementWindow { start: string; end: string }
+export interface MeasurementRelease { version: string; description: string; evidenceUrl: string; effectiveAt: string }
+export interface MeasurementMetrics {
+  players: number; sessions: number; starts: number; completions: number; errorSessions: number;
+  activePlay: { totalSeconds: number | null; measuredSessions: number; eligibleSessions: number };
+  completion: { numerator: number; denominator: number; rate: number | null };
+  conversion: { numerator: number; denominator: number; rate: number | null };
+  returningPlayers: number;
+  d1: { cohortPlayers: number; eligible: number; returned: number; rate: number | null };
+  sources: { name: string; count: number }[]; devices: { name: string; count: number }[];
+}
+export interface MeasurementOutcome {
+  baseline: MeasurementMetrics; followup: MeasurementMetrics;
+  observedFollowupEnd: string | null; mature: boolean; releaseEvidence: "owner_reported"; caveats: string[]; nextAction: string;
+}
 export interface Measurement {
   id: string;
   gameId: string;
@@ -203,6 +218,11 @@ export interface Measurement {
     errorSessions: number;
   };
   daysObserved: number;
+  release?: MeasurementRelease;
+  baselineWindow?: MeasurementWindow;
+  followupWindow?: MeasurementWindow;
+  releaseContextStatus?: "recorded" | "missing" | "invalid";
+  outcome?: MeasurementOutcome;
 }
 export interface SessionSummary {
   id: string;

@@ -64,6 +64,27 @@ describe('bounded AI research and history',()=>{
     const history=await loadAgentHistory('saturation','g');
     expect(history.findings).toHaveLength(30); expect(history.posts[0].text).toBe('POST_REMAINS');
     expect(history.measurements[0].note).toBe('MEASUREMENT_REMAINS');
+    expect(history.measurements[0].releaseContextStatus).toBe('missing');
+    expect('outcome' in history.measurements[0]).toBe(false);
+  });
+
+  it('projects explicit release outcomes without leaking private identities or evidence URLs',async()=>{
+    const {put,query}=await import('../src/lib/db');
+    const {createReleaseMeasurement}=await import('../src/lib/measurements');
+    const now=Date.now(), day=86400000, at=(days:number)=>new Date(now-days*day).toISOString();
+    const workspace='release_history';
+    await put(workspace,'finding',{id:'finding-release',gameId:'g',title:'Observed onboarding gap',status:'open',type:'observation',detail:'Controlled observation',evidence:[],createdAt:at(4)});
+    for (const [suffix,kind,time] of [['before','human',at(4)],['after','human',at(2)],['synthetic','agent',at(2)]] as const) {
+      await query(`INSERT INTO events(id,workspace_id,game_id,session_id,player_id,kind,name,occurred_at,country,device,source,campaign,page,properties) VALUES($1,$2,'g',$3,$4,$5,'visit',$6,'','mobile','direct','','','{}')`,[`release-${suffix}`,workspace,`session_PRIVATE_${suffix}`,`player_PRIVATE_${suffix}`,kind,time]);
+    }
+    await createReleaseMeasurement(workspace,{findingId:'finding-release',gameId:'g',note:'Reviewed shipped instructions',release:{version:'v2',description:'Actual controlled instruction change',evidenceUrl:'https://release-private.example/v2',effectiveAt:at(3)},baselineWindow:{start:at(5),end:at(3)},followupWindow:{start:at(3),end:at(1)}},now);
+    const history=await loadAgentHistory(workspace,'g');
+    expect(history.measurements[0]).toMatchObject({releaseContextStatus:'recorded',linkedFinding:{title:'Observed onboarding gap'},release:{version:'v2'},outcome:{mature:true,baseline:{sessions:1,players:1},followup:{sessions:1,players:1}}});
+    const measured=history.measurements[0];
+    expect('outcome' in measured).toBe(true);
+    if ('outcome' in measured) expect(measured.outcome.caveats.join(' ')).toContain('cannot establish');
+    const json=JSON.stringify(history.measurements);
+    for(const secret of ['session_PRIVATE','player_PRIVATE','release-private.example','synthetic']) expect(json).not.toContain(secret);
   });
 
 });

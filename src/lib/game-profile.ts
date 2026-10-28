@@ -3,11 +3,12 @@ import { hash } from "./security";
 import { analytics } from "./analytics";
 import { gameMetadata } from "./metadata";
 import { researchJob } from "./research-jobs";
+import { readGameManifest } from "./game-manifest";
 import type { Game, Recording, ResearchRun } from "./types";
 
 export type ProfileOverrides = Partial<Record<"description" | "genre" | "audience" | "rules" | "controls", string>>;
 type Metadata = Awaited<ReturnType<typeof gameMetadata>>;
-type Fact = { key: string; label: string; value: string; evidence: { source: string; observedAt: string; url?: string; recordingId?: string; at?: number } };
+type Fact = { key: string; label: string; value: string; evidence: { source: string; observedAt: string; url?: string; recordingId?: string; at?: number; sha256?: string; formatVersion?: number } };
 type Profile = { id: string; gameId: string; lastRefresh: string; facts: Fact[]; prerequisites: string[]; researchRunId?: string; result: "partial" | "complete" | "failed" };
 type JobBody = { gameId: string; appOrigin: string; runKey: string; metadata?: Metadata; metadataAt?: string };
 const profileJobId = (workspace: string, gameId: string) => `profile_${hash(`${workspace}:${gameId}`)}`;
@@ -90,6 +91,22 @@ export async function drainProfile(jobId?: string) {
       if (metadata.title && metadata.title !== new URL(metadata.url).hostname) facts.push({ key: "page_title", label: "Page title", value: metadata.title, evidence });
       if (metadata.description) facts.push({ key: "page_description", label: "Page description", value: metadata.description, evidence });
     }
+    const manifest = await readGameManifest(game.url);
+    if (manifest.status === "complete") {
+      const evidence = { source: "Forever game manifest", ...manifest.source };
+      const values: Array<[string, string, string]> = [
+        ["manifest_id", "Manifest game ID (separate from Blaze ID)", manifest.facts.id],
+        ["manifest_slug", "Manifest URL slug", manifest.facts.slug],
+        ["manifest_name", "Manifest name", manifest.facts.name],
+        ["manifest_description", "Manifest description", manifest.facts.description],
+        ["manifest_genre", "Manifest genre", manifest.facts.genre],
+        ["manifest_controls", "Manifest controls", manifest.facts.controls.label],
+        ["manifest_rules", "Manifest how to play", manifest.facts.howToPlay.join(" ")],
+        ...manifest.facts.about.map((value, i): [string, string, string] => [`manifest_about:${i}`, "Manifest about", value]),
+        ...manifest.facts.faq.map((entry, i): [string, string, string] => [`manifest_faq:${i}`, "Manifest FAQ", `${entry.q} ${entry.a}`]),
+      ];
+      for (const [key, label, value] of values) facts.push({ key, label, value, evidence });
+    } else if (manifest.status !== "not_applicable") prerequisites.push(`Forever game manifest: ${manifest.detail}`);
     const recordings = await query<{ body: Recording; updated_at: Date }>(`SELECT body,updated_at FROM records WHERE workspace_id=$1 AND kind='recording' AND body->>'gameId'=$2 AND body->>'status'='ready' ORDER BY updated_at DESC LIMIT 10`, [workspace, game.id]);
     for (const { body: rec, updated_at } of recordings) for (const [index, observation] of (rec.observations || []).filter(o => o.type === "observation").slice(0, 10).entries()) {
       facts.push({ key: `recording:${rec.id}:${index}`, label: "Gameplay observation", value: observation.text.slice(0, 1000), evidence: { source: rec.mode === "fixture" ? "Controlled fixture recording (record updated)" : "Gameplay recording (record updated)", observedAt: new Date(updated_at).toISOString(), recordingId: rec.id, at: observation.at } });
@@ -112,7 +129,7 @@ export async function drainProfile(jobId?: string) {
     for (const c of run?.coverage || []) if (c.status !== "complete") prerequisites.push(`${c.source}: ${c.detail}`);
     // Controls and rules remain unknown unless an owner supplies them or an observation supports them.
     const owner = await get<{ id: string; overrides: ProfileOverrides }>(workspace, "game_profile_overrides", game.id);
-    if (!owner?.overrides.rules || !owner?.overrides.controls) prerequisites.push("Rules and controls are unknown unless supported by gameplay evidence or entered by the owner.");
+    if ((!owner?.overrides.rules || !owner?.overrides.controls) && manifest.status !== "complete") prerequisites.push("Rules and controls are unknown unless supported by gameplay evidence or entered by the owner.");
     const profile: Profile = { id: game.id, gameId: game.id, lastRefresh: new Date().toISOString(), facts, prerequisites, researchRunId: run?.id, result: !run || run.status === "failed" ? "failed" : prerequisites.length || run.status === "partial" ? "partial" : "complete" };
     await query(`WITH saved AS (INSERT INTO records(workspace_id,kind,id,body) SELECT $1,'game_profile',$2,$3::jsonb FROM jobs WHERE id=$4 AND state='claimed' AND lease_until=$5::timestamptz ON CONFLICT(workspace_id,kind,id) DO UPDATE SET body=excluded.body,updated_at=now() RETURNING id) UPDATE jobs SET state=CASE WHEN body->>'humanRefreshPending'='true' THEN 'queued' ELSE 'complete' END, body=CASE WHEN body->>'humanRefreshPending'='true' THEN (body-'humanRefreshPending'-'metadata'-'metadataAt') || jsonb_build_object('runKey',$6::text) ELSE body END, available_at=now(),lease_until=NULL,updated_at=now() WHERE id=$4 AND lease_until=$5::timestamptz AND EXISTS(SELECT 1 FROM saved)`, [workspace, game.id, JSON.stringify(profile), row.id, row.lease_until, id("profile")]);
   } catch {

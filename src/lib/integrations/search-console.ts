@@ -193,3 +193,29 @@ export async function searchConsoleComparison(
     ),
   };
 }
+
+export type SearchQueryObservation = SearchPeriod & { query: string };
+/** Finalized, exact-page query rows. These are observed search results, not search volume or causal ranking evidence. */
+export async function searchConsoleQueries(secret: ProviderSecret, gameUrl: string, now = new Date()): Promise<{ property: string; page: string; rows: SearchQueryObservation[]; droppedRows: number; startDate: string; endDate: string }> {
+  const property = secret.accountId;
+  if (!property) throw new Error("Search Console property is missing");
+  const page = new URL(gameUrl);
+  page.search = ""; page.hash = "";
+  if (!covers(property, page.href)) throw new Error("The selected Search Console property does not cover this game URL");
+  const range = searchConsoleWindows(now).recent;
+  const endpoint = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(property)}/searchAnalytics/query`;
+  const data = await api(endpoint, secret, {
+    method: "POST", headers: jsonHeaders,
+    body: JSON.stringify({ ...range, type: "web", dataState: "final", dimensions: ["query"], rowLimit: 25,
+      dimensionFilterGroups: [{ groupType: "and", filters: [{ dimension: "page", operator: "equals", expression: page.href }] }] }),
+  });
+  if (data.rows !== undefined && !Array.isArray(data.rows)) throw new Error("Invalid Search Console response");
+  const rows: SearchQueryObservation[] = [];
+  for (const row of (data.rows || []).slice(0, 25)) {
+    const q = row?.keys?.[0];
+    if (!Array.isArray(row?.keys) || row.keys.length !== 1 || typeof q !== "string" || q.length < 1 || q.length > 100 || /[@<>\r\n]|https?:\/\/|www\.|\d{5}/i.test(q)) continue;
+    if (!["clicks", "impressions", "ctr", "position"].every(k => typeof row[k] === "number" && Number.isFinite(row[k]) && row[k] >= 0) || row.ctr > 1 || row.impressions < 10) continue;
+    rows.push({ query: q, ...range, clicks: row.clicks, impressions: row.impressions, ctr: row.ctr, position: row.position });
+  }
+  return { property, page: page.href, ...range, rows, droppedRows: (data.rows || []).length - rows.length };
+}

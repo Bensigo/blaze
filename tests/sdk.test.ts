@@ -213,3 +213,17 @@ it("measures only consented foreground play after trusted input and stops on com
     vi.setSystemTime(new Date("2026-01-01T00:01:30Z")); h.tick(); expect(durations()).toEqual([0,10,15]);
   } finally { vi.useRealTimers(); }
 });
+
+it("sends only bounded semantic event properties", () => {
+  const h = harness();
+  h.sdk.init({endpoint:"https://marketing.example",sdkKey:"key",consent:true});
+  h.sdk.track("ui_click", {key:"start_button", value:3, email:"private@example.com"});
+  h.sdk.track("player_action", {key:"move_left"});
+  h.sdk.track("milestone", {key:"level_2", value:2});
+  h.sdk.track("ui_click", {key:"private@example.com"});
+  h.sdk.track("milestone", {key:"level_3", value:1000001});
+  h.sdk.track("custom_event", {key:"unknown"});
+  const events = h.requests.slice(2).map(r => r.events[0]);
+  expect(events.map(e => e.name)).toEqual(["ui_click", "player_action", "milestone"]);
+  expect(events.map(e => e.properties)).toEqual([{key:"start_button",value:3},{key:"move_left"},{key:"level_2",value:2}]);
+});

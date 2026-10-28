@@ -1,0 +1,67 @@
+/** Controlled API fixture acceptance: no release is created and no real player data is used. */
+import { chromium, type Route } from "playwright";
+import assert from "node:assert/strict";
+import { buildDemo } from "../src/lib/demo";
+const demo = buildDemo();
+const game = { ...demo.games[0], id: "game-test", title: "Test game" };
+const finding = { id: "finding-test", gameId: game.id, title: "Onboarding friction", detail: "A test observation", type: "observation", priority: "high", evidence: [], status: "open", createdAt: "2026-10-01T00:00:00Z" };
+const session = { ...demo.analytics.sessionsList[0], id: "session-test", gameId: game.id };
+const metrics = { players: 4, sessions: 5, starts: 3, completions: 2, errorSessions: 1, activePlay: { totalSeconds: 40, measuredSessions: 2, eligibleSessions: 3 }, completion: { numerator: 2, denominator: 3, rate: 2 / 3 }, conversion: { numerator: 3, denominator: 5, rate: .6 }, returningPlayers: 1, d1: { cohortPlayers: 4, eligible: 2, returned: 1, rate: .5 }, sources: [], devices: [] };
+const base = { id: "measurement-test", gameId: game.id, findingId: finding.id, note: "Earlier instructions", startedAt: "2026-10-12T00:00:00Z", baseline: {}, after: {}, daysObserved: 1 };
+const measurement = { ...base, releaseContextStatus: "recorded", release: { version: "v1", description: "Instruction update", evidenceUrl: "https://example.test/release", effectiveAt: "2026-10-10T10:00:00Z" }, baselineWindow: { start: "2026-10-01T00:00:00Z", end: "2026-10-10T10:00:00Z" }, followupWindow: { start: "2026-10-10T10:00:00Z", end: "2026-10-20T00:00:00Z" }, outcome: { baseline: metrics, followup: metrics, observedFollowupEnd: "2026-10-12T00:00:00Z", mature: false, releaseEvidence: "owner_reported", caveats: ["Planned windows have unequal duration", "Some D1 cohorts are not mature."], nextAction: "Wait and review." } };
+const workspace = { ...demo, demo: false, games: [game], findings: [finding], measurements: [measurement, { ...base, id: "legacy-test", note: "Old legacy", releaseContextStatus: "missing" }], analytics: { ...demo.analytics, sessionsList: [session], sessionPage: { limit: 100, total: 1 } } };
+const profile = { gameId: game.id, status: "partial", lastRefresh: "2026-10-12T00:00:00Z", facts: [{key:"manifest_name",label:"Manifest name",value:"Test game",evidence:{source:"Forever game manifest",url:"https://example.test/games/test/forever.json",observedAt:"2026-10-11T00:00:00Z",formatVersion:1,sha256:"abc"}}],overrides:{audience:"Players who enjoy puzzles"},prerequisites:["Search Console unavailable"] };
+const requests: Record<string, unknown>[] = [];
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, timezoneId: "Asia/Dubai" });
+page.setDefaultTimeout(30000);
+const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+const json = (route: Route, data: unknown) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });
+await page.route("**/api/**", async route => {
+ const u = new URL(route.request().url());
+ if (u.pathname === "/api/auth/config") return json(route,{googleConfigured:true});
+ if (u.pathname === "/api/workspace") return json(route,workspace);
+ if (u.pathname === "/api/actions") { requests.push(route.request().postDataJSON()); return json(route,{}); }
+ if (u.pathname === `/api/games/${game.id}/profile`) return json(route,profile);
+ if (u.pathname === `/api/games/${game.id}/automation`) return json(route,{enabled:true,intervalHours:24,ready:false,reasons:[],draftReady:false,draftReasons:[],adapterVerified:false});
+ if (u.pathname === `/api/sessions/${session.id}`) return json(route,{events:[{id:"1",name:"ui_click",timestamp:"2026-10-10T10:00:00Z",properties:{key:"menu_open",value:5}},{id:"2",name:"milestone",timestamp:"2026-10-10T10:01:00Z",properties:{key:"stage_1"}}],captures:[]});
+ return route.continue();
+});
+try {
+ await page.goto("http://127.0.0.1:3000/app",{waitUntil:"domcontentloaded"});
+ await page.getByRole("navigation").getByRole("button",{name:"Research"}).click();
+ await page.getByText("Follow-up window incomplete",{exact:false}).waitFor();
+ await page.getByText("Some D1 cohorts are not mature.").waitFor();
+ await page.getByText("Release context missing",{exact:true}).waitFor();
+ await page.getByText("A reliable release comparison is unavailable.",{exact:false}).waitFor();
+ await page.getByRole("button",{name:"Record game change"}).click();
+ const dialog=page.getByRole("dialog");
+ assert.equal(await dialog.getByLabel("Actual release time").inputValue(),"");
+ await dialog.getByLabel("Release version").fill("v2");
+ await dialog.getByLabel("Release description").fill("Shipped tutorial");
+ await dialog.getByLabel("Release evidence URL").fill("https://example.test/releases/v2");
+ await dialog.getByLabel("Measurement note").fill("Tutorial update");
+ for (const [field,value] of Object.entries({"Actual release time":"2026-10-10T14:00","Baseline start":"2026-10-01T04:00","Baseline end":"2026-10-10T14:00","Follow-up start":"2026-10-10T14:00","Follow-up end":"2026-10-20T04:00"})) await dialog.getByLabel(field).fill(value);
+ await dialog.getByText("UTC: 2026-10-10T10:00:00.000Z").first().waitFor();
+ await dialog.getByRole("button",{name:"Record change"}).click();
+ await page.waitForFunction(()=>!document.querySelector('[role="dialog"]'));
+ assert.deepEqual(requests[0],{action:"start_measurement",findingId:finding.id,gameId:game.id,note:"Tutorial update",release:{version:"v2",description:"Shipped tutorial",evidenceUrl:"https://example.test/releases/v2",effectiveAt:"2026-10-10T10:00:00.000Z"},baselineWindow:{start:"2026-10-01T00:00:00.000Z",end:"2026-10-10T10:00:00.000Z"},followupWindow:{start:"2026-10-10T10:00:00.000Z",end:"2026-10-20T00:00:00.000Z"}});
+ await page.getByLabel("Filter by game").selectOption(game.id);
+ await page.getByRole("navigation").getByRole("button",{name:"Games",exact:true}).click();
+ await page.getByText("Forever game manifest",{exact:false}).waitFor();
+ await page.getByText("Search Console unavailable").waitFor();
+ await page.getByText("Audience hypothesis · Owner").waitFor();
+ await page.getByRole("navigation").getByRole("button",{name:"Sessions",exact:true}).click();
+ await page.getByRole("row").filter({hasText:"session-"}).first().click();
+ await page.getByText("Key: menu_open · Value: 5").waitFor();
+ await page.getByLabel("Filter events").selectOption("milestone");
+ await page.getByText("Key: stage_1").waitFor();
+ assert.equal(await page.getByText("Key: menu_open · Value: 5").count(),0);
+ await page.getByRole("button",{name:"Close session"}).click();
+ await page.getByRole("button",{name:"Setup & help"}).click();
+ await page.getByText("The embedded Frame v1 integration does not carry these events.",{exact:false}).waitFor();
+ assert.equal(await page.getByRole("link",{name:"SDK quickstart"}).getAttribute("href"),"/docs/sdk/quickstart.md");
+ assert.equal(await page.getByRole("link",{name:"SDK v1 reference"}).getAttribute("href"),"/docs/sdk/v1.md");
+ assert.deepEqual(errors,[]);
+ console.log("PASS controlled measurement release form UTC payload, outcomes and legacy caveats, manifest provenance and session event filters");
+} finally { await browser.close(); }

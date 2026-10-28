@@ -18,6 +18,9 @@ const eventSchema = z.object({
     "exit",
     "pointer",
     "active_play",
+    "ui_click",
+    "player_action",
+    "milestone",
   ]),
   sessionId: z.string().min(8).max(100),
   playerId: z.string().min(8).max(100),
@@ -138,6 +141,13 @@ export async function ingest(
     )
       continue;
     if (e.name === "active_play" && (synthetic || typeof e.properties.duration !== "number" || !Number.isInteger(e.properties.duration) || e.properties.duration < 0 || e.properties.duration > 15)) continue;
+    let semantic: { key: string; value?: number } | undefined;
+    if (["ui_click", "player_action", "milestone"].includes(e.name)) {
+      const { key, value } = e.properties;
+      if (typeof key !== "string" || !/^[A-Za-z0-9_-]{1,40}$/.test(key) ||
+          (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1000000))) continue;
+      semantic = value === undefined ? { key } : { key, value: value as number };
+    }
     let pointer: { x: number; y: number; surface: "game" | "viewport"; screen: string } | undefined;
     if (e.name === "pointer") {
       const { x, y, surface, screen } = e.properties;
@@ -178,7 +188,7 @@ export async function ingest(
       source: source.slice(0, 100),
       campaign: e.campaign || "",
       page: safePage(e.page),
-      properties: pointer || properties(e.properties),
+      properties: semantic || pointer || properties(e.properties),
     });
   }
   if (!rows.length) return Response.json({ accepted: 0 }, { headers: cors });

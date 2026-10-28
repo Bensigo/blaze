@@ -7,14 +7,14 @@
   var frameBridge = null;
   var frameCaptureBridge = null;
   var previewInProgress = false;
-  var names = ['visit','loaded','first_action','round_start','round_complete','retry','progression','error','exit','pointer'];
+  var names = ['visit','loaded','first_action','round_start','round_complete','retry','progression','error','exit','pointer','ui_click','player_action','milestone'];
   function id() { return global.crypto && crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), function (n) { return n.toString(16).padStart(2,'0'); }).join(''); }
   function safeUrl(value) { try { var u = new URL(value); return u.origin + u.pathname; } catch (_) { return ''; } }
   function read(store, key) { try { return global[store].getItem(key); } catch (_) { return null; } }
   function write(store, key, value) { try { global[store].setItem(key,value); } catch (_) {} }
   function player(key) { var name='gm_player_'+key, value=read('localStorage',name); if(!value){value=id();write('localStorage',name,value);}return value; }
   function props(input) {
-    var result = {}, allowed = ['step','level','result','code','x','y','duration','surface','screen'];
+    var result = {}, allowed = ['step','level','result','code','x','y','duration','surface','screen','key','value'];
     if (!input || typeof input !== 'object') return result;
     allowed.forEach(function (key) { var v = input[key]; if (typeof v === 'number' && Number.isFinite(v)) result[key] = v; else if (typeof v === 'string') result[key] = v.replace(/https?:\/\/\S+/g,'[URL]').replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,'[email]').slice(0,100); });
     return result;
@@ -55,6 +55,10 @@
   function playVisibility() { if (!play.running) return;accruePlay(Date.now());play.foreground=foreground(); }
   function send(name, properties) {
     if (previewInProgress || global.__WEB_GAME_STUDIO_AGENT__ === true || !active || !config || names.indexOf(name) < 0) return;
+    if (['ui_click','player_action','milestone'].indexOf(name)>=0) {
+      if (!properties || typeof properties !== 'object' || typeof properties.key !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(properties.key) || ('value' in properties && (typeof properties.value !== 'number' || !Number.isFinite(properties.value) || properties.value < 0 || properties.value > 1000000))) return;
+      properties = {key:properties.key, value:properties.value};
+    }
     if(Date.now()-config.last>30*60*1000){newSession();touch();emit('visit');if(document.readyState==='complete')emit('loaded');}
     if(name==='first_action'){if(config.firstAction)return;config.firstAction=true;write('sessionStorage',config.prefix+'first','1');}
     if(name==='round_complete' || name==='exit') stopPlay();

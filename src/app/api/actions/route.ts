@@ -37,7 +37,8 @@ import type {
   ProviderSecret,
   Channel,
 } from "@/lib/types";
-import { analytics } from "@/lib/analytics";
+import { createReleaseMeasurement } from "@/lib/measurements";
+import { validateMeasurementWindows } from "@/lib/measurement-outcomes";
 const str = z.string().trim().min(1).max(500);
 const rid = z.string().max(100);
 const channel = z.enum(["x", "youtube", "instagram", "tiktok"]);
@@ -552,22 +553,25 @@ export async function POST(request: Request) {
     }
     if (action === "start_measurement") {
       const finding = await requireRecord<Finding>("finding", body.findingId);
-      const note = z.string().trim().min(3).max(500).parse(body.note);
-      const a = await analytics(workspace, finding.gameId, 14);
-      const measurement = {
-        id: id("measure"),
-        gameId: finding.gameId,
-        findingId: finding.id,
-        note,
-        startedAt: new Date().toISOString(),
-        baseline: {
-          sessions: a.sessions,
-          starts: a.starts,
-          completions: a.completions,
-          errorSessions: a.errorSessions,
-        },
-      };
-      await put(workspace, "measurement", measurement);
+      const window = z.object({ start: z.string().max(30), end: z.string().max(30) });
+      const input = z.object({
+        gameId: rid,
+        findingId: rid,
+        note: z.string().trim().min(3).max(500),
+        release: z.object({
+          version: str,
+          description: str,
+          evidenceUrl: z.string().url().max(2000),
+          effectiveAt: z.string().max(30),
+        }),
+        baselineWindow: window,
+        followupWindow: window,
+      }).parse(body);
+      await requireRecord<Game>("game", input.gameId);
+      if (input.gameId !== finding.gameId) throw new HttpError(400, "Choose the finding's game.");
+      try { validateMeasurementWindows(input.release, input.baselineWindow, input.followupWindow); }
+      catch (error) { throw new HttpError(400, error instanceof Error ? error.message : "Invalid release or comparison windows."); }
+      const measurement = await createReleaseMeasurement(workspace, input);
       return Response.json({ measurement });
     }
     if (action === "update_finding") {

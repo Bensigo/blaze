@@ -11,9 +11,11 @@ import { api } from "./common";
 import { braveSearch } from "./brave";
 import {
   searchConsoleComparison,
+  searchConsoleQueries,
   searchConsoleReportUrl,
 } from "./search-console";
 import { fetchPublic } from "./safe-fetch";
+import { readGameManifest } from "../game-manifest";
 type FindingDraft = Omit<Finding, "id" | "createdAt" | "status">;
 type PageFacts = {
   url: string;
@@ -22,6 +24,7 @@ type PageFacts = {
   words: number;
   robots: string;
   xRobots: string;
+  content: string;
 };
 const cleanUrl = (input: string) => {
   const u = new URL(input);
@@ -57,6 +60,7 @@ function extractPage(url: string, body: string, xRobots: string): PageFacts {
     robots,
     xRobots: xRobots.slice(0, 300),
     words: content ? content.split(/\s+/).length : 0,
+    content: content.slice(0, 100_000),
   };
 }
 export async function runResearch({
@@ -87,6 +91,17 @@ export async function runResearch({
   ) =>
     findings.push({ gameId: game.id, title, detail, type, priority, evidence });
   const jobs: Array<Promise<void>> = [];
+  const manifestBox: { value: Awaited<ReturnType<typeof readGameManifest>> } = { value: { status: "not_applicable" } };
+  jobs.push((async () => {
+    const manifest = await readGameManifest(game.url);
+    manifestBox.value = manifest;
+    if (manifest.status === "not_applicable") { coverage.push({ source: "Game manifest", status: "unavailable", detail: "The registered game URL does not match the documented HTTPS /games/<slug> route; no manifest was probed." }); return; }
+    if (manifest.status === "complete") {
+      coverage.push({ source: "Game manifest", status: "complete", detail: `Version 1 fields read from ${manifest.source.url}; observed ${manifest.source.observedAt}; SHA-256 ${manifest.source.sha256}. The reader validates a bounded subset of the format.` });
+    } else {
+      coverage.push({ source: "Game manifest", status: "unavailable", detail: `${manifest.status}: ${manifest.detail}` });
+    }
+  })());
   for (const [i, page] of [game.url, ...game.competitors.slice(0, 3)].entries())
     jobs.push(
       (async () => {
@@ -394,6 +409,23 @@ export async function runResearch({
       }
     })(),
   );
+  jobs.push((async () => {
+    const secret = connections.search_console;
+    if (!secret?.token) {
+      coverage.push({ source: "Search Console queries", status: "disconnected", detail: "Connect an authorized property to inspect exact-page query observations." });
+      return;
+    }
+    try {
+      const result = await searchConsoleQueries(secret, game.url);
+      coverage.push({ source: "Search Console queries", status: result.rows.length ? (result.droppedRows ? "partial" : "complete") : "unavailable", detail: `Finalized exact-page web data ${result.startDate}–${result.endDate}: ${result.rows.length} retained query rows (up to 5 shown as findings); ${result.droppedRows} suppressed or invalid rows. Google may omit queries; the returned rows are not all searches or search volume. Empty results do not establish zero demand.` });
+      for (const row of result.rows.slice(0, 5)) add(
+        `Observed search query: ${row.query}`,
+        `${row.startDate}–${row.endDate}: ${row.clicks} clicks, ${row.impressions} impressions, ${(row.ctr * 100).toFixed(2)}% CTR, average position ${row.position.toFixed(2)}. Review whether the game page answers this observed query. Average position is an aggregate, not a fixed rank; this is not a causal finding or a promise of improvement.`,
+        "opportunity", [{ label: "Search Console performance report", url: searchConsoleReportUrl(result.property) }, { label: "Exact game URL", url: result.page }], "low");
+    } catch {
+      coverage.push({ source: "Search Console queries", status: "failed", detail: "Query request failed; check authorized property coverage, token and access." });
+    }
+  })());
   const human = analytics.sessionsList.filter(
     (s) => s.kind === "human" && s.gameId === game.id,
   );
@@ -453,6 +485,21 @@ export async function runResearch({
       detail: "No human sessions available.",
     });
   await Promise.all(jobs);
+  const manifest = manifestBox.value;
+  if (manifest.status === "complete") {
+    const data = manifest.facts;
+    // Observation time belongs to run coverage; stable content evidence preserves finding deduplication.
+    const evidence = [{ label: `Game manifest v1, SHA-256 ${manifest.source.sha256}`, url: manifest.source.url }];
+    add(`Unmeasured phrase candidate: ${data.name} how to play`, `Candidate based on the game's manifest; no search volume, ranking or query demand was measured. Review whether a page explains: ${data.howToPlay.slice(0, 2).join(" ")}`, "opportunity", evidence, "low");
+    const ownPage = pages.get(0);
+    if (ownPage) {
+      const norm = (s: string) => s.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+      const staticText = norm(`${ownPage.title} ${ownPage.description} ${ownPage.content}`);
+      const checks: Array<[string, string]> = [["game name", data.name], ["controls", data.controls.label], ["first how-to step", data.howToPlay[0]], ["first FAQ question", data.faq[0].q]];
+      const absent = checks.filter(([, value]) => !staticText.includes(norm(value))).map(([label]) => label);
+      if (absent.length) add("Review game-specific answers on the public page", `The static HTML did not contain the exact manifest text for: ${absent.join(", ")}. Consider clearly presenting the game's rules, controls or FAQ where relevant. Equivalent wording and client-rendered content were not evaluated; absence is not proof of an indexing or ranking issue.`, "opportunity", [...evidence, { label: "Fetched game page", url: ownPage.url }], "low");
+    }
+  }
   const own = pages.get(0);
   for (const [index, other] of pages) {
     if (index === 0 || !own) continue;

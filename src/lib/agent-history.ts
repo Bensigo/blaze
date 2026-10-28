@@ -1,9 +1,15 @@
 import { get, query } from "./db";
+import { measurementResults } from "./measurements";
 import type { ProfileOverrides } from "./game-profile";
 import type { Finding, Measurement, Post } from "./types";
 
 // These projections intentionally exclude session/player IDs, credentials and capture data.
 export async function loadAgentHistory(workspace: string, gameId: string) {
+  const boundedRecords = (kind: "post" | "finding") => query<{ kind: string; body: Post | Finding }>(
+    `SELECT kind,body FROM records WHERE workspace_id=$1 AND kind=$2 AND body->>'gameId'=$3
+      AND updated_at>=now()-interval '90 days' ORDER BY updated_at DESC,id DESC LIMIT 30`,
+    [workspace, kind, gameId],
+  );
   const [
     daily,
     campaigns,
@@ -63,14 +69,9 @@ export async function loadAgentHistory(workspace: string, gameId: string) {
       SELECT count(DISTINCT player_id)::int AS players, count(DISTINCT player_id) FILTER (WHERE started>=first_seen+interval '24 hours')::int AS returns FROM marked`,
       [workspace, gameId],
     ),
-    ...(["post", "finding", "measurement"] as const).map((kind) =>
-      query<{ kind: string; body: Post | Finding | Measurement }>(
-        `SELECT kind,body FROM records
-      WHERE workspace_id=$1 AND kind=$2 AND body->>'gameId'=$3 AND updated_at>=now()-interval '90 days'
-      ORDER BY updated_at DESC LIMIT $4`,
-        [workspace, kind, gameId, kind === "measurement" ? 15 : 30],
-      ),
-    ),
+    boundedRecords("post"),
+    boundedRecords("finding"),
+    measurementResults(workspace, gameId, Date.now(), { limit: 15, updatedSince: new Date(Date.now() - 90 * 86400000).toISOString() }),
   ]);
   const [profile, owner] = await Promise.all([
     get<{ id: string; facts?: { label: string; value: string; evidence?: { source?: string; observedAt?: string } }[] }>(workspace, "game_profile", gameId),
@@ -86,13 +87,13 @@ export async function loadAgentHistory(workspace: string, gameId: string) {
   const overrides = Object.fromEntries((["description", "genre", "audience", "rules", "controls"] as const)
     .filter(key => typeof owner?.overrides?.[key] === "string")
     .map(key => [key, safeProfileText(owner!.overrides![key], 1000)]));
-  const facts = (profile?.facts || []).filter(f => ["Public page metadata", "Human telemetry", "Gameplay recording (record updated)"].includes(f.evidence?.source || "")).slice(0, 20).map(f => ({
+  const facts = (profile?.facts || []).filter(f => ["Public page metadata", "Forever game manifest", "Human telemetry", "Gameplay recording (record updated)"].includes(f.evidence?.source || "")).slice(0, 20).map(f => ({
     label: safeProfileText(f.label, 100), value: safeProfileText(f.value, 600),
     source: safeProfileText(f.evidence?.source, 100),
     observedAt: /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(f.evidence?.observedAt || "") ? f.evidence!.observedAt : null,
     confidence: "reported observation; not independently verified",
   }));
-  const records = [...postRecords, ...findingRecords, ...measurementRecords];
+  const records = [...postRecords, ...findingRecords];
   const posts = records
     .filter((r) => r.kind === "post")
     .slice(0, 30)
@@ -137,51 +138,39 @@ export async function loadAgentHistory(workspace: string, gameId: string) {
         createdAt: f.createdAt,
       };
     });
-  const measurements = await Promise.all(
-    records
-      .filter((r) => r.kind === "measurement")
-      .slice(0, 15)
-      .map(async ({ body }) => {
-        const m = body as Measurement;
-        const [after] = await query<{
-          sessions: number;
-          starts: number;
-          completions: number;
-          error_sessions: number;
-        }>(
-          `
-      WITH s AS (SELECT session_id, bool_or(name='round_start') AS starts, bool_or(name='round_complete') AS completions, bool_or(name='error') AS errors
-        FROM events WHERE workspace_id=$1 AND game_id=$2 AND kind='human' AND occurred_at >= $3::timestamptz
-          AND occurred_at < LEAST(now(), $3::timestamptz + interval '14 days') GROUP BY session_id)
-      SELECT count(*)::int AS sessions,count(*) FILTER (WHERE starts)::int AS starts,
-        count(*) FILTER (WHERE completions)::int AS completions,count(*) FILTER (WHERE errors)::int AS error_sessions FROM s`,
-          [workspace, gameId, m.startedAt],
-        );
-        return {
-          note: safeProfileText(m.note, 500),
-          startedAt: m.startedAt,
-          baseline: {
-            sessions: m.baseline.sessions,
-            starts: m.baseline.starts,
-            completions: m.baseline.completions,
-            errorSessions: m.baseline.errorSessions,
-          },
-          after: {
-            sessions: after.sessions,
-            starts: after.starts,
-            completions: after.completions,
-            errorSessions: after.error_sessions,
-          },
-          daysObserved: Math.max(
-            0,
-            Math.min(
-              14,
-              (Date.now() - new Date(m.startedAt).getTime()) / 86400000,
-            ),
-          ),
-        };
-      }),
-  );
+  const metrics = (value: NonNullable<Measurement["outcome"]>["baseline"]) => ({
+    players: value.players, sessions: value.sessions, starts: value.starts,
+    completions: value.completions, errorSessions: value.errorSessions,
+    activePlay: value.activePlay, conversion: value.conversion, completion: value.completion,
+    returningPlayers: value.returningPlayers, d1: value.d1,
+    sources: value.sources.map(row => ({ name: safeProfileText(row.name, 100), count: row.count })),
+    devices: value.devices.map(row => ({ name: safeProfileText(row.name, 100), count: row.count })),
+  });
+  const measurements = measurementRecords.map(m => ({
+    note: safeProfileText(m.note, 500),
+    releaseContextStatus: m.releaseContextStatus,
+    linkedFinding: (() => {
+      const finding = findingRecords.find(row => row.body.id === m.findingId)?.body as Finding | undefined;
+      return finding ? { title: safeProfileText(finding.title, 200), status: finding.status } : null;
+    })(),
+    ...(m.releaseContextStatus === "recorded" && m.release && m.outcome ? {
+      release: {
+        version: safeProfileText(m.release.version, 100),
+        description: safeProfileText(m.release.description, 500),
+        effectiveAt: m.release.effectiveAt,
+        evidence: "Owner-reported HTTPS release reference; URL omitted from model context",
+      },
+      baselineWindow: m.baselineWindow, followupWindow: m.followupWindow,
+      outcome: {
+        baseline: metrics(m.outcome.baseline), followup: metrics(m.outcome.followup),
+        observedFollowupEnd: m.outcome.observedFollowupEnd,
+        mature: m.outcome.mature, releaseEvidence: m.outcome.releaseEvidence,
+        caveats: m.outcome.caveats, nextAction: m.outcome.nextAction,
+      },
+    } : {
+      limitation: "No validated shipped release and explicit comparison windows. This record does not establish an outcome.",
+    }),
+  }));
   const now = Date.now();
   const windowCounts = (startDays: number, endDays: number) =>
     daily
@@ -246,7 +235,7 @@ export async function loadAgentHistory(workspace: string, gameId: string) {
       "Returns are distinct players returning at least 24 hours after their first observed session within the window, not a mature retention cohort.",
       "Campaign counts are observed campaign traffic, not attributable improvement after publication; publication time is unavailable.",
       "Stored post text includes human edits and can inform style. Unpublished posts are neither successes nor evidence of rejection or failure. Social impressions and likes are unavailable.",
-      "A resolved finding does not prove a change worked; measured before/after counts are observational.",
+      "A resolved finding does not prove a change shipped or worked. Only recorded release context and explicit windows support a comparison; owner-reported releases and outcomes remain observational. Follow-up completion and D1 cohort maturity are separate.",
       "Correlation does not establish causation. Results and records are capped.",
     ],
   };

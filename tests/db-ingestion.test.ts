@@ -199,3 +199,14 @@ it("keeps first-seen current for a legacy writer that inserts events directly", 
   expect(new Date(rows[0].first_at).toISOString()).toBe(now);
   expect(rows[0].first_session_id).toBe("legacy-session");
 });
+
+it("validates semantic events and strips private and unknown properties at ingestion", async () => {
+  const time = new Date().toISOString();
+  const base = event("semantic-valid", time);
+  const valid = {...base, name:"ui_click", properties:{key:"start_button",value:2,email:"secret@example.com"}};
+  const badKey = {...base, id:"semantic-invalid-key", name:"player_action", properties:{key:"secret@example.com"}};
+  const badValue = {...base, id:"semantic-invalid-value", name:"milestone", properties:{key:"level_2",value:1000001}};
+  expect(await (await ingest(request([valid,badKey,badValue]))).json()).toEqual({accepted:1});
+  const rows = await db.query<{name:string;properties:unknown}>("SELECT name,properties FROM events WHERE workspace_id=$1 AND name='ui_click'",["batch-ws"]);
+  expect(rows).toEqual([{name:"ui_click",properties:{key:"start_button",value:2}}]);
+});

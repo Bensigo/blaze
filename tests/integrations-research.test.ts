@@ -20,6 +20,7 @@ vi.mock("../src/lib/integrations/safe-fetch", () => ({
   })),
 }));
 import { runResearch, testConnection } from "../src/lib/integrations";
+import { fetchPublic } from "../src/lib/integrations/safe-fetch";
 const game: Game = {
   id: "g",
   title: "My Game",
@@ -209,4 +210,31 @@ describe("research evidence and source coverage", () => {
       result.coverage.find((c) => c.source === "Google Search Console")?.status,
     ).toBe("complete");
   });
+  it("grounds candidate advice in the matching manifest and separates observed queries", async () => {
+    const fetchMock = vi.mocked(fetchPublic);
+    const original = fetchMock.getMockImplementation()!;
+    const manifest = { formatVersion: 1, id: "last-card", slug: "whot", name: "WHOT", genre: "Cards", description: "Play cards", about: ["Match cards."], howToPlay: ["Deal cards.", "Match shapes.", "Empty your hand."], faq: [{ q: "Is WHOT free?", a: "Yes." }, { q: "Friends?", a: "Yes." }, { q: "Phone?", a: "Yes." }], controls: { label: "Mouse or touch" }, visibility: "listed" };
+    fetchMock.mockImplementation(async (url, redirects) => url.endsWith("/forever.json") ? { status: 200, url, body: JSON.stringify(manifest), contentType: "application/json", elapsedMs: 1, xRobotsTag: "" } : original(url, redirects));
+    vi.stubGlobal("fetch", vi.fn(async (_input: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      return Response.json({ rows: body.dimensions ? [
+        { keys: ["whot rules"], clicks: 3, impressions: 30, ctr: 0.1, position: 4.5 },
+        { keys: ["private@example.com"], clicks: 1, impressions: 12, ctr: 0.1, position: 1 },
+      ] : [{ clicks: 3, impressions: 30, ctr: 0.1, position: 4.5 }] });
+    }));
+    try {
+      const result = await runResearch({ game: { ...game, url: "https://game.example/games/whot" }, analytics, connections: { search_console: { token: "token", accountId: "sc-domain:game.example" } } });
+      const candidate = result.findings.find(f => f.title === "Unmeasured phrase candidate: WHOT how to play");
+      expect(candidate?.detail).toContain("no search volume");
+      expect(candidate?.detail).toContain("Deal cards.");
+      expect(candidate?.evidence[0].url).toBe("https://game.example/games/whot/forever.json");
+      expect(result.findings.find(f => f.title === "Review game-specific answers on the public page")?.detail).toContain("first FAQ question");
+      const query = result.findings.find(f => f.title === "Observed search query: whot rules");
+      expect(query?.detail).toContain("3 clicks, 30 impressions, 10.00% CTR, average position 4.50");
+      expect(result.coverage.find(c => c.source === "Search Console queries")?.detail).toContain("1 suppressed or invalid");
+      expect(JSON.stringify(result)).not.toContain("private@example.com");
+      expect(result.coverage.find(c => c.source === "Game manifest")?.detail).toContain("SHA-256");
+    } finally { fetchMock.mockImplementation(original); }
+  });
+
 });
