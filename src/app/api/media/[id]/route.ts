@@ -1,0 +1,20 @@
+import { identity, apiError } from "@/lib/auth";
+import { bearer } from "@/lib/security";
+import { lookupMedia, serveMedia } from "@/lib/media";
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await params;
+    const user = await identity();
+    if (!user && !bearer(request, "WORKER_TOKEN"))
+      return new Response(null, { status: 401 });
+    const row = await lookupMedia(id);
+    if (!row || (user && row.workspace_id !== user.workspace_id))
+      return new Response(null, { status: 404 });
+    return serveMedia(row.body, request);
+  } catch (e) {
+    return apiError(e);
+  }
+}

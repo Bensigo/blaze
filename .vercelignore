@@ -1,0 +1,8 @@
+.env*
+.data/
+.git/
+.playwright-cli/
+work/
+output/
+test-results/
+playwright-report/

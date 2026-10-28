@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.vercel/
+.env*
+!.env.example
+.data/
+work/
+output/
+playwright-report/
+test-results/
+*.tsbuildinfo
+.playwright-cli/
