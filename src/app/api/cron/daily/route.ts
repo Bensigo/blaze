@@ -6,10 +6,15 @@ import { cleanupCaptures } from "@/lib/session-capture";
 import { drainProfile, queueHumanProfileRefresh } from "@/lib/game-profile";
 import { tickAutomation } from "@/lib/game-automation";
 import { drainContentAutomation } from "@/lib/content-automation";
+import { dispatchDailyRequest } from "@/lib/daily-dispatch";
 export const maxDuration = 60;
 export async function GET(request: Request) {
   if (!bearer(request, "CRON_SECRET"))
     return new Response(null, { status: 401 });
+  if (process.env.SITE_ID && process.env.NODE_ENV === "production") {
+    await dispatchDailyRequest();
+    return Response.json({ queued: true, completed: false, message: "Daily work dispatched; inspect run history for actual progress and provider coverage." });
+  }
   await query(`DELETE FROM rate_windows WHERE expires_at<now()`);
   await query(`DELETE FROM auth_sessions WHERE expires_at<now()`);
   const captureCleanup = await cleanupCaptures();

@@ -1,7 +1,11 @@
+import { networkInterfaces } from "node:os";
 import type { BrowserPolicy } from "./network-policy";
 
-const guardURL = "http://172.28.22.2:9090/policy";
-const browserURL = "http://172.28.22.3:3000/browser";
+import { internalNetwork } from "./internal-network";
+
+const network = internalNetwork(process.env.BLAZE_WORKER_NET_PREFIX);
+const guardURL = `http://${network.guard}:9090/policy`;
+const browserURL = `http://${network.browser}:3000/browser`;
 function credentials(): Record<string, string> {
   const token = process.env.EGRESS_TOKEN || "";
   if (token.length < 32) throw new Error("Isolated browser egress is required for game recordings");
@@ -13,6 +17,8 @@ async function call(url: string, method: string, body?: unknown): Promise<Respon
   return response;
 }
 export async function startIsolatedBrowser(policy: BrowserPolicy): Promise<string> {
+  credentials();
+  if (!Object.values(networkInterfaces()).flat().some(address => address?.family === "IPv4" && address.address === network.worker)) throw new Error("Worker network address does not match BLAZE_WORKER_NET_PREFIX");
   const entries = [...new Set([...policy.resources, ...policy.sockets])].map(origin => {
     const ip = policy.pins.get(new URL(origin).hostname);
     if (!ip) throw new Error("Destination pin missing");
@@ -23,7 +29,7 @@ export async function startIsolatedBrowser(policy: BrowserPolicy): Promise<strin
     const response = await call(browserURL, "POST", { pins: [...policy.pins] });
     const data = await response.json() as { endpoint?: string };
     const endpoint = new URL(data.endpoint || "");
-    if (endpoint.protocol !== "ws:" || endpoint.hostname !== "172.28.22.3" || endpoint.port !== "3001" || endpoint.username || endpoint.password || endpoint.pathname.length < 25 || endpoint.search || endpoint.hash) throw new Error("Invalid isolated browser endpoint");
+    if (endpoint.protocol !== "ws:" || endpoint.hostname !== network.browser || endpoint.port !== "3001" || endpoint.username || endpoint.password || endpoint.pathname.length < 25 || endpoint.search || endpoint.hash) throw new Error("Invalid isolated browser endpoint");
     return endpoint.href;
   } catch (error) { await stopIsolatedBrowser(); throw error; }
 }

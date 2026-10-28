@@ -289,6 +289,12 @@ export interface Analytics {
   heatmap: { x: number; y: number; bx: number; by: number; count: number; gameId: string; surface: "game" | "viewport"; screen: string; device: string }[];
   syntheticSessions: number;
 }
+export interface DailyDispatchStatus {
+  day: string;
+  state: "queued" | "running" | "completed" | "partial" | "failed";
+  total: number; completed: number; partial: number; failed: number; remaining: number;
+  updatedAt: string; lastRunAt?: string; error?: string;
+}
 export interface WorkspaceSnapshot {
   user: { name: string; email: string } | null;
   workspace: { id: string; name: string };
@@ -310,6 +316,7 @@ export interface WorkspaceSnapshot {
     worker: boolean;
     lastWorkerAt?: string;
     dailySchedule: string;
+    dailyDispatch?: DailyDispatchStatus;
     publishingEnabled: boolean;
     social?: { provider: string; configured: boolean; setup: string; callbackUrl: string }[];
   };

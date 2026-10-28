@@ -16,6 +16,7 @@ import { googleAvailable } from "./neon-auth";
 import { socialConfiguration } from "./social-oauth";
 import { databaseUsage } from "./db-capacity";
 import { mediaStorageConfigured } from "./media";
+import { dailyDispatchStatus } from "./daily-dispatch";
 export async function snapshot(
   user: Identity,
   gameId?: string,
@@ -76,7 +77,10 @@ export async function snapshot(
         ? new Date(worker[0].updated_at).toISOString()
         : undefined,
       dailySchedule:
-        "Daily at 06:00 UTC; three games checked per cron invocation, additional queued games need the worker. Approved scheduled posts are checked every minute while the worker runs.",
+        process.env.SITE_ID
+          ? "Daily analysis at 06:00 UTC. Pending runs remain queued; provider coverage is shown in Run history."
+          : "Daily at 06:00 UTC; three games checked per cron invocation, additional queued games need the worker. Approved scheduled posts are checked every minute while the worker runs.",
+      dailyDispatch: await dailyDispatchStatus(workspace),
       publishingEnabled: process.env.PUBLISHING_ENABLED === "true",
       social: socialConfiguration(process.env.APP_URL || "http://localhost:3000"),
     },

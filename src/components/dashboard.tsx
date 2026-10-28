@@ -2149,6 +2149,15 @@ export default function Dashboard() {
                   Run research
                 </Button>
               </div>
+              {!snapshot.demo && <div className="data-note" role="status">
+                <strong>Daily analysis · {snapshot.system.dailyDispatch ? label(snapshot.system.dailyDispatch.state) : "Not reported yet"}</strong>
+                <p>{snapshot.system.dailySchedule}</p>
+                {snapshot.system.dailyDispatch && <>
+                  <p>{snapshot.system.dailyDispatch.day} · {snapshot.system.dailyDispatch.completed} complete · {snapshot.system.dailyDispatch.partial} partial · {snapshot.system.dailyDispatch.failed} failed · {snapshot.system.dailyDispatch.remaining} queued or running</p>
+                  <p>Dispatcher update: {dateTime(snapshot.system.dailyDispatch.updatedAt)}{snapshot.system.dailyDispatch.lastRunAt ? ` · Latest research run: ${dateTime(snapshot.system.dailyDispatch.lastRunAt)}` : " · No research run reported yet."}</p>
+                  {snapshot.system.dailyDispatch.error && <p className="error-text">{snapshot.system.dailyDispatch.error}</p>}
+                </>}
+              </div>}
               <Findings
                 findings={findings}
                 action={action}

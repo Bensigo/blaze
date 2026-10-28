@@ -1,7 +1,9 @@
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { chromium, type BrowserServer } from "playwright";
+import { internalNetwork } from "./internal-network";
 import { publicIPv4 } from "../src/lib/network-policy";
+const network = internalNetwork(process.env.BLAZE_WORKER_NET_PREFIX);
 const token = process.env.EGRESS_TOKEN || "";
 if (token.length < 32) throw new Error("Missing egress token");
 let server: BrowserServer | undefined;
@@ -26,13 +28,13 @@ createServer((req, res) => {
             !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(pair[0]) || !publicIPv4(pair[1])) throw new Error("Invalid pin");
         rules.push(`MAP ${pair[0]} ${pair[1]}`);
       }
-      rules.push("MAP * ~NOTFOUND", "EXCLUDE 172.28.22.2");
+      rules.push("MAP * ~NOTFOUND", `EXCLUDE ${network.guard}`);
       const browserEnv = { ...process.env }; delete browserEnv.EGRESS_TOKEN;
       server = await chromium.launchServer({ env: browserEnv, host: "0.0.0.0", port: 3001, headless: true,
-        proxy: { server: "http://172.28.22.2:3128", bypass: "<-loopback>" },
+        proxy: { server: `http://${network.guard}:3128`, bypass: "<-loopback>" },
         args: ["--disable-quic", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp", `--host-resolver-rules=${rules.join(", ")}`] });
       if (requestGeneration !== generation || res.destroyed) { await server.close(); server = undefined; return; }
-      const url = new URL(server.wsEndpoint()); url.hostname = "172.28.22.3";
+      const url = new URL(server.wsEndpoint()); url.hostname = network.browser;
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ endpoint: url.href }));
     } catch { if (!res.destroyed) res.writeHead(500).end(); } finally { busy = false; }
   })(); });
