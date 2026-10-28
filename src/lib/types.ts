@@ -50,6 +50,7 @@ export interface SessionCapture {
   createdAt: string;
   expiresAt: string;
   completedAt?: string;
+  recordedAt?: string;
   durationSeconds?: number;
   width?: number;
   height?: number;

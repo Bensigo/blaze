@@ -57,6 +57,7 @@ try {
   const detailsPath=`/api/sessions/${sessionId}?gameId=${gameId}`;
   const details=await fetch(base+detailsPath,{headers:{Cookie:ownerCookie}});assert.equal(details.status,200);
   const detail=await details.json();assert.equal(detail.capture.status,'ready');
+  assert.equal(new Date(detail.capture.recordedAt).toISOString(),detail.capture.recordedAt);
   const {loadAgentHistory}=await import('../src/lib/agent-history');
   await db.put(workspace,'post',{id:db.id('post'),gameId,text:'Release history acceptance draft',channel:'x',status:'draft',createdAt:new Date().toISOString(),campaignId:'release-history-check'});
   await db.put(foreignWorkspace,'post',{id:db.id('post'),gameId,text:'FOREIGN_HISTORY_SENTINEL',channel:'x',status:'draft',createdAt:new Date().toISOString(),campaignId:'foreign-check'});
@@ -65,6 +66,11 @@ try {
   assert.ok(history.posts.some(p=>p.text==='Release history acceptance draft'));
   assert.ok(!JSON.stringify(history).includes('FOREIGN_HISTORY_SENTINEL'));
   assert.ok(!JSON.stringify(history).includes(sessionId));
+  const research=await fetch(base+'/api/actions',{method:'POST',headers:{Origin:base,Cookie:ownerCookie,'Content-Type':'application/json'},body:JSON.stringify({action:'run_research',gameId})});
+  assert.equal(research.status,200);
+  const researchBody=await research.json();
+  assert.notEqual(researchBody.run.status,'failed');
+  assert.equal(researchBody.run.coverage.find((c:{source:string})=>c.source==='AI research agent')?.status,'disconnected');
   assert.equal((await fetch(base+detailsPath,{headers:{Cookie:foreignCookie}})).status,404);
   const mediaUrl=detail.capture.videoUrl as string;const mid=mediaUrl.split('/').pop()!;
   assert.equal((await fetch(base+mediaUrl)).status,401);
@@ -82,7 +88,7 @@ try {
   await writeFile(output+'/human-capture-production-fixture.webm',bytes);
   await page.evaluate(()=>(window as any).GameMarketing.disable());
   assert.ok([404,410].includes((await fetch(base+mediaUrl,{headers:{Cookie:ownerCookie}})).status));
-  const report={checkedAt:new Date().toISOString(),url:base,fixture:'isolated controlled game',consent:'disabled and missing consent produced no capture',bytes:bytes.length,width:info.width,height:info.height,durationSeconds:info.durationSeconds,fps:info.fps,audio:'none',maskedPixel:masked,outsidePixel:outside,ownerPlayback:'200 and range 206',anonymous:'401',foreign:'404',worker:'401',publicShare:'404',withdrawal:'denied after cancellation',domOutsideCanvas:true,agentHistory:'Real PostgreSQL projection included current game posts and human aggregates; foreign workspace and raw session ID excluded. No live model call.'};
+  const report={checkedAt:new Date().toISOString(),url:base,fixture:'isolated controlled game',consent:'disabled and missing consent produced no capture',bytes:bytes.length,width:info.width,height:info.height,durationSeconds:info.durationSeconds,fps:info.fps,audio:'none',maskedPixel:masked,outsidePixel:outside,ownerPlayback:'200 and range 206',anonymous:'401',foreign:'404',worker:'401',publicShare:'404',withdrawal:'denied after cancellation',domOutsideCanvas:true,agentHistory:'Real PostgreSQL projection included current game posts and human aggregates; foreign workspace and raw session ID excluded. No live model call.',research:'Baseline checks completed; missing AI connection explicitly disconnected.'};
   await writeFile(output+'/human-capture-production-evidence.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));
 } finally {
   await browser?.close();

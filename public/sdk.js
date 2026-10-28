@@ -145,7 +145,7 @@
         if (c.cancelled || c.failed) return;
         var blob=new Blob(c.chunks,{type:c.mime}); c.chunks=[];
         if (!blob.size || blob.size>3145728) { fail(c,'failed',blob.size?'size_limit':'empty_recording'); return; }
-        var form=new FormData();form.append('captureId',c.id);form.append('token',c.token);form.append('file',blob,c.mime.indexOf('mp4')>=0?'capture.mp4':'capture.webm');form.append('durationSeconds',String(Math.min(cfg.maxDurationSeconds,Math.max(0.001,(Date.now()-c.started)/1000))));form.append('width',String(c.width));form.append('height',String(c.height));
+        var form=new FormData();form.append('captureId',c.id);form.append('token',c.token);form.append('file',blob,c.mime.indexOf('mp4')>=0?'capture.mp4':'capture.webm');form.append('durationSeconds',String(Math.min(cfg.maxDurationSeconds,Math.max(0.001,(Date.now()-c.started)/1000))));form.append('recordedAt',new Date(c.started).toISOString());form.append('width',String(c.width));form.append('height',String(c.height));
         status('uploading'); c.abort=new AbortController();
         c.uploadPromise=fetch(c.endpoint+'/api/capture/upload',{method:'POST',body:form,credentials:'omit',signal:c.abort.signal}).then(function (r) { if(!r.ok) throw Error('upload'); return r.json(); }).then(function (data) { if (c.cancelled) return; if (!data || data.status!=='ready') throw Error('upload'); status('ready'); }).catch(function () { if (!c.cancelled) fail(c,'failed','upload_failed'); }).finally(function () { if(c.resolve){c.resolve(Object.assign({},captureState));c.resolve=null;} });
       };

@@ -15,7 +15,9 @@ const {game}=await action({action:'add_game',url:base+'/fixture/index.html'});
 await action({action:'update_game',id:game.id,capture:{enabled:true,canvasSelector:'#game',surfaceReviewed:true,sampleRate:1,maxDurationSeconds:5,retentionDays:1,maxCapturesPerDay:25,masks:[{x:0,y:0,width:.25,height:.25}]}});
 const browser=await chromium.launch({headless:true,args:['--disk-cache-size=1','--media-cache-size=1']});
 try {
-  const page=await browser.newPage(); let uploads=0;page.on('request',r=>{if(r.url().endsWith('/api/capture/upload'))uploads++;});
+  const page=await browser.newPage();
+  if (process.env.CAPTURE_GRANT_DELAY) await page.route('**/api/capture/start',async route=>{const response=await route.fetch();await new Promise(r=>setTimeout(r,600));await route.fulfill({response});});
+  let uploads=0;page.on('request',r=>{if(r.url().endsWith('/api/capture/upload'))uploads++;});
   await page.goto(base+'/fixture/index.html');
   await page.getByText('Optional gameplay recording').click();
   await page.locator('#fixture-private-input').fill('DOM_INPUT_SENTINEL');
@@ -36,6 +38,7 @@ try {
   const sid=await page.evaluate((key)=>sessionStorage.getItem('gm_session_'+key+'_id'),game.sdkKey);
   const detail=await fetch(`${base}/api/sessions/${sid}?gameId=${game.id}`,{headers:{Cookie:cookie}});assert.equal(detail.status,200);
   const body=await detail.json();assert.equal(body.capture.status,'ready');const videoUrl=body.capture.videoUrl;
+  if (process.env.CAPTURE_GRANT_DELAY) { const capture=body.capture;const startEvent=body.events.find((e:any)=>e.name==='round_start');assert.ok(startEvent);const actualOffset=(Date.parse(startEvent.timestamp)-Date.parse(capture.recordedAt))/1000;const oldOffset=(Date.parse(startEvent.timestamp)-Date.parse(capture.createdAt))/1000;assert.ok(actualOffset>=0.3&&actualOffset<0.9,`actual event offset ${actualOffset}`);assert.ok(oldOffset-actualOffset>=0.5,`grant delay ${oldOffset-actualOffset}`); }
   assert.equal((await fetch(base+videoUrl)).status,401);
   const range=await fetch(base+videoUrl,{headers:{Cookie:cookie,Range:'bytes=0-31'}});assert.equal(range.status,206);
   const media=await fetch(base+videoUrl,{headers:{Cookie:cookie}});assert.equal(media.status,200);

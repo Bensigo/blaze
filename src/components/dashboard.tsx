@@ -2106,7 +2106,7 @@ export default function Dashboard() {
                 {sessionLoading ? <p className="muted">Loading capture…</p> : sessionError ? <p className="error-text">{sessionError}</p> : sessionCapture?.status === "ready" && sessionCapture.videoUrl ? (
                   <>
                     <video ref={sessionVideo} controls preload="metadata" src={sessionCapture.videoUrl} aria-label="Player canvas capture" />
-                    <p className="muted">Started {dateTime(sessionCapture.createdAt)} · {sessionCapture.durationSeconds === undefined ? "Duration unavailable" : timecode(sessionCapture.durationSeconds)} · {sessionCapture.width && sessionCapture.height ? `${sessionCapture.width} × ${sessionCapture.height}` : "Dimensions unavailable"} · expires {dateTime(sessionCapture.expiresAt)}</p>
+                    <p className="muted">Started {dateTime(sessionCapture.recordedAt || sessionCapture.createdAt)}{!sessionCapture.recordedAt && " (approximate)"} · {sessionCapture.durationSeconds === undefined ? "Duration unavailable" : timecode(sessionCapture.durationSeconds)} · {sessionCapture.width && sessionCapture.height ? `${sessionCapture.width} × ${sessionCapture.height}` : "Dimensions unavailable"} · expires {dateTime(sessionCapture.expiresAt)}</p>
                     <p className="muted">Canvas only, with configured masks. Select an event within the capture to seek.</p>
                   </>
                 ) : (
@@ -2136,7 +2136,7 @@ export default function Dashboard() {
                       <span className="timeline-dot" />
                       <div>
                         {sessionCapture?.status === "ready" && sessionCapture.videoUrl && sessionCapture.durationSeconds !== undefined && Number.isFinite(Date.parse(e.timestamp)) && (() => {
-                          const offset = (Date.parse(e.timestamp) - Date.parse(sessionCapture.createdAt)) / 1000;
+                          const offset = (Date.parse(e.timestamp) - Date.parse(sessionCapture.recordedAt || sessionCapture.createdAt)) / 1000;
                           return Number.isFinite(offset) && offset >= 0 && offset <= sessionCapture.durationSeconds! ? (
                             <button className="timeline-seek" type="button" onClick={() => { if (sessionVideo.current) sessionVideo.current.currentTime = offset; }}>
                               {label(e.name)} <small>Seek to {timecode(offset)}</small>

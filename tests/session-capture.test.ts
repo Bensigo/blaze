@@ -251,6 +251,28 @@ describe("human capture configuration and grants", () => {
     ).toThrow();
   });
 });
+describe("recording start time", () => {
+  it("stores the recorder timestamp, rejects invalid and out-of-window values, and supports older uploads", async () => {
+    const g = await grant();
+    for (const bad of ["not-a-date", new Date(Date.now()+301000).toISOString(), new Date(Date.now()-301000).toISOString()]) {
+      const f=form(g); f.set("recordedAt",bad);
+      await expect(capture.uploadCapture(f,origin)).rejects.toThrow(/start time/);
+    }
+    const timestamp=new Date().toISOString(); const valid=form(g); valid.set("recordedAt",timestamp);
+    await capture.uploadCapture(valid,origin);
+    expect((await db.get<SessionCapture>(ws,"session_capture",g.captureId))?.recordedAt).toBe(timestamp);
+  });
+  it("checks the start against grant time independently of the current clock", async () => {
+    const g=await grant(); const cap=(await db.get<SessionCapture>(ws,"session_capture",g.captureId))!;
+    await db.put(ws,"session_capture",{...cap,createdAt:new Date(Date.now()-301000).toISOString()});
+    const f=form(g); f.set("recordedAt",new Date().toISOString());
+    await expect(capture.uploadCapture(f,origin)).rejects.toThrow(/outside the allowed window/);
+  });
+  it("preserves no timestamp for older SDK uploads",async()=>{
+    const g=await grant(); await capture.uploadCapture(form(g),origin);
+    expect((await db.get<SessionCapture>(ws,"session_capture",g.captureId))?.recordedAt).toBeUndefined();
+  });
+});
 describe("private human playback and revocation", () => {
   it("stores under the human session, supports owner playback, denies foreign/anonymous/worker/public-share access", async () => {
     const user = await auth.createSession({

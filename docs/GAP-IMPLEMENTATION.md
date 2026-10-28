@@ -14,7 +14,7 @@ SDK starts only via `await GameMarketing.startCapture({consent:true})`; stop via
 
 Public origin-scoped endpoints, all fail closed:
 - POST `/api/capture/start` JSON `{sdkKey,sessionId,consent:true}`. Requires an existing server-stored human visit. Returns `{status:'pending',captureId,token,config:{...ownerConfig,fps:5,maxWidth:960,maxHeight:540,maxBytes:3145728,videoBitsPerSecond:400000},uploadUrl:'/api/capture/upload'}` or explicit not_sampled/quota status. One capture grant per game/session; token is short-lived and scoped, not the worker token.
-- POST `/api/capture/upload` multipart `{captureId,token,file,durationSeconds,width,height}`. Max3MiB. Atomic one-use grant, configured origin, game still enabled, valid media signature. Stores private media, returns `{status:'ready',captureId}`. Does not create agent events or generic recordings.
+- POST `/api/capture/upload` multipart `{captureId,token,file,durationSeconds,width,height,recordedAt}`. The SDK sends actual recorder start; the server validates it against grant/current time. Legacy uploads may omit it and have approximate timeline alignment. Max3MiB. Atomic one-use grant, configured origin, game still enabled, inspected silent video metadata. Stores private media, returns `{status:'ready',captureId}`. Does not create agent events or generic recordings.
 - POST `/api/capture/status` JSON `{captureId,token,status:'unsupported'|'failed',reason:stable_code}` records unsupported/failed state. No arbitrary error/input text.
 - POST `/api/capture/cancel` JSON `{captureId,token}` revokes the current grant and deletes its ready/private media if present.
 - OPTIONS supports configured SDK game origins, scoped CORS, no credential cookies.

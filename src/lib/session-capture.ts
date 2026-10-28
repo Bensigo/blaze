@@ -331,6 +331,16 @@ export async function uploadCapture(form: FormData, origin: string) {
     width = Number(form.get("width")),
     height = Number(form.get("height"));
   const config = captureSettings(game);
+  const recordedAtValue = form.get("recordedAt");
+  let recordedAt: string | undefined;
+  if (recordedAtValue !== null) {
+    if (typeof recordedAtValue !== "string" || !z.iso.datetime().safeParse(recordedAtValue).success)
+      throw new HttpError(400, "Invalid recording start time.");
+    const timestamp = Date.parse(recordedAtValue), grantTime = Date.parse(cap.createdAt);
+    if (!Number.isFinite(timestamp) || !Number.isFinite(grantTime) || Math.abs(timestamp - grantTime) > 300000 || Math.abs(timestamp - Date.now()) > 300000)
+      throw new HttpError(400, "Recording start time is outside the allowed window.");
+    recordedAt = new Date(timestamp).toISOString();
+  }
   if (!(file instanceof File) || !file.size || file.size > CAPTURE_MAX_BYTES)
     throw new HttpError(413, "Recording is missing or exceeds 3 MiB.");
   if (
@@ -369,6 +379,7 @@ export async function uploadCapture(form: FormData, origin: string) {
       ...cap,
       status: "ready",
       videoUrl,
+      recordedAt,
       durationSeconds: verifiedVideo.durationSeconds,
       width: verifiedVideo.width,
       height: verifiedVideo.height,

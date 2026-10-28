@@ -41,6 +41,8 @@ await GameMarketing.stopCapture({ discard: true }); // Withdraw and discard.
 
 The fixture has separate tracking and recording controls and is intended only for controlled acceptance, not production player consent.
 
+Uploads include the recorder's actual start timestamp so event seeking stays aligned when the recording-grant response is delayed. The server validates that timestamp against its bounded grant window. Older footage without this field uses approximate grant-time alignment, labeled in Sessions. Retention still starts at the server-issued grant time.
+
 The studio worker reserves `window.__WEB_GAME_STUDIO_AGENT__ === true` for its automated game sessions. The worker injects an immutable marker before game code runs; when present, this SDK sends no human analytics, creates no analytics IDs in browser storage, and returns `agent_session` from `startCapture` without requesting a grant. This covers the studio's own automation; the marker is not general bot detection or a fraud-prevention boundary.
 
 A recording stops and attempts to save as soon as its page becomes hidden, avoiding extended background recording when browsers throttle timers. An in-progress capture is discarded on page exit; an unload can interrupt that cancellation request, so the server expires unused grants. A page hidden before recording starts is cancelled.
