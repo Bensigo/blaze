@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { isPublicIPv4, fetchPublic } from "../src/lib/integrations/safe-fetch";
+import {
+  isPublicIPv4,
+  fetchPublic,
+  pinnedLookup,
+} from "../src/lib/integrations/safe-fetch";
+import { createServer, request } from "node:http";
+import type { AddressInfo } from "node:net";
 import {
   draftContent,
   publishPost,
@@ -33,6 +39,39 @@ const post: Post = {
 const secret = { token: "secret", accountId: "a", model: "claude-model" };
 afterEach(() => vi.unstubAllGlobals());
 describe("public URL protection", () => {
+  it("pins real HTTP connections under both Node lookup callback modes", async () => {
+    const server = createServer((_request, response) =>
+      response.end("Pinned fixture"),
+    );
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    try {
+      for (const options of [{ autoSelectFamily: true }, { family: 4 }]) {
+        const body = await new Promise<string>((resolve, reject) => {
+          const req = request(
+            `http://browser-fixture.invalid:${(server.address() as AddressInfo).port}`,
+            { ...options, lookup: pinnedLookup("127.0.0.1") },
+            (response) => {
+              let text = "";
+              response.on("data", (chunk) => {
+                text += chunk;
+              });
+              response.on("end", () => resolve(text));
+              response.on("error", reject);
+            },
+          );
+          req.on("error", reject);
+          req.end();
+        });
+        expect(body).toBe("Pinned fixture");
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
   it("rejects private and reserved IPv4 and IPv6 URLs", async () => {
     for (const a of [
       "127.0.0.1",
@@ -192,20 +231,18 @@ describe("provider adapters", () => {
   it("does not treat YouTube upload as published until processing succeeds and is public", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(
-            JSON.stringify({
-              items: [
-                {
-                  status: { privacyStatus: "private" },
-                  processingDetails: { processingStatus: "succeeded" },
-                },
-              ],
-            }),
-          ),
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                status: { privacyStatus: "private" },
+                processingDetails: { processingStatus: "succeeded" },
+              },
+            ],
+          }),
         ),
+      ),
     );
     expect(
       (

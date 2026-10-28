@@ -1,7 +1,27 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import type { LookupFunction } from "node:net";
+import type { LookupAddress } from "node:dns";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
+
+export function pinnedLookup(address: string): LookupFunction {
+  return (_host, options, callback) => {
+    // Node 20+ can request all addresses for family selection; preserve the
+    // validated IPv4 pin while honoring both callback result contracts.
+    const all = (options as { all?: boolean }).all;
+    const respond = callback as (
+      error: NodeJS.ErrnoException | null,
+      result: string | LookupAddress[],
+      family?: number,
+    ) => void;
+    respond(
+      null,
+      all ? [{ address, family: 4 }] : address,
+      all ? undefined : 4,
+    );
+  };
+}
 
 // Deliberately IPv4-only: IPv6 transition and mapped ranges require a separate policy.
 export function isPublicIPv4(address: string): boolean {
@@ -81,7 +101,7 @@ export async function fetchPublic(
           "User-Agent": "WebGameMarketingResearch/1.0",
           Accept: "text/html,text/plain,application/xml;q=0.9,*/*;q=0.1",
         },
-        lookup: (_host, _opts, callback) => callback(null, selected.address, 4),
+        lookup: pinnedLookup(selected.address),
         timeout: 8000,
       },
       (res) => {

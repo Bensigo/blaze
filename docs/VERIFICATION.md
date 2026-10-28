@@ -6,7 +6,7 @@ Independent local repository: `/Users/macbook/work/web-game-marketing`.
 
 ## Evidence
 
-- 42 tests across eight suites pass. They exercise encrypted credentials/tamper rejection, account/workspace isolation and session expiry, origin validation/event deduplication/privacy filtering, ordered funnels, distinct-session mature retention, atomic recording queues, daily research queue idempotency/recovery beyond 30 games, SDK consent/inactivity rollover/timestamp ordering, worker evidence, real-adapter fixture responses, approval/publication concurrency, and explicit strict PostgreSQL TLS verification.
+- 43 tests across eight suites pass. They exercise encrypted credentials/tamper rejection, account/workspace isolation and session expiry, origin validation/event deduplication/privacy filtering, ordered funnels, distinct-session mature retention, atomic recording queues, daily research queue idempotency/recovery beyond 30 games, SDK consent/inactivity rollover/timestamp ordering, worker evidence, real-adapter fixture responses, approval/publication concurrency, explicit strict PostgreSQL TLS verification, and real HTTP connections using both Node DNS callback modes.
 - TypeScript passes. Local optimized production build passes; the remote Vercel build also passed.
 - Production dependencies: `npm audit --omit=dev` reports zero vulnerabilities, with the vulnerable transitive Zod version overridden to the patched installed version.
 - Local real-browser journey: consented human SDK events persisted; agent events used a separate stream; actual video/screenshot and portrait clip reached ready state; private media accepted authenticated byte ranges and rejected unauthenticated reads. A draft could be reviewed and edited; disconnected approval/publication were denied and editing reset review. Its campaign tracking link was verified.
@@ -27,3 +27,5 @@ Independent local repository: `/Users/macbook/work/web-game-marketing`.
 - **Experience**: physical-device feel, audio, human fun/retention and causal improvement are not established by automated play. V1 clips have no audio track, and human sessions expose event investigation rather than automatic full gameplay video replay.
 
 No final brand, billing plan, publishing intermediary or AI-search optimization service has been selected. “Web Game Studio” is the working interface label.
+
+The positive public-URL acceptance exposed and fixed a Node 22 DNS callback mismatch that the same-origin fixture shortcut did not exercise. The pinned resolver now honors both one-address and all-address callback shapes while retaining the public IPv4 restriction. A real local HTTP transport regression and public metadata/SEO fetch verify that path.
