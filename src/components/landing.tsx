@@ -11,6 +11,7 @@ export default function Landing() {
         </Link>
         <nav aria-label="Landing navigation">
           <a className="blaze-nav-link" href="#how-it-works">How it works</a>
+          <Link className="blaze-developer-link" href="/developers">Developers</Link>
           <Link className="blaze-signin" href="/app">Sign in <ArrowUpRight size={15} /></Link>
         </nav>
       </header>
@@ -56,7 +57,7 @@ export default function Landing() {
           <Link href="/app" className="blaze-primary">Open workspace <ArrowRight size={17} /></Link>
         </section>
       </main>
-      <footer className="blaze-footer"><span>blaze<span className="blaze-period">.</span></span><span>Made for games on the web.</span><Link href="/app">Open workspace <ArrowUpRight size={14} /></Link></footer>
+      <footer className="blaze-footer"><span>blaze<span className="blaze-period">.</span></span><span>Made for games on the web.</span><Link href="/developers">Developer guide</Link><Link href="/app">Open workspace <ArrowUpRight size={14} /></Link></footer>
     </div>
   );
 }

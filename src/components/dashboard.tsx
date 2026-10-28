@@ -3507,7 +3507,7 @@ function Help({
   const size = (bytes: number | null) => bytes === null ? "Unavailable" : bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GiB` : `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
   origin = origin || "YOUR_WORKSPACE_ORIGIN";
   const snippet = game
-    ? `<script src="${origin}/sdk.js"></script>\n<script>\n  Blaze.init({ endpoint: "${origin}", sdkKey: "${game.sdkKey}", consent: false });\n  // After the player opts in:\n  Blaze.setConsent(true);\n  // On a game event:\n  Blaze.track("round_start");\n</script>`
+    ? `<script src="${origin}/sdk.js"></script>\n<script>\n  Blaze.init({ endpoint: "${origin}", sdkKey: "${game.sdkKey}", consent: false });\n  // Connect these to your actual consent controls:\n  function allowAnalytics() { Blaze.setConsent(true); }\n  function withdrawAnalytics() { Blaze.disable(); }\n  // Call at the game's real round start:\n  function startRound() { Blaze.track("round_start"); }\n</script>`
     : "";
   return (
     <div className="help-layout">
@@ -3521,10 +3521,9 @@ function Help({
           <div>
             <h3>Add a game</h3>
             <p>
-              Add a public web game URL. Check the extracted title and artwork.
-              A URL alone does not provide player analytics. For a controlled
-              first run, add this workspace’s /fixture/index.html URL and select
-              fixture mode.
+              Add a public game-page URL. Blaze reads that path’s /forever.json
+              to import its metadata. Metadata import does not collect gameplay
+              events. Use a separate test workspace for controlled fixtures.
             </p>
           </div>
         </div>
@@ -3543,17 +3542,24 @@ function Help({
             <h3>Install the SDK</h3>
             <p>
               Add the SDK to your game and configure the approved origin. Enable
-              tracking only after player consent. Instrument visits, load,
-              actions, round starts and completions, retries, progression,
-              errors and exits.
+              tracking only after player consent. Visits and page load are
+              automatic after opt-in; connect actual starts, actions,
+              completions, retries, progression and errors to game handlers.
             </p>
             <p className="data-note">Semantic <code>ui_click</code>, <code>player_action</code> and <code>milestone</code> events require the direct SDK. The embedded Frame v1 integration does not carry these events.</p>
-            <p><a href="/docs/sdk/quickstart.md" target="_blank" rel="noreferrer">SDK quickstart</a> · <a href="/docs/sdk/v1.md" target="_blank" rel="noreferrer">SDK v1 reference</a> (Markdown)</p>
+            <p><a href="/developers" target="_blank" rel="noreferrer">Public developer guide</a> · <a href="/developers.md" target="_blank" rel="noreferrer">Markdown for agents</a></p>
             {game ? (
               <>
                 <p>
                   <strong>Selected game:</strong> {game.title}
                 </p>
+                <dl className="sdk-configuration">
+                  <div><dt>Game ID</dt><dd><code>{game.id}</code></dd></div>
+                  <div><dt>Public SDK key</dt><dd><code>{game.sdkKey}</code></dd></div>
+                  <div><dt>SDK endpoint</dt><dd><code>{origin}</code></dd></div>
+                  <div><dt>Allowed origins</dt><dd>{game.origins.map(value => <code key={value}>{value}</code>)}</dd></div>
+                </dl>
+                <p className="data-note">Use the public SDK key in <code>Blaze.init</code>. The Game ID identifies API records. Never place private provider keys, worker tokens or server credentials in game code.</p>
                 <pre>{snippet}</pre>
                 <p className="muted">
                   See the SDK documentation for initialization, consent and
