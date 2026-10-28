@@ -1,6 +1,6 @@
 import { load } from "cheerio";
 import { fetchPublic } from "./integrations/safe-fetch";
-import { HttpError } from "./auth";
+import { HttpError } from "./http-error";
 export function imageUrl(value: string, base: string) {
   if (!value) return "";
   try {

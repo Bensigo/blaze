@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-vi.mock("../src/lib/db", () => ({ list: async () => [], query: async () => [] }));
+vi.mock("../src/lib/db", () => ({ list: async () => [], query: async () => [], get: async () => undefined }));
 vi.mock("../src/lib/analytics", () => ({ analytics: async () => ({}) }));
 vi.mock("../src/lib/measurements", () => ({ measurementResults: async () => [] }));
 vi.mock("../src/lib/neon-auth", () => ({ googleAvailable: () => false }));

@@ -1,6 +1,6 @@
 import { query, get, put, id } from "./db";
 import type { Game, Recording, Clip } from "./types";
-import { HttpError } from "./auth";
+import { HttpError } from "./http-error";
 import { secretFor } from "./credentials";
 import { duePublications } from "./publishing";
 import { drainResearch } from "./research-jobs";

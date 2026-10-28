@@ -5,7 +5,7 @@ import { mediaRecord, mediaBytes } from "./media";
 import { publishPost, checkPublication } from "./integrations";
 import type { Post, Game, Clip } from "./types";
 import type { PublicationInput } from "./integrations";
-import { HttpError } from "./auth";
+import { HttpError } from "./http-error";
 export const approvalHash = (p: Post) =>
   hash(
     JSON.stringify({

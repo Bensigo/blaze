@@ -1,5 +1,5 @@
 import { comparePut, get, query } from "./db";
-import { HttpError } from "./auth";
+import { HttpError } from "./http-error";
 import { approvalValid } from "./publishing";
 import { mediaRecord } from "./media";
 import type { Clip, Game, Post, Channel } from "./types";

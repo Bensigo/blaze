@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { query, get, put, comparePut, rateLimit } from "./db";
 import { hash, constantEqual } from "./security";
-import { HttpError } from "./auth";
+import { HttpError } from "./http-error";
 import { saveAsset, deleteAsset, cleanupStorageIntents } from "./media";
 import { inspectCaptureVideo } from "./capture-video";
 import type { Game, CaptureConfig, SessionCapture } from "./types";

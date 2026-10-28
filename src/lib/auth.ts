@@ -3,6 +3,8 @@ import { randomBytes } from "node:crypto";
 import { query, id } from "./db";
 import { hash } from "./security";
 import { clearNeonCookies, googleAvailable, neonAuth } from "./neon-auth";
+import { HttpError } from "./http-error";
+export { HttpError } from "./http-error";
 export interface Identity {
   id: string;
   email: string;
@@ -40,9 +42,6 @@ export async function requireIdentity() {
   const user = await identity();
   if (!user) throw new HttpError(401, "Sign in to use your workspace.");
   return user;
-}
-export class HttpError extends Error {
-  constructor(public status: number, message: string) { super(message); }
 }
 export async function createSession(input: { id: string; email: string; name: string; }) {
   if (!localSessionsAllowed()) throw new Error("Local sessions are disabled.");

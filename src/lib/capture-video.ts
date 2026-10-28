@@ -1,5 +1,5 @@
 import { Input, BufferSource, WEBM, MP4 } from "mediabunny";
-import { HttpError } from "./auth";
+import { HttpError } from "./http-error";
 export async function inspectCaptureVideo(
   bytes: Uint8Array,
   maxDuration: number,

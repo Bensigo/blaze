@@ -1,13 +1,18 @@
 import { randomBytes } from "node:crypto";
-import { cookies } from "next/headers";
 import { get, id, list, query } from "./db";
-import { HttpError, type Identity } from "./auth";
+import { HttpError } from "./http-error";
+import type { Identity } from "./auth";
 import { constantEqual, decrypt, encrypt, hash } from "./security";
 import { appOrigin } from "./app-origin";
 import { isSocialProvider, socialProviders, type SocialAdapter, type SocialGrant, type SocialProvider } from "./social-provider";
 import { xAdapter, youtubeAdapter } from "./social-x-youtube";
 import { instagramAdapter, tiktokAdapter } from "./social-instagram-tiktok";
 import type { Connection, ProviderSecret } from "./types";
+
+// Background credential refresh does not need Next's request-cookie API.
+// Cache the module, never a request's cookie jar.
+let cookieApi: Promise<typeof import("next/headers")> | undefined;
+async function cookies() { return (await (cookieApi ??= import("next/headers"))).cookies(); }
 
 const adapters: Record<SocialProvider, SocialAdapter> = { x: xAdapter, youtube: youtubeAdapter, instagram: instagramAdapter, tiktok: tiktokAdapter };
 const secure = () => process.env.NODE_ENV === "production" || !!process.env.VERCEL;
