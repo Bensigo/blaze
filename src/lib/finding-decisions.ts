@@ -20,6 +20,17 @@ export async function upsertResearchFinding(workspace: string, finding: Finding,
 }
 
 type Decision = { status: Finding['status']; note?: string; deferredUntil?: string };
+/** Change the note independently of concurrent status and research updates. */
+export async function saveFindingNote(workspace: string, id: string, note: string, now = new Date(), gameId?: string): Promise<Finding> {
+  if (typeof note !== 'string' || note.length > 500) throw new HttpError(400, 'Decision note must be at most 500 characters.');
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) throw new HttpError(400, 'Invalid decision time.');
+  const trimmed = note.trim();
+  const patch = { updatedAt: now.toISOString(), ...(trimmed ? { decisionNote: trimmed } : {}) };
+  const rows = await query<{ body: Finding }>(`UPDATE records SET body=(body - 'decisionNote') || $3::jsonb, updated_at=now()
+    WHERE workspace_id=$1 AND kind='finding' AND id=$2 AND ($4::text IS NULL OR body->>'gameId'=$4) RETURNING body`, [workspace, id, JSON.stringify(patch), gameId ?? null]);
+  if (!rows.length) throw new HttpError(404, 'Finding not found.');
+  return rows[0].body;
+}
 /** Patch only decision fields so concurrent research cannot erase an owner decision. */
 export async function setFindingDecision(workspace: string, id: string, decision: Decision, now = new Date()): Promise<Finding> {
   if (!decision || !statuses.has(decision.status)) throw new HttpError(400, 'Invalid finding status.');
