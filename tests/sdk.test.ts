@@ -89,6 +89,17 @@ function harness(agent = false) {
   };
 }
 describe("SDK privacy and consent", () => {
+  it("marks all test-session events only after consent and keeps test sessions separate", () => {
+    const h = harness();
+    h.sdk.init({endpoint:"https://marketing.example",sdkKey:"key",test:true});
+    h.sdk.track("round_start"); expect(h.requests).toHaveLength(0);
+    h.sdk.setConsent(true); h.sdk.track("round_start"); h.sdk.track("ui_click",{key:"start"});
+    expect(h.requests.every(r=>r.events[0].properties.test===true)).toBe(true);
+    const testSession=h.requests[0].events[0].sessionId;
+    h.sdk.init({endpoint:"https://marketing.example",sdkKey:"key",consent:true});
+    const normal=h.requests.at(-1).events[0]; expect(normal.sessionId).not.toBe(testSession); expect(normal.properties.test).toBeUndefined();
+    expect(()=>h.sdk.init({endpoint:"https://marketing.example",sdkKey:"key",test:"true"})).toThrow("test must be a boolean");
+  });
   it("exposes Blaze and the legacy name as one API and preserves identity storage keys", () => {
     const h = harness();
     expect(h.sdk).toBe(h.legacy);

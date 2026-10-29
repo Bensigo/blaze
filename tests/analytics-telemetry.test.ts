@@ -160,6 +160,26 @@ describe("persistent origin-scoped ingestion", () => {
     expect(rows[0].properties).not.toHaveProperty("message");
     expect(rows[0].properties).not.toHaveProperty("code");
   });
+  it("preserves only boolean test=true across event types without changing synthetic identity", async () => {
+    const sessionId="test-session-1";
+    for (const [i,extra] of [
+      {name:"round_start",properties:{test:true,secret:"private"}},
+      {name:"pointer",properties:{test:true,x:0.2,y:0.3,surface:"game",screen:"main"}},
+      {name:"ui_click",properties:{test:true,key:"start"}},
+      {name:"retry",properties:{test:"true"}},
+    ].entries()) {
+      expect(await (await ingest(req("https://play.example",`test-marker-${i}`,{...extra,sessionId}))).json()).toEqual({accepted:1});
+    }
+    const rows=await db.query<{name:string;kind:string;properties:Record<string,unknown>}>("SELECT name,kind,properties FROM events WHERE session_id=$1 ORDER BY name",[sessionId]);
+    expect(rows.filter(r=>r.name!=="retry").every(r=>r.kind==="human" && r.properties.test===true)).toBe(true);
+    expect(rows.find(r=>r.name==="retry")?.properties).not.toHaveProperty("test");
+    expect(JSON.stringify(rows)).not.toContain("private");
+    const {sqlMostPlayedGames}=await import('../src/lib/analytics-sql');
+    expect(await sqlMostPlayedGames('workspace-a',game.id,14,Date.now()+1000)).toEqual([]);
+    await ingest(req("", "test-synthetic-1",{properties:{test:true},kind:"human"}),{workspace:"workspace-a",game,recordingId:"rec_test_marker"});
+    const agent=await db.query<{kind:string;properties:Record<string,unknown>}>("SELECT kind,properties FROM events WHERE session_id='rec_test_marker'");
+    expect(agent).toEqual([{kind:"agent",properties:{test:true}}]);
+  });
   it("accepts synthetic data only through its server-assigned identity", async () => {
     expect(
       await (
@@ -174,7 +194,7 @@ describe("persistent origin-scoped ingestion", () => {
       session_id: string;
       player_id: string;
       kind: string;
-    }>("SELECT session_id,player_id,kind FROM events WHERE kind='agent'");
+    }>("SELECT session_id,player_id,kind FROM events WHERE kind='agent' AND session_id='rec_server_identity'");
     expect(r[0]).toEqual({
       session_id: "rec_server_identity",
       player_id: "rec_server_identity",

@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { get, id, list, query } from "./db";
 import { HttpError } from "./http-error";
+import { requireXFeedbackBudget } from "./x-feedback-policy";
 import type { Identity } from "./auth";
 import { constantEqual, decrypt, encrypt, hash } from "./security";
 import { appOrigin, canonicalRequestUrl } from "./app-origin";
 import { isSocialProvider, socialProviders, type SocialAdapter, type SocialGrant, type SocialProvider } from "./social-provider";
-import { xAdapter, youtubeAdapter } from "./social-x-youtube";
+import { xAdapter, xFeedbackAdapter, youtubeAdapter } from "./social-x-youtube";
 import { instagramAdapter, tiktokAdapter } from "./social-instagram-tiktok";
 import type { Connection, ProviderSecret } from "./types";
 
@@ -14,7 +15,7 @@ import type { Connection, ProviderSecret } from "./types";
 let cookieApi: Promise<typeof import("next/headers")> | undefined;
 async function cookies() { return (await (cookieApi ??= import("next/headers"))).cookies(); }
 
-const adapters: Record<SocialProvider, SocialAdapter> = { x: xAdapter, youtube: youtubeAdapter, instagram: instagramAdapter, tiktok: tiktokAdapter };
+const adapters: Record<SocialProvider, SocialAdapter> = { x: xAdapter, x_feedback: xFeedbackAdapter, youtube: youtubeAdapter, instagram: instagramAdapter, tiktok: tiktokAdapter };
 const secure = () => process.env.NODE_ENV === "production" || !!process.env.VERCEL;
 const cookieName = (state: string) => `blaze_social_${hash(state).slice(0, 24)}`;
 type Pending = { id: string; userId: string; provider: SocialProvider; redirectUri: string; expiresAt: string; verifier: string; epoch: string; connectionId?: string; accountId?: string };
@@ -41,7 +42,7 @@ function safeConnection(current: Connection | undefined, adapter: SocialAdapter,
     id: current?.id || id("conn"), provider: adapter.provider, label: grant.accountName.slice(0, 200), accountName: grant.accountName.slice(0, 200), accountId: grant.accountId,
     authMethod: "oauth", connected: true, checkedAt: new Date().toISOString(), scopes: grant.scopes,
     expiresAt: grant.expiresAt ? new Date(grant.expiresAt).toISOString() : undefined, requiresReconnect: false,
-    details: "Identity and requested publishing permissions verified through official authorization. Platform publishing approval is checked separately.",
+    details: adapter.provider === "x_feedback" ? "Read-only identity and scopes verified; search entitlement and cost are not tested." : "Identity and requested publishing permissions verified through official authorization. Platform publishing approval is checked separately.",
   };
 }
 async function persistGrant(workspace: string, current: Connection | undefined, adapter: SocialAdapter, grant: SocialGrant) {
@@ -113,6 +114,7 @@ export async function refreshSocialConnection(workspace: string, connectionId: s
   return withConnectionLease(workspace, connectionId, async () => {
     const current = await get<Connection>(workspace, "connection", connectionId);
     if (!current || current.authMethod !== "oauth" || !current.connected) throw new HttpError(400, "Reconnect this account through its provider first.");
+    if (current.provider === "x_feedback") requireXFeedbackBudget();
     const secret = await rawSecret(workspace, connectionId);
     if (!secret) throw new HttpError(400, "Reconnect this account through its provider first.");
     if (automatic && (!current.expiresAt || new Date(current.expiresAt).getTime() > Date.now() + 300000)) return { connection: current, secret };

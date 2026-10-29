@@ -4,6 +4,7 @@ export type Provider =
   | "anthropic"
   | "openrouter"
   | "x"
+  | "x_feedback"
   | "reddit"
   | "brave"
   | "search_console"
@@ -66,6 +67,8 @@ export interface SessionCapture {
   cleanupPending?: boolean;
 }
 export interface Recording {
+  maxActions?: number;
+  maxDurationSeconds?: number;
   jevSelection?: { connectionId: string; model: string; settingsRevision: string; credentialVersion: string };
   id: string;
   gameId: string;
@@ -172,13 +175,18 @@ export interface Finding {
     recordingId?: string;
     at?: number;
   }[];
-  status: "open" | "in_progress" | "resolved";
+  status: "open" | "in_progress" | "deferred" | "dismissed" | "resolved";
+  deferredUntil?: string;
+  decisionNote?: string;
+  updatedAt?: string;
+  action?: { suggestion: string; reason: string; impactHypothesis: string; effort: "small" | "medium" | "large" | "unknown"; whyNow: string; checkMetric: string; observedAt?: string };
   createdAt: string;
   metric?: string;
   baseline?: number;
   resolvedAt?: string;
 }
 export interface ResearchRun {
+  ai?: { provider?: string; model?: string; phase: "configuration" | "history" | "inference" | "validation" | "complete"; status: "not_requested" | "preparing" | "running" | "succeeded" | "failed"; dispatches: number; responses: number; startedAt?: string; lastAttemptAt?: string; succeededAt?: string; errorCode?: string; httpStatus?: number };
   id: string;
   gameId: string;
   status: "running" | "complete" | "partial" | "failed";
@@ -249,6 +257,7 @@ export interface SessionSummary {
   captureId?: string;
 }
 export interface Analytics {
+  mostPlayedGames?: {gameId:string;browserIds:number;playedSessions:number;roundStarts:number;activeSeconds:number|null;measuredSessions:number}[];
   launch?: { visits: number; exits: number; coverage?: { sessions: number; visit: number; loaded: number; roundStart: number; firstAction: number; roundComplete: number; exit: number }; conversion: { source: string; campaign: string; visits: number; starts: number; meaningful: number; activeMeasured: number }[]; conversionTotal: number };
   windowEnd?: string;
   activePlay?: { totalSeconds: number | null; averageSeconds: number | null; medianSeconds: number | null; measuredSessions: number; eligibleSessions: number };

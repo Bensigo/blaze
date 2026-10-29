@@ -5,8 +5,12 @@ import { readProfile } from "./game-profile";
 import { hash } from "./security";
 import type { Clip, Connection, Game, Recording } from "./types";
 import type { MediaRecord } from "./media";
+import { recordingLimits } from "../../worker/recording-limits";
 
 const INTERVAL_MIN = 6, INTERVAL_MAX = 24;
+export const PAID_JEV_BLOCKED = "Paid Jev runs are blocked until an enforceable total spending cap and explicit paid-run approval are configured.";
+// No provider spending-cap mechanism or paid-run approval exists yet.
+export function paidJevAllowed(): boolean { return false; }
 type Config = { id: string; enabled: boolean; intervalHours: number };
 type Gate = { id: string; active?: string; lastQueuedAt?: string };
 const defaultConfig = (gameId: string): Config => ({ id: gameId, enabled: true, intervalHours: 24 });
@@ -30,6 +34,7 @@ export async function automationState(workspace: string, gameId: string) {
   // Historical saved verification only: current provider availability is checked on generation.
   const aiSecret = await resolveAISecret(workspace, false).catch(() => undefined);
   const reasons: string[] = [];
+  reasons.push(PAID_JEV_BLOCKED);
   if (!config.enabled) reasons.push("Automatic recording is paused.");
   if (!jevSecret?.token || !jevSecret.model) reasons.push("Connect and verify a Jev key.");
   if (!worker[0] || Date.now() - new Date(worker[0].updated_at).getTime() > 90000) reasons.push("A fresh browser worker heartbeat is required.");
@@ -52,8 +57,10 @@ export async function setAutomationConfig(workspace: string, gameId: string, pat
 
 // A gate is held until completion/lease failure. All newly queued recordings use it.
 export async function enqueueRecording(workspace: string, recording: Recording, scheduled = false, intervalHours = 24) {
+  recordingLimits(recording);
   if (intervalHours < INTERVAL_MIN || intervalHours > INTERVAL_MAX) throw new Error("Invalid recording interval");
   if (recording.mode === "jev") {
+    if (!paidJevAllowed()) throw new Error(PAID_JEV_BLOCKED);
     const secret = await secretFor(workspace, "jev");
     if (!secret?.token || typeof secret.model !== "string" || typeof secret.jevConnectionId !== "string" || typeof secret.jevSettingsRevision !== "string" || typeof secret.jevCredentialVersion !== "string") throw new Error("Configure Jev gameplay in Account settings before queueing.");
     recording.jevSelection = {connectionId: secret.jevConnectionId, model: secret.model, settingsRevision: secret.jevSettingsRevision, credentialVersion: secret.jevCredentialVersion};

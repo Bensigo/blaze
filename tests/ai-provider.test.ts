@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateText } from 'ai';
-import { aiModel } from '../src/lib/ai-provider';
+import { aiModel, type AIRequestEvent } from '../src/lib/ai-provider';
 
 afterEach(() => vi.unstubAllGlobals());
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -55,4 +55,57 @@ describe('aiModel', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls.every(([url]) => url === 'https://openrouter.ai/api/v1/chat/completions')).toBe(true);
   });
+  it('awaits the dispatch observer before fetch and records only safe response metadata', async () => {
+    const events: AIRequestEvent[] = [];
+    let release!: () => void;
+    const persisted = new Promise<void>(resolve => { release = resolve; });
+    const observer = vi.fn(async (event: AIRequestEvent) => { events.push(event); if (event.phase === 'dispatched') await persisted; });
+    const fetcher = vi.fn().mockResolvedValue(json(routerResponse)); vi.stubGlobal('fetch', fetcher);
+    const operation = generateText({ model: aiModel({ token: 'router-secret', model: 'test/example', aiProvider: 'openrouter' }, observer), prompt: 'private prompt', maxRetries: 0 });
+    await vi.waitFor(() => expect(observer).toHaveBeenCalledTimes(1));
+    expect(fetcher).not.toHaveBeenCalled();
+    release();
+    await operation;
+    expect(events.map(event => event.phase)).toEqual(['dispatched', 'responded']);
+    expect(events[1].httpStatus).toBe(200);
+    for (const event of events) expect(new Date(event.at).toISOString()).toBe(event.at);
+    expect(JSON.stringify(events)).not.toMatch(/secret|private prompt|completion|tokens/);
+  });
+  it('treats a successful HTTP response as a response even if SDK parsing later fails', async () => {
+    const events: AIRequestEvent[] = [];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ invalid: 'response' })));
+    const model = aiModel({ token: 'secret', model: 'test/example', aiProvider: 'openrouter' }, event => { events.push(event); });
+    await expect(generateText({ model, prompt: 'test', maxRetries: 0 })).rejects.toThrow();
+    expect(events.map(event => event.phase)).toEqual(['dispatched', 'responded']);
+  });
+  it('does not fetch when selection or dispatch persistence fails', async () => {
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+    const observer = vi.fn();
+    const selection = aiModel({ token: 'secret', model: 'test/example', aiProvider: 'openrouter', assertAISelection: async () => { throw new Error('secret'); } }, observer);
+    await expect(generateText({ model: selection, prompt: 'test', maxRetries: 0 })).rejects.toThrow();
+    expect(observer).toHaveBeenCalledOnce();
+    expect(observer.mock.calls[0][0]).toMatchObject({ phase: 'failed', errorCode: 'selection_changed' });
+    const failingObserver = vi.fn().mockRejectedValue(new Error('secret'));
+    const model = aiModel({ token: 'secret', model: 'test/example', aiProvider: 'openrouter' }, failingObserver);
+    await expect(generateText({ model, prompt: 'test', maxRetries: 0 })).rejects.toThrow();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it.each([[401, 'access_denied'], [403, 'access_denied'], [402, 'billing_required'], [429, 'rate_limited'], [503, 'provider_unavailable'], [400, 'request_failed']] as const)('records safe HTTP failure %i', async (status, errorCode) => {
+    const events: AIRequestEvent[] = [];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'secret provider body' }, status)));
+    const model = aiModel({ token: 'secret', model: 'test/example', aiProvider: 'openrouter' }, event => { events.push(event); });
+    await expect(generateText({ model, prompt: 'test', maxRetries: 0 })).rejects.toThrow();
+    expect(events.map(event => event.phase)).toEqual(['dispatched', 'failed']);
+    expect(events[1]).toMatchObject({ httpStatus: status, errorCode });
+    expect(JSON.stringify(events)).not.toContain('secret');
+  });
+  it('records a safe network failure', async () => {
+    const events: AIRequestEvent[] = [];
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('secret network detail')));
+    const model = aiModel({ token: 'secret', model: 'test/example', aiProvider: 'openrouter' }, event => { events.push(event); });
+    await expect(generateText({ model, prompt: 'test', maxRetries: 0 })).rejects.toThrow();
+    expect(events[1]).toMatchObject({ phase: 'failed', errorCode: 'provider_unavailable' });
+    expect(JSON.stringify(events)).not.toContain('secret');
+  });
+
 });

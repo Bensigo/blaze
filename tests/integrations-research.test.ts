@@ -120,11 +120,11 @@ describe("research evidence and source coverage", () => {
         reddit: { token: "r" },
       },
     });
-    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch.mock.calls.some(([url]) => String(url).startsWith("https://api.x.com"))).toBe(false);
     expect(result.coverage.map((x) => x.source)).toEqual(
       expect.arrayContaining([
-        "x title search",
-        "x genre search",
+        "X feedback",
         "reddit title search",
         "reddit genre search",
         "Web game discovery",

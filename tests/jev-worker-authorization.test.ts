@@ -14,4 +14,9 @@ describe('worker claim authorization',()=>{
     const response=await POST(new Request('http://localhost/api/worker/claim',{method:'POST',headers:{Authorization:'Bearer worker-token'}}));
     expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.json()).toEqual({jevKey:'mock-key',jevModel:'typesafe/jev-1.13'});
   });
+  it('passes the declared protocol only after bearer authorization',async()=>{
+    process.env.WORKER_TOKEN='worker-token'; claim.mockResolvedValue({});
+    await POST(new Request('http://localhost/api/worker/claim',{method:'POST',headers:{Authorization:'Bearer worker-token','X-Blaze-Worker-Protocol':'jev-actions-v1'}}));
+    expect(claim).toHaveBeenCalledWith('jev-actions-v1');
+  });
 });

@@ -6,13 +6,14 @@ import { verifyJevModel } from "./ai-settings";
 import { duePublications } from "./publishing";
 import { drainResearch } from "./research-jobs";
 import { drainProfile } from "./game-profile";
-import { enqueueRecording, releaseRecordingGate, tickAutomation } from "./game-automation";
+import { enqueueRecording, releaseRecordingGate, tickAutomation, PAID_JEV_BLOCKED, paidJevAllowed } from "./game-automation";
 import { mintSyntheticCapability } from "./synthetic-capability";
 import { drainContentAutomation } from "./content-automation";
+import { recordingLimits, workerProtocol, BOUNDED_WORKER_PROTOCOL } from "../../worker/recording-limits";
 export async function enqueue(
   workspace: string,
   kind: "recording" | "clip",
-  body: { id: string },
+  body: { id: string; maxActions?: number; maxDurationSeconds?: number },
 ) {
   if (kind === "recording" && "gameId" in body && typeof body.gameId === "string") {
     if (!await enqueueRecording(workspace, body as Recording)) throw new HttpError(409, "A recording is already active for this game.");
@@ -38,13 +39,16 @@ export async function activeJob(jobId: string) {
     throw new HttpError(409, "Worker lease expired or job is not active.");
   return row;
 }
-export async function workerHeartbeat() {
+export async function workerHeartbeat(protocol?: string | null) {
+  const normalized = workerProtocol(protocol);
   await query(
-    `INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES('worker-runtime','system','worker_heartbeat','active','{}') ON CONFLICT(id) DO UPDATE SET updated_at=now()`,
+    `INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES('worker-runtime','system','worker_heartbeat','active',$1::jsonb) ON CONFLICT(id) DO UPDATE SET body=excluded.body,updated_at=now()`,
+    [JSON.stringify({ protocol: normalized, supportsBoundedRecording: normalized === BOUNDED_WORKER_PROTOCOL })],
   );
 }
-export async function claimJob() {
-  await workerHeartbeat();
+export async function claimJob(protocol?: string | null) {
+  const supportsLimits = workerProtocol(protocol) === BOUNDED_WORKER_PROTOCOL;
+  await workerHeartbeat(protocol);
   const stale = await query<{ id: string; workspace_id: string; kind: string }>(
     `UPDATE jobs SET state='failed',updated_at=now() WHERE kind IN ('recording','clip') AND state='claimed' AND lease_until<now() RETURNING id,workspace_id,kind`,
   );
@@ -73,8 +77,10 @@ export async function claimJob() {
     id: string;
     workspace_id: string;
     kind: "recording" | "clip";
+    body: unknown;
   }>(
-    `UPDATE jobs SET state='claimed',lease_until=now()+interval '2 minutes',updated_at=now() WHERE id=(SELECT id FROM jobs WHERE state='queued' AND kind IN ('recording','clip') AND available_at<=now() ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,workspace_id,kind`,
+    `UPDATE jobs SET state='claimed',lease_until=now()+interval '2 minutes',updated_at=now() WHERE id=(SELECT id FROM jobs WHERE state='queued' AND kind IN ('recording','clip') AND available_at<=now() AND ($1::boolean OR kind='clip' OR ((body->'maxActions' IS NULL OR body->'maxActions'='30'::jsonb) AND (body->'maxDurationSeconds' IS NULL OR body->'maxDurationSeconds'='30'::jsonb))) ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,workspace_id,kind,body`,
+    [supportsLimits],
   );
   const row = rows[0];
   if (!row) {
@@ -97,6 +103,24 @@ export async function claimJob() {
       status: "recording",
       heartbeatAt: new Date().toISOString(),
     });
+    let limits: ReturnType<typeof recordingLimits>;
+    try {
+      limits = recordingLimits(recording);
+      const queued = recordingLimits(row.body);
+      if (limits.maxActions !== queued.maxActions || limits.maxDurationSeconds !== queued.maxDurationSeconds) throw new Error("Recording limits changed.");
+    }
+    catch {
+      await put(row.workspace_id, "recording", {...recording, status: "failed", error: "Invalid recording limits. Queue a new run."});
+      await query("UPDATE jobs SET state='failed',updated_at=now() WHERE id=$1 AND state='claimed'", [row.id]);
+      await releaseRecordingGate(row.workspace_id, recording.gameId, recording.id);
+      return {};
+    }
+    if (recording.mode === "jev" && !paidJevAllowed()) {
+      await put(row.workspace_id, "recording", {...recording,status:"failed",error:PAID_JEV_BLOCKED});
+      await query("UPDATE jobs SET state='failed',updated_at=now() WHERE id=$1 AND state='claimed'",[row.id]);
+      await releaseRecordingGate(row.workspace_id,recording.gameId,recording.id);
+      return {};
+    }
     const secret = recording.mode === "jev" ? await secretFor(row.workspace_id, "jev") : undefined;
     if (recording.mode === "jev") {
       try {
@@ -118,6 +142,7 @@ export async function claimJob() {
     const syntheticCapability = recording.mode === "fixture" ? undefined : await mintSyntheticCapability(row.workspace_id, recording.id, game.id, game.url);
     return {
       recording,
+      limits,
       game,
       jevKey: recording.mode === "jev" ? secret?.token : undefined,
       jevModel: recording.mode === "jev" ? secret?.model : undefined,
@@ -136,9 +161,9 @@ export async function claimJob() {
     game: await get<Game>(row.workspace_id, "game", clip.gameId),
   };
 }
-export async function heartbeat(jobId: string) {
+export async function heartbeat(jobId: string, protocol?: string | null) {
   const job = await activeJob(jobId);
-  await workerHeartbeat();
+  await workerHeartbeat(protocol);
   await query(
     `UPDATE jobs SET lease_until=now()+interval '2 minutes',updated_at=now() WHERE id=$1 AND state='claimed'`,
     [jobId],

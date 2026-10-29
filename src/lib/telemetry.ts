@@ -183,7 +183,7 @@ export async function ingest(
       source: source.slice(0, 100),
       campaign: e.campaign || "",
       page: safePage(e.page),
-      properties: semantic || pointer || properties(e.properties),
+      properties: { ...(semantic || pointer || properties(e.properties)), ...(e.properties.test === true ? { test: true } : {}) },
     });
   }
   if (!rows.length) return Response.json({ accepted: 0 }, { headers: cors });

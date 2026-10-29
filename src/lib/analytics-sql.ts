@@ -93,10 +93,30 @@ export async function querySessionPage(workspace:string,gameId:string|undefined,
  return {sessions:await addCaptureStatus(workspace,shown.map(session)),total,limit,nextCursor};
 }
 
+export async function sqlMostPlayedGames(workspace:string,gameId:string|undefined,days:number,now:number) {
+ const rows = await query<{game_id:string;browser_ids:number;played_sessions:number;round_starts:number;active_seconds:string|number|null;measured_sessions:number}>(`${sessionsCte},
+ excluded_sessions AS (
+   SELECT DISTINCT game_id,session_id FROM window_events WHERE kind='agent'
+     OR properties->'test'='true'::jsonb OR properties->'fixture'='true'::jsonb
+     OR properties->'isTest'='true'::jsonb OR properties->'isFixture'='true'::jsonb
+     OR properties->>'traffic' IN ('test','fixture')
+ ), played AS (
+   SELECT s.* FROM sessions s JOIN records g ON g.workspace_id=$1 AND g.kind='game' AND g.id=s.game_id
+   WHERE s.started AND NOT EXISTS (SELECT 1 FROM excluded_sessions x WHERE x.game_id=s.game_id AND x.session_id=s.session_id)
+     AND coalesce(g.body->>'metadataStatus','') <> 'Controlled fixture manifest'
+     AND coalesce(g.body->>'url','') !~* '(^|/)fixture/index[.]html/?([?#]|$)'
+ )
+ SELECT game_id,count(DISTINCT player_id)::int browser_ids,count(*)::int played_sessions,
+   sum(coalesce(array_length(array_positions(names,'round_start'),1),0))::int round_starts,
+   sum(active_seconds) active_seconds,count(active_seconds)::int measured_sessions
+ FROM played GROUP BY game_id ORDER BY browser_ids DESC,played_sessions DESC,round_starts DESC,game_id COLLATE "C" ASC`,windowParams(workspace,gameId,days,now));
+ return rows.map(r=>({gameId:r.game_id,browserIds:Number(r.browser_ids),playedSessions:Number(r.played_sessions),roundStarts:Number(r.round_starts),activeSeconds:r.active_seconds===null?null:Number(r.active_seconds),measuredSessions:Number(r.measured_sessions)}));
+}
+
 export async function sqlAnalytics(workspace:string,gameId?:string,days=14,now=Date.now()):Promise<Analytics> {
  const params=windowParams(workspace,gameId,days,now);
  const startDay=new Date(now-(days-1)*86400000).toISOString().slice(0,10);
- const [result,page]=await Promise.all([
+ const [result,page,mostPlayedGames]=await Promise.all([
  query<{data: Analytics & {coverage:Record<string,{shown:number;total:number}>}}>(`${sessionsCte},
  cohort AS (
  SELECT f.*, EXISTS(SELECT 1 FROM events e WHERE e.workspace_id=f.workspace_id AND e.game_id=f.game_id AND e.player_id=f.player_id AND e.kind='human' AND e.name='visit' AND e.session_id<>f.first_session_id AND e.occurred_at>=f.first_at+interval '24 hours' AND e.occurred_at<f.first_at+interval '48 hours' AND e.occurred_at<=$4::timestamptz AND e.received_at<=$4::timestamptz) came_back
@@ -131,10 +151,10 @@ export async function sqlAnalytics(workspace:string,gameId?:string,days=14,now=D
  'retention',(SELECT coalesce(jsonb_agg(jsonb_build_object('date',to_char(d.day_date,'YYYY-MM-DD'),'players',coalesce(c.players,0),'eligible',coalesce(c.eligible,0),'returned',coalesce(c.returned,0),'rate',CASE WHEN c.eligible>0 THEN c.returned::numeric/c.eligible ELSE NULL END) ORDER BY d.day_date),'[]'::jsonb) FROM trend_days d LEFT JOIN (SELECT (first_at AT TIME ZONE 'UTC')::date AS day_date,count(*) players,count(*) FILTER(WHERE first_at+interval '48 hours'<=$4::timestamptz) eligible,count(*) FILTER(WHERE first_at+interval '48 hours'<=$4::timestamptz AND came_back) returned FROM cohort GROUP BY 1) c ON c.day_date=d.day_date),
  'heatmap',coalesce((SELECT jsonb_agg(jsonb_build_object('gameId',game_id,'surface',surface,'screen',screen,'device',device,'bx',bx,'by',by,'x',bx/20.0+0.025,'y',by/20.0+0.025,'count',count)) FROM (SELECT * FROM heat ORDER BY game_id,surface,screen,device,bx,by LIMIT 4000) h),'[]'::jsonb),
  'coverage',jsonb_build_object('countries',jsonb_build_object('shown',least(50,(SELECT count(*) FROM country)),'total',(SELECT count(*) FROM country)),'sources',jsonb_build_object('shown',least(50,(SELECT count(*) FROM source)),'total',(SELECT count(*) FROM source)),'devices',jsonb_build_object('shown',least(50,(SELECT count(*) FROM device)),'total',(SELECT count(*) FROM device)),'dropoffs',jsonb_build_object('shown',least(50,(SELECT count(*) FROM dropoff)),'total',(SELECT count(*) FROM dropoff)),'campaigns',jsonb_build_object('shown',least(100,(SELECT count(*) FROM campaign)),'total',(SELECT count(*) FROM campaign)),'heatmap',jsonb_build_object('shown',least(4000,(SELECT count(*) FROM heat)),'total',(SELECT count(*) FROM heat)))
- ) data`,[...params,startDay,days]),querySessionPage(workspace,gameId,days,{now})]);
+ ) data`,[...params,startDay,days]),querySessionPage(workspace,gameId,days,{now}),sqlMostPlayedGames(workspace,gameId,days,now)]);
  const data=result[0].data;
  data.lastEventAt=data.lastEventAt?date(data.lastEventAt):null;
- return {...data,windowEnd:new Date(now).toISOString(),sessionsList:page.sessions,sessionPage:{total:page.total,limit:page.limit,nextCursor:page.nextCursor}} as Analytics;
+ return {...data,mostPlayedGames,windowEnd:new Date(now).toISOString(),sessionsList:page.sessions,sessionPage:{total:page.total,limit:page.limit,nextCursor:page.nextCursor}} as Analytics;
 }
 
 export type InvestigationFilter =

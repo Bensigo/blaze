@@ -126,6 +126,8 @@ export async function loadAgentHistory(workspace: string, gameId: string) {
         detail: safe(f.detail).slice(0, 600),
         type: f.type,
         status: f.status,
+        ...(f.deferredUntil ? {deferredUntil:f.deferredUntil} : {}),
+        ...(f.decisionNote ? {decisionNote:safeProfileText(f.decisionNote,300)} : {}),
         evidence: f.evidence
           .filter(
             (e) =>

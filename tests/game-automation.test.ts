@@ -21,7 +21,7 @@ describe("automatic Jev recording and clip candidates", () => {
   it("requires verified same-game model decisions, provider, worker, and investigated profile", async () => {
     await ready();
     let result = await automation.automationState("ws", game.id);
-    expect(result.ready).toBe(true); expect(result.adapterVerified).toBe(true); expect(result.draftReady).toBe(false);
+    expect(result.ready).toBe(false); expect(result.reasons.join(" ")).toContain("Paid Jev runs are blocked"); expect(result.adapterVerified).toBe(true); expect(result.draftReady).toBe(false);
     await db.put("ws", "recording", { ...rec, observations: [{ at: 1, text: "Observed 1 actions and 0 Jev model decisions.", type: "observation" }] });
     await db.put("ws", "recording", { ...rec, id: "fixture", mode: "fixture", videoUrl: "/api/media/media_real" });
     result = await automation.automationState("ws", game.id);
@@ -34,10 +34,13 @@ describe("automatic Jev recording and clip candidates", () => {
   });
   it("queues only one recording across repeated or simultaneous ticks and enforces the interval", async () => {
     await ready();
-    const results = await Promise.all([automation.queueScheduledRecording("ws", game), automation.queueScheduledRecording("ws", game)]);
-    expect(results.filter(r => r.queued)).toHaveLength(1);
+    const scheduled = await automation.queueScheduledRecording("ws", game);
+    expect(scheduled.queued).toBe(false);
+    const fixture = { ...rec, id:"fixture-queued", mode:"fixture" as const, status:"queued" as const };
+    const results = await Promise.all([automation.enqueueRecording("ws", fixture), automation.enqueueRecording("ws", {...fixture,id:"fixture-queued-2"})]);
+    expect(results.filter(Boolean)).toHaveLength(1);
     expect(await db.query("SELECT id FROM jobs WHERE kind='recording' AND state='queued'")).toHaveLength(1);
-    const manual = { ...rec, id: "manual-new", status: "queued" as const };
+    const manual = { ...rec, id: "manual-new", mode: "fixture" as const, status: "queued" as const };
     await expect(jobs.enqueue("ws", "recording", manual)).rejects.toThrow("already active");
     const active = (await automation.automationState("ws", game.id)).activeRecordingId!;
     await db.query("UPDATE jobs SET state='complete' WHERE id=$1", [active]);
