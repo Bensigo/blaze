@@ -52,8 +52,11 @@ it("remote Playwright records a game using the validating proxy, CDN and WSS", a
     const output = join(dir, "remote-saved.webm"); await video!.saveAs(output);
     expect(statSync(output).size).toBeGreaterThan(500);
   } finally {
-    await browser.close().catch(() => {}); await server.close().catch(() => {}); guard.stop();
+    // Video is saved above; terminate only the browser server launched by this test.
+    // Graceful server.close() can take long enough to time out after remote disconnect.
+    await browser.close().catch(() => {}); await server.kill().catch(() => {}); guard.stop();
     await Promise.all([new Promise<void>(r => guard.proxy.close(() => r())), new Promise<void>(r => guard.control.close(() => r())), new Promise<void>(r => site.close(() => r()))]);
     rmSync(dir, { recursive: true, force: true });
+    expect(server.process().exitCode !== null || server.process().signalCode !== null).toBe(true);
   }
 }, 30000);

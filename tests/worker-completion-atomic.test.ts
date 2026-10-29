@@ -1,0 +1,27 @@
+import { beforeAll, afterAll, expect, it } from 'vitest';
+import * as db from '../src/lib/db';
+import { gameplayFindings } from '../src/lib/gameplay-evidence';
+import type { Recording } from '../src/lib/types';
+let POST: typeof import('../src/app/api/worker/complete/route')['POST'];
+const rec:Recording={id:'rec_atomic',gameId:'game_atomic',title:'Run',mode:'fixture',status:'recording',createdAt:'2026-10-01T00:00:00Z'};
+const observation={at:0,type:'observation' as const,text:'Trace v1: fixture selected left; phase ready -> playing.'};
+const completion={recordingId:rec.id,status:'failed',duration:2,error:'adapter_failed',actions:[{at:1,id:'left'}],observations:[observation]};
+const request=()=>new Request('http://localhost/api/worker/complete',{method:'POST',headers:{Authorization:'Bearer atomic-token','Content-Type':'application/json'},body:JSON.stringify(completion)});
+beforeAll(async()=>{delete process.env.DATABASE_URL;delete process.env.VERCEL;process.env.LOCAL_DATABASE_PATH='memory://';process.env.WORKER_TOKEN='atomic-token';({POST}=await import('../src/app/api/worker/complete/route'));await db.put('ws','game',{id:rec.gameId});await db.put('ws','recording',rec);await db.put('ws','recording_gate',{id:rec.gameId,active:rec.id});await db.query("INSERT INTO jobs(id,workspace_id,kind,state,body,lease_until) VALUES($1,'ws','recording','claimed','{}',now()+interval '2 minutes')",[rec.id]);});
+afterAll(async()=>{delete process.env.WORKER_TOKEN;await db.closeDatabase();});
+it('rolls back the entire completion if a finding insert fails, then safely retries without overwriting owner state',async()=>{
+ const findings=gameplayFindings({...rec,...completion,status:'failed'}); await db.put('ws','finding',{...findings[0],status:'resolved'});
+ await db.query("ALTER TABLE records ADD CONSTRAINT reject_test_finding CHECK (kind <> 'finding' OR id <> '"+findings[1].id+"')");
+ const failed=await POST(request());expect(failed.status).toBe(500);
+ expect((await db.get<Recording>('ws','recording',rec.id))?.status).toBe('recording');
+ expect((await db.query<{state:string}>('SELECT state FROM jobs WHERE id=$1',[rec.id]))[0].state).toBe('claimed');
+ expect((await db.get<{id:string;active:string}>('ws','recording_gate',rec.gameId))?.active).toBe(rec.id);
+ await db.query('ALTER TABLE records DROP CONSTRAINT reject_test_finding');
+ expect((await POST(request())).status).toBe(200);
+ expect((await db.get<Recording>('ws','recording',rec.id))?.status).toBe('failed');
+ expect((await db.query<{state:string}>('SELECT state FROM jobs WHERE id=$1',[rec.id]))[0].state).toBe('failed');
+ expect((await db.get<{id:string;active?:string}>('ws','recording_gate',rec.gameId))?.active).toBeUndefined();
+ expect((await db.get<{id:string;status:string}>('ws','finding',findings[0].id))?.status).toBe('resolved');
+ expect(await db.get('ws','finding',findings[1].id)).toBeDefined();
+ expect((await POST(request())).status).toBe(409);
+});

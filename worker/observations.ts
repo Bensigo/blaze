@@ -57,6 +57,7 @@ export class RunEvidence {
   private models = 0;
   private completed = false;
   private capturedDuration?: number;
+  private pending?: { at: number; source: string; id: string; before: string };
   constructor(start = Date.now()) {
     this.start = start;
   }
@@ -74,6 +75,7 @@ export class RunEvidence {
   }
   state(value: unknown, serialized: string) {
     const phase = safePhase((value as { phase?: unknown } | null)?.phase);
+    if (this.pending) this.trace(phase);
     if (phase !== this.lastPhase) {
       this.add({
         at: this.now(),
@@ -87,6 +89,15 @@ export class RunEvidence {
     if (this.sameState >= 8) this.stuck = true;
     if (phase === "won" || phase === "complete" || phase === "completed")
       this.completed = true;
+  }
+  decision(source: "jev" | "forced" | "fixture", id: string, before: string) {
+    this.pending = { at: this.now(), source, id, before: safePhase(before) };
+  }
+  private trace(result: string) {
+    if (!this.pending) return;
+    const p = this.pending;
+    this.add({ at: p.at, type: "observation", text: `Trace v1: ${p.source} selected ${p.id}; phase ${p.before} -> ${result}.` });
+    this.pending = undefined;
   }
   action() {
     this.actionCount++;
@@ -118,6 +129,7 @@ export class RunEvidence {
     screenshotAt?: number;
     failure?: string;
   }): Observation[] {
+    this.trace(options.failure ? "action_or_run_failed" : "result_unobserved");
     const at = this.now(),
       items = this.items.map(item => ({ ...item, at: Math.min(item.at, at) }));
     items.push({

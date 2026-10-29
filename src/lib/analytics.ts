@@ -1,6 +1,6 @@
 import { sqlAnalytics } from "./analytics-sql";
 export { querySessionPage } from "./analytics-sql";
-import type { Analytics, SessionSummary } from "./types";
+import type { Analytics, SessionSummary, Game } from "./types";
 export interface EventRow {
   id: string;
   game_id: string;
@@ -9,6 +9,7 @@ export interface EventRow {
   kind: "human" | "agent";
   name: string;
   occurred_at: string | Date;
+  received_at?: string | Date;
   country: string;
   device: string;
   source: string;
@@ -18,6 +19,36 @@ export interface EventRow {
 }
 const date = (x: string | Date) => new Date(x).toISOString();
 const day = (x: string | Date) => date(x).slice(0, 10);
+/** Caller supplies only events and games owned by one workspace. */
+export function summarizeMostPlayed(events: EventRow[], games: Game[], days = 14, now = Date.now(), gameId?: string) {
+  if (!Number.isInteger(days) || days < 1 || days > 90 || !Number.isFinite(now)) throw new Error("Invalid analytics window");
+  const eligible = new Set(games.filter(g => (!gameId || g.id === gameId) && g.metadataStatus !== "Controlled fixture manifest" && !/(^|\/)fixture\/index[.]html\/?([?#]|$)/i.test(g.url)).map(g => g.id));
+  const groups = new Map<string, EventRow[]>();
+  for (const e of events) {
+    const at = new Date(e.occurred_at).getTime(), received = e.received_at === undefined ? at : new Date(e.received_at).getTime();
+    if (!eligible.has(e.game_id) || !Number.isFinite(at) || !Number.isFinite(received) || at < now-days*86400000 || at > now || received > now) continue;
+    const key = JSON.stringify([e.game_id,e.session_id]), group = groups.get(key) || [];
+    group.push(e); groups.set(key,group);
+  }
+  const byGame = new Map<string,{gameId:string; ids:Set<string>; playedSessions:number; roundStarts:number; activeSeconds:number|null; measuredSessions:number}>();
+  for (const group of groups.values()) {
+    if (group.some(e=>e.kind==='agent' || e.properties.test===true || e.properties.fixture===true || e.properties.isTest===true || e.properties.isFixture===true || e.properties.traffic==='test' || e.properties.traffic==='fixture')) continue;
+    const human=group.filter(e=>e.kind==='human').sort((a,b)=>new Date(a.occurred_at).getTime()-new Date(b.occurred_at).getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const starts=human.filter(e=>e.name==='round_start').length;
+    if (!starts) continue;
+    const game=human[0].game_id, row=byGame.get(game) || {gameId:game,ids:new Set<string>(),playedSessions:0,roundStarts:0,activeSeconds:null,measuredSessions:0};
+    row.ids.add(human[0].player_id); row.playedSessions++; row.roundStarts+=starts;
+    let active: number | null = null, running=false;
+    for (const e of human) {
+      if (e.name==='round_start') running=true;
+      else if (e.name==='round_complete' || e.name==='exit') running=false;
+      else if (e.name==='active_play' && running && typeof e.properties.duration==='number' && Number.isFinite(e.properties.duration)) active=(active??0)+Math.max(0,Math.min(15,e.properties.duration));
+    }
+    if (active!==null) {row.activeSeconds=(row.activeSeconds??0)+active;row.measuredSessions++;}
+    byGame.set(game,row);
+  }
+  return [...byGame.values()].map(({ids,...row})=>({...row,browserIds:ids.size})).sort((a,b)=>b.browserIds-a.browserIds||b.playedSessions-a.playedSessions||b.roundStarts-a.roundStarts||(a.gameId<b.gameId?-1:a.gameId>b.gameId?1:0));
+}
 const countBy = (items: string[]) =>
   Object.entries(
     items.reduce<Record<string, number>>((a, k) => {
@@ -33,6 +64,7 @@ export function summarize(
   days = 14,
   now = Date.now(),
   firstSessions?: Map<string, string>,
+  games: Game[] = [],
 ): Analytics {
   const originalSession =
     firstSessions ||
@@ -230,6 +262,7 @@ export function summarize(
   }
   const conversionRows = [...conversion.values()].sort((a,b) => b.visits - a.visits || a.source.localeCompare(b.source) || a.campaign.localeCompare(b.campaign));
   return {
+    mostPlayedGames: summarizeMostPlayed(events,games,days,now),
     launch: { coverage: { sessions: sessions.length, visit: sessions.filter(s=>groups.get(`${s.gameId}:${s.id}`)!.some(e=>e.name === "visit")).length, loaded: sessions.filter(s=>groups.get(`${s.gameId}:${s.id}`)!.some(e=>e.name === "loaded")).length, roundStart: sessions.filter(s=>groups.get(`${s.gameId}:${s.id}`)!.some(e=>e.name === "round_start")).length, firstAction: sessions.filter(s=>groups.get(`${s.gameId}:${s.id}`)!.some(e=>e.name === "first_action")).length, roundComplete: sessions.filter(s=>s.completed).length, exit: sessions.filter(s=>groups.get(`${s.gameId}:${s.id}`)!.some(e=>e.name === "exit")).length }, visits: conversionRows.reduce((n,r)=>n+r.visits,0), exits: sessions.filter(s=>groups.get(`${s.gameId}:${s.id}`)!.some(e=>e.name === "exit")).length, conversion: conversionRows.slice(0,100), conversionTotal: conversionRows.length },
     windowEnd: new Date(now).toISOString(),
     loadedSessions: sessions.filter((s) => groups.get(`${s.gameId}:${s.id}`)!.some((e) => e.name === "loaded")).length,

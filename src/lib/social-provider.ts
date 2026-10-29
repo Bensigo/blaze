@@ -1,6 +1,6 @@
 import type { ProviderSecret } from "./types";
 
-export const socialProviders = ["x", "youtube", "instagram", "tiktok"] as const;
+export const socialProviders = ["x", "x_feedback", "youtube", "instagram", "tiktok"] as const;
 export type SocialProvider = (typeof socialProviders)[number];
 export interface SocialGrant {
   secret: ProviderSecret;

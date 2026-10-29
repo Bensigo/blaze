@@ -14,21 +14,21 @@ beforeAll(async()=>{delete process.env.DATABASE_URL; delete process.env.VERCEL; 
 beforeEach(async()=>{state.connected=true;state.fail=false;await db.query('DELETE FROM records');await db.query('DELETE FROM daily_runs');});
 it('retains baseline and reports disconnected and offline AI',async()=>{
   state.connected=false;
-  const missing=await researchJob('ws',game,'2026-01-01');
+  const missing=await researchJob('ws',game,'2026-01-01',{allowAI:true});
   expect(missing).toMatchObject({status:'partial'});
   expect('coverage' in missing && missing.coverage).toEqual(expect.arrayContaining([expect.objectContaining({source:'AI research agent',status:'disconnected'}),expect.objectContaining({source:'fixture',status:'complete'})]));
   state.connected=true;state.fail=true;
-  const failed=await researchJob('ws',game,'2026-01-02');
+  const failed=await researchJob('ws',game,'2026-01-02',{allowAI:true});
   expect('coverage' in failed && failed.coverage).toEqual(expect.arrayContaining([expect.objectContaining({source:'AI research agent',status:'failed'}),expect.objectContaining({source:'fixture',status:'complete'})]));
 });
 it('keeps different topics separate and retains resolved human content on repeat',async()=>{
-  const first=await researchJob('ws',game,'2026-01-01');
+  const first=await researchJob('ws',game,'2026-01-01',{allowAI:true});
   expect('findings' in first && first.findings).toHaveLength(2);
   const all=await db.list<{id:string;status:string;title:string;detail:string}>('ws','finding');
   expect(all).toHaveLength(2);
   const resolved={...all[0],status:'resolved',title:'Human decision',detail:'Owner reviewed this',resolvedAt:'2026-01-01'};
   await db.put('ws','finding',resolved);
-  await researchJob('ws',game,'2026-01-02');
+  await researchJob('ws',game,'2026-01-02',{allowAI:true});
   expect(await db.get('ws','finding',resolved.id)).toEqual(resolved);
   expect(await db.list('ws','finding')).toHaveLength(2);
 });

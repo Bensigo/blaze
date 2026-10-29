@@ -23,7 +23,7 @@ if (
   !["127.0.0.1", "localhost"].includes(app.hostname)
 )
   throw new Error("APP_URL must use HTTPS except localhost");
-const headers = { Authorization: `Bearer ${token}` };
+const headers = { Authorization: `Bearer ${token}`, "X-Blaze-Worker-Protocol": BOUNDED_WORKER_PROTOCOL };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function api(path: string, body?: unknown) {
   const response = await fetch(new URL(path, app), {
@@ -115,6 +115,7 @@ async function upload(
   return result.url as string;
 }
 import { choose } from "./jev-decision";
+import { recordingLimits, RecordingBudget, BOUNDED_WORKER_PROTOCOL } from "./recording-limits";
 type Action = { id: string; label: string };
 function fixtureChoice(state: unknown, actions: Action[]): string {
   const s = state as { phase?: string; player?: number; star?: number };
@@ -147,6 +148,9 @@ class ReportedFailure extends Error {}
 async function runRecording(job: any) {
   const { recording, game, jevKey, jevModel } = job;
   if (!recording?.id || !game?.url) throw new Error("Invalid recording claim");
+  const limits = recordingLimits(recording);
+  const claimedLimits = recordingLimits(job.limits);
+  if (limits.maxActions !== claimedLimits.maxActions || limits.maxDurationSeconds !== claimedLimits.maxDurationSeconds) throw new Error("Recording limits changed after claim");
   if (recording.mode === "jev" && (!jevKey || !["typesafe/jev-1.13", "typesafe/jev-1.14"].includes(jevModel)))
     throw new Error("Jev key not configured");
   const safe = await validateGameUrl(
@@ -231,7 +235,10 @@ async function runRecording(job: any) {
     );
     await event("visit");
     await event("loaded");
-    for (let i = 0; i < 30 && Date.now() - started < 30000; i++) {
+    const budget = new RecordingBudget(limits, started);
+    const remaining = () => budget.remaining();
+    // Read one final state after the last action, without issuing another decision.
+    for (let i = 0; budget.canObserve(); i++) {
       if (!leaseValid) throw new Error("Worker lease heartbeat failed");
       const raw = await bounded(
         page.evaluate(async () => {
@@ -253,7 +260,7 @@ async function runRecording(job: any) {
             })),
           };
         }),
-        5000,
+        Math.max(1, Math.min(5000, remaining())),
       );
       const snap = {
         state: JSON.parse(raw.state) as unknown,
@@ -265,23 +272,27 @@ async function runRecording(job: any) {
         await event("round_complete", { result: String(phase) });
         break;
       }
+      if (!budget.canAct()) break;
       const needsJev = recording.mode === "jev" && actions.length > 1;
       const selected =
         recording.mode === "fixture"
           ? fixtureChoice(snap.state, actions)
           : needsJev
-            ? await choose(snap.state, actions, jevKey, jevModel)
+            ? await choose(snap.state, actions, jevKey, jevModel, Math.max(1, remaining()))
             : actions[0].id;
       if (needsJev) evidence.modelDecision();
       if (!leaseValid) throw new Error("Worker lease heartbeat failed");
+      if (remaining() <= 0) break;
+      evidence.decision(recording.mode === "fixture" ? "fixture" : needsJev ? "jev" : "forced", selected, phase);
       await bounded(
         page.evaluate(async (id) => {
           await ((window as any).BlazeGameAdapter || (window as any).gameMarketingAdapter).act(id);
         }, selected),
-        5000,
+        Math.max(1, Math.min(5000, remaining())),
       );
       actionsLog.push({ at: evidence.now(), id: selected });
       evidence.action();
+      budget.acted();
       if (!i) {
         await event("first_action");
         await event("round_start");
@@ -290,7 +301,7 @@ async function runRecording(job: any) {
         await event("progression", { step: "phase_change" });
         lastPhase = phase;
       }
-      await sleep(800);
+      if (budget.canAct() && remaining() > 800) await sleep(800);
     }
     if (!leaseValid) throw new Error("Worker lease heartbeat failed");
     if (evidence.hasErrors)

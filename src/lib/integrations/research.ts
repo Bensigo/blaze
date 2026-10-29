@@ -208,7 +208,8 @@ export async function runResearch({
   const queries: [string, string][] = [];
   if (title) queries.push(["title", `"${title}"`]);
   if (genre) queries.push(["genre", `${genre} browser game players`]);
-  for (const provider of ["x", "reddit"] as const)
+  coverage.push({ source: "X feedback", status: "unavailable", detail: "Daily research does not search X. Use separately authorized manual feedback collection; search entitlement is not tested." });
+  for (const provider of ["reddit"] as const)
     for (const [kind, query] of queries)
       jobs.push(
         (async () => {
@@ -223,37 +224,7 @@ export async function runResearch({
             return;
           }
           try {
-            if (provider === "x") {
-              const q = new URLSearchParams({
-                query: `${query} -is:retweet`,
-                max_results: "10",
-                "tweet.fields": "created_at",
-              });
-              const data = await api(
-                `https://api.x.com/2/tweets/search/recent?${q}`,
-                secret,
-              );
-              const rows = Array.isArray(data.data) ? data.data : [];
-              coverage.push({
-                source,
-                status: "complete",
-                detail: `${rows.length} search matches; matches may not refer to this game and do not represent all discussion.`,
-              });
-              for (const row of rows.slice(0, 3))
-                if (/^\d+$/.test(String(row.id)))
-                  add(
-                    `X ${kind} search match`,
-                    `${String(row.text || "").slice(0, 300)}. Search match only; relevance and ownership are unverified.`,
-                    "observation",
-                    [
-                      {
-                        label: "X post",
-                        url: `https://x.com/i/web/status/${row.id}`,
-                      },
-                    ],
-                    "low",
-                  );
-            } else {
+            {
               const q = new URLSearchParams({
                 q: query,
                 limit: "10",

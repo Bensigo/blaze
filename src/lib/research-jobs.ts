@@ -7,6 +7,7 @@ import { readAISettings, resolveAISecret } from "./ai-settings";
 import { secretFor } from "./credentials";
 import { runResearch } from "./integrations";
 import { hash } from "./security";
+import { upsertResearchFinding } from "./finding-decisions";
 import type {
   Game,
   Finding,
@@ -18,6 +19,7 @@ export async function researchJob(
   workspace: string,
   game: Game,
   dayKey = new Date().toISOString().slice(0, 10),
+  options: { allowAI?: boolean } = {},
 ) {
   const runId = id("run");
   const claimed = await query(
@@ -47,6 +49,7 @@ export async function researchJob(
     startedAt: new Date().toISOString(),
     findings: [],
     coverage: [],
+    ai: { phase: "configuration", status: options.allowAI ? "preparing" : "not_requested", dispatches: 0, responses: 0, ...(options.allowAI ? {startedAt:new Date().toISOString()} : {}) },
   };
   await put(workspace, "run", run);
   try {
@@ -58,7 +61,7 @@ export async function researchJob(
     }>(workspace, "seo_baseline", game.id);
     // Each independent integration may fail without discarding baseline research.
     const connections: Record<string, ProviderSecret> = {};
-    for (const provider of ["jev", "x", "reddit", "brave", "search_console"]) {
+    for (const provider of ["reddit", "brave", "search_console"]) {
       const secret = await secretFor(workspace, provider).catch(() => undefined);
       if (secret) connections[provider] = secret;
     }
@@ -80,7 +83,7 @@ export async function researchJob(
     for (const draft of result.findings) {
       const fid = `finding_${hash(`${game.id}:${draft.title}:${JSON.stringify(draft.evidence)}`).slice(0, 24)}`;
       const existing = await get<Finding>(workspace, "finding", fid);
-      await put(workspace, "finding", {
+      await upsertResearchFinding(workspace, {
         ...draft,
         id: fid,
         status: existing?.status || ("open" as const),
@@ -125,8 +128,12 @@ export async function researchJob(
       }
     }
     try {
+      if (!options.allowAI) {
+        result.coverage.push({source:"AI research agent",status:"not_requested",detail:"No AI request was authorized for this review. Saving a key does not start inference. Run a bounded AI review explicitly."});
+      } else {
       const configured = await readAISettings(workspace);
       if (!configured) {
+        run.ai = {...run.ai!,status:"failed",errorCode:"not_configured"};
         result.coverage.push({
           source: "AI research agent",
           status: "disconnected",
@@ -135,24 +142,37 @@ export async function researchJob(
         });
       } else {
         const secret = await resolveAISecret(workspace);
+        run.ai = {...run.ai!,provider:configured.provider,model:configured.model,phase:"history"};
+        await put(workspace,"run",run);
         const history = await loadAgentHistory(workspace, game.id);
+        run.ai.phase="inference";
+        await put(workspace,"run",run);
         const suggestions = await interpretResearch({
-          model: aiModel(secret),
+          model: aiModel(secret,async event=>{
+            if(event.phase==='dispatched') {
+              if(run.ai!.dispatches>=4) {run.ai!.status='failed';run.ai!.errorCode='request_limit';await put(workspace,'run',run);throw new Error('Review request limit reached.');}
+              run.ai!.dispatches++;run.ai!.lastAttemptAt=event.at;run.ai!.status='running';
+            } else if(event.phase==='responded') run.ai!.responses++;
+            else {run.ai!.errorCode=event.errorCode||'request_failed';run.ai!.httpStatus=event.httpStatus;}
+            await put(workspace,'run',run);
+          }),
           gameId: game.id,
           findings: result.findings,
           history,
         });
+        run.ai.phase='validation';
+        await put(workspace,"run",run);
         for (const suggestion of suggestions) {
           // Evidence and type define the durable issue, so wording changes do not reopen it.
           const fid = `finding_${hash(`ai:${game.id}:${suggestion.aiTopic}:${suggestion.type}:${JSON.stringify([...suggestion.evidence].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))}`).slice(0, 24)}`;
           const existing = await get<Finding>(workspace, "finding", fid);
           if (!existing || existing.status === "open")
-            await put(workspace, "finding", {
+            await upsertResearchFinding(workspace, {
               ...suggestion,
               id: fid,
               status: existing?.status || "open",
               createdAt: existing?.createdAt || new Date().toISOString(),
-            });
+            }, {openOnly:true});
           run.findings.push(fid);
         }
         result.coverage.push({
@@ -160,13 +180,16 @@ export async function researchJob(
           status: "complete",
           detail: `The selected AI provider interpreted same-game research and 90-day human history; ${suggestions.length} supported proposals. Suggestions require human review.`,
         });
+        run.ai={...run.ai,phase:'complete',status:'succeeded',succeededAt:new Date().toISOString()};
+      }
       }
     } catch {
+      run.ai={...run.ai!,status:'failed',errorCode:run.ai?.errorCode||(run.ai?.phase==='history'?'history_unavailable':run.ai?.responses?'invalid_result':run.ai?.dispatches?'request_failed':'configuration_unavailable')};
       result.coverage.push({
         source: "AI research agent",
         status: "failed",
         detail:
-          "AI interpretation or scoped history was unavailable; deterministic research remains available. Review the selected provider and model in Account settings.",
+          `AI review did not complete (${run.ai.errorCode}). Deterministic observations remain available; see execution status for the next step.`,
       });
     }
     run.coverage = result.coverage;

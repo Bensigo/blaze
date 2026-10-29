@@ -39,6 +39,7 @@ import type {
   Channel,
 } from "@/lib/types";
 import { createReleaseMeasurement } from "@/lib/measurements";
+import { setFindingDecision } from "@/lib/finding-decisions";
 import { validateMeasurementWindows } from "@/lib/measurement-outcomes";
 const str = z.string().trim().min(1).max(500);
 const rid = z.string().max(100);
@@ -188,6 +189,7 @@ export async function POST(request: Request) {
     if (action === "queue_recording") {
       const game = await requireRecord<Game>("game", body.gameId);
       const mode = z.enum(["jev", "fixture"]).parse(body.mode);
+      if (mode === "jev") throw new HttpError(400, "Paid Jev runs are blocked until an enforceable total spending cap and explicit paid-run approval are configured. No model request was made.");
       if (
         mode === "fixture" &&
         (new URL(game.url).pathname !== "/fixture/index.html" ||
@@ -197,8 +199,6 @@ export async function POST(request: Request) {
           400,
           "Fixture decisions are limited to this application’s controlled game. Use Jev for an adapted public game.",
         );
-      if (mode === "jev" && !(await secretFor(workspace, "jev")))
-        throw new HttpError(400, "Connect and verify your Jev key first.");
       const recording: Recording = {
         id: id("rec"),
         gameId: game.id,
@@ -206,6 +206,8 @@ export async function POST(request: Request) {
         status: "queued",
         mode,
         createdAt: new Date().toISOString(),
+        maxActions: z.number().int().min(1).max(30).optional().parse(body.maxActions),
+        maxDurationSeconds: z.number().int().min(1).max(30).optional().parse(body.maxDurationSeconds),
       };
       await enqueue(workspace, "recording", recording);
       return Response.json({ recording });
@@ -530,7 +532,8 @@ export async function POST(request: Request) {
         run: await researchJob(
           workspace,
           game,
-          `manual:${new Date().toISOString().slice(0, 16)}`,
+          id('manual'),
+          { allowAI: body.confirmAIUsage === true },
         ),
       });
     }
@@ -564,14 +567,13 @@ export async function POST(request: Request) {
     if (action === "update_finding") {
       const finding = await requireRecord<Finding>("finding", body.id);
       const status = z
-        .enum(["open", "in_progress", "resolved"])
+        .enum(["open", "in_progress", "deferred", "dismissed", "resolved"])
         .parse(body.status);
-      await put(workspace, "finding", {
-        ...finding,
-        status,
-        resolvedAt:
-          status === "resolved" ? new Date().toISOString() : undefined,
-      });
+      if (body.gameId !== undefined && body.gameId !== finding.gameId) throw new HttpError(404,"Finding not found for this game.");
+      const note = z.string().trim().max(500).optional().parse(body.note);
+      const deferredUntil = status === "deferred" ? z.string().datetime().parse(body.deferredUntil) : undefined;
+      if (deferredUntil && (Date.parse(deferredUntil)<=Date.now()||Date.parse(deferredUntil)>Date.now()+366*86400000)) throw new HttpError(400,"Choose a defer date within the next year.");
+      await setFindingDecision(workspace,finding.id,{status,...(note!==undefined?{note}:{}),...(deferredUntil?{deferredUntil}:{})});
       return Response.json({ ok: true });
     }
     throw new HttpError(400, "Unknown action.");

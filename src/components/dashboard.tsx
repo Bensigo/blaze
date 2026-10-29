@@ -43,6 +43,9 @@ import {
 import dynamic from "next/dynamic";
 import ManualExportPanel from "./manual-export-panel";
 import GameConnections from "./game-connections";
+import InfoHint from "./info-hint";
+import MostPlayedGames from "./most-played-games";
+const ActionsPage = dynamic(() => import("./actions-page"), { loading: () => <p role="status">Loading actions…</p> });
 const AccountSettings = dynamic(() => import("./account-settings"), { loading: () => <p role="status">Loading account settings…</p> });
 const DiscoveryReview = dynamic(() => import("./discovery-review").then(module => module.DiscoveryReview), { loading: () => <p role="status">Loading search review…</p> });
 import type {
@@ -99,7 +102,7 @@ const nav: { id: Page; label: string; icon: typeof Activity }[] = [
   { id: "recordings", label: "Recordings & clips", icon: Clapperboard },
   { id: "content", label: "Content studio", icon: FileText },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
-  { id: "research", label: "Research", icon: Search },
+  { id: "research", label: "Actions", icon: Search },
 ];
 const socialProviders = ["x", "youtube", "instagram", "tiktok"];
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString();
@@ -1397,7 +1400,7 @@ export default function Dashboard() {
               <h1>{title}</h1>
               <p>{pageDescriptions[page]}</p>
             </div>
-            {page !== "connections" && page !== "help" && (
+            {page !== "connections" && page !== "help" && page !== "research" && (
               <div className="filters">
                 <label>
                   <span className="sr-only">Filter by game</span>
@@ -1431,6 +1434,7 @@ export default function Dashboard() {
               </div>
             )}
           </div>}
+          {page === "overview" && sessionScopeReady && <MostPlayedGames analytics={snapshot.analytics} games={games} />}
           {(page === "overview" || page === "analytics") && (sessionScopeReady ? <PlayerAnalytics
             analytics={analytics} games={games} gameId={selectedGame} days={period} demo={snapshot.demo} detailed={page === "analytics"}
             onChooseGame={setSelectedGame} onAddGame={() => openModal("game")} onSetup={() => changePage("help")}
@@ -1524,7 +1528,7 @@ export default function Dashboard() {
             <>
               <SectionHead
                 title="Session explorer"
-                detail="Human sessions in the selected date range. Select a row to inspect events and any consented canvas capture."
+                detail="Select a session to inspect its events and consented capture."
               />
               {sessionPageError && <p className="error-text" role="alert">{sessionPageError}</p>}
               {sessionScopeReady ? <SessionsTable
@@ -1837,113 +1841,7 @@ export default function Dashboard() {
               />
             </>
           )}
-          {page === "research" && (
-            <>
-              <SectionHead
-                title="Findings"
-                detail="Observations and hypotheses linked to supporting evidence."
-                action={
-                  <Button
-                    variant="primary"
-                    onClick={() => {
-                      resetDraft();
-                      setModal("recording");
-                      setNotice(
-                        "Use the research run button below for a selected game.",
-                      );
-                    }}
-                  >
-                    Record gameplay
-                  </Button>
-                }
-              />
-              <div className="research-run">
-                <div>
-                  <strong>Run research</strong>
-                  <p>
-                    Inspect available sources and workspace evidence for a game.
-                  </p>
-                </div>
-                <select
-                  aria-label="Game for research"
-                  value={draft.gameId}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, gameId: e.target.value }))
-                  }
-                >
-                  <option value="">Select game</option>
-                  {games.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.title}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  onClick={() =>
-                    action({ action: "run_research", gameId: draft.gameId })
-                  }
-                  disabled={!draft.gameId || busy}
-                >
-                  Run research
-                </Button>
-              </div>
-              {!snapshot.demo && <div className="data-note" role="status">
-                <strong>Daily analysis · {snapshot.system.dailyDispatch ? label(snapshot.system.dailyDispatch.state) : "Not reported yet"}</strong>
-                <p>{snapshot.system.dailySchedule}</p>
-                {snapshot.system.dailyDispatch && <>
-                  <p>{snapshot.system.dailyDispatch.day} · {snapshot.system.dailyDispatch.completed} complete · {snapshot.system.dailyDispatch.partial} partial · {snapshot.system.dailyDispatch.failed} failed · {snapshot.system.dailyDispatch.remaining} queued or running</p>
-                  <p>Dispatcher update: {dateTime(snapshot.system.dailyDispatch.updatedAt)}{snapshot.system.dailyDispatch.lastRunAt ? ` · Latest research run: ${dateTime(snapshot.system.dailyDispatch.lastRunAt)}` : " · No research run reported yet."}</p>
-                  {snapshot.system.dailyDispatch.error && <p className="error-text">{snapshot.system.dailyDispatch.error}</p>}
-                </>}
-              </div>}
-              <Findings
-                findings={findings}
-                action={action}
-                full
-                onMeasure={startMeasurement}
-                onRecording={openRecordingEvidence}
-              />
-              <Measurements
-                items={(
-                  (
-                    snapshot as WorkspaceSnapshot & {
-                      measurements?: Measurement[];
-                    }
-                  ).measurements || []
-                ).filter(
-                  (m) => selectedGame === "all" || m.gameId === selectedGame,
-                )}
-                findings={findings}
-              />
-              <div className="section-spacer">
-                <SectionHead
-                  title="Run history"
-                  detail="Source coverage and failures for each run."
-                />
-                {runs.length ? (
-                  runs.map((r) => (
-                    <div className="run-row" key={r.id}>
-                      <div>
-                        <strong>{gameName(games, r.gameId)}</strong>
-                        <p>
-                          {dateTime(r.startedAt)} · {r.coverage.length} sources
-                        </p>
-                        {r.coverage.map((c, i) => (
-                          <small key={i}>
-                            {c.source}: {c.status} — {c.detail}
-                            <br />
-                          </small>
-                        ))}
-                      </div>
-                      <Status value={r.status} />
-                    </div>
-                  ))
-                ) : (
-                  <p className="table-empty">No research runs yet.</p>
-                )}
-              </div>
-            </>
-          )}
+          {page === "research" && <><ActionsPage key={selectedGame} games={games} findings={findings} recordings={snapshot.recordings} measurements={snapshot.measurements || []} runs={runs} selectedGame={selectedGame} demo={snapshot.demo} onAction={action} onUpdated={refresh} onMeasure={startMeasurement} onRecording={openRecordingEvidence} onAccount={() => changePage("account")} onGameChange={(id) => setSelectedGame(id || "all")} /><details className="actions-history"><summary>Recorded game changes and comparisons · {(snapshot.measurements || []).length}</summary><Measurements items={(snapshot.measurements || []).filter(m => selectedGame === "all" || m.gameId === selectedGame)} findings={findings}/></details></>}
           {page === "account" && (snapshot.demo ? <Empty title="Sign in to configure your account" detail="The example workspace does not store credentials."/> : <AccountSettings user={snapshot.user} onSaved={async () => { await refresh(); }}/>) }
           {page === "connections" && (
             <>
@@ -2065,11 +1963,11 @@ export default function Dashboard() {
               {sessionEvidence && <div className="evidence-context"><strong>Supporting event: {label(sessionEvidence.name)}</strong><p>{captureTime(sessionEvidence.timestamp)}</p>{!sessionLoading && <p>{sessionEvidence.replay ? evidenceReplayAvailable ? "The matching segment is selected; playback will seek when it loads." : "The previously available segment is no longer available; showing the event only." : "No saved segment covers this event; showing the event only."}</p>}</div>}
               <div className="session-stats">
                 <div>
-                  <span>Session span</span>
+                  <span>Session span <InfoHint label="About session span">Elapsed time between recorded events; this is not active play.</InfoHint></span>
                   <strong>{timecode(chosenSession.duration)}</strong>
                 </div>
                 <div>
-                  <span>Estimated active play</span>
+                  <span>Measured active play <InfoHint label="About active play">Foreground time with recent input after a round starts. Missing measurement remains unknown.</InfoHint></span>
                   <strong>{chosenSession.activePlaySeconds == null ? "Unknown" : timecode(chosenSession.activePlaySeconds)}</strong>
                 </div>
                 <div>
@@ -2109,7 +2007,7 @@ export default function Dashboard() {
                 )}
               </div>
               <h3>Event timeline</h3>
-              <p className="muted">Ordered activity captured by the SDK.</p>
+              <p className="muted">Events in recorded order.</p>
               {sessionEvents.length > 0 && <><p className="muted">Counts in this {eventsTruncated ? "limited timeline" : "session"}: {(["ui_click", "player_action", "milestone"] as const).map((name) => `${eventLabel(name)} ${sessionEvents.filter((event) => event.name === name).length}`).join(" · ")}</p><Field label="Filter events"><select value={eventFilter} onChange={(e) => setEventFilter(e.target.value)}><option value="all">All events</option><option value="ui_click">UI clicks</option><option value="player_action">Player actions</option><option value="milestone">Milestones</option></select></Field></>}
               {!sessionLoading && <KeyEventBreakdown events={sessionEvents} truncated={eventsTruncated} />}
               {!sessionLoading && eventsTruncated && <p className="data-note">Showing the first {fmt(sessionEvents.length)} events. This timeline was limited to 5,000 events.</p>}
@@ -2412,6 +2310,7 @@ export default function Dashboard() {
                     not validate Jev. Jev requires a configured provider, a
                     compatible game adapter and a running worker.
                   </div>
+                  {draft.mode === "jev" && <p className="error-text" role="alert">Paid Jev runs are blocked until an enforceable total spending cap and separate paid-run approval are configured.</p>}
                 </>
               )}
               {modal === "clip" && (
@@ -2858,7 +2757,7 @@ export default function Dashboard() {
                   variant="primary"
                   type="submit"
                   disabled={
-                    busy || (modal === "game" && !chosenGame && (gameImport.status !== "ready" || gameImport.input !== draft.url.trim())) ||
+                    busy || (modal === "recording" && draft.mode === "jev") || (modal === "game" && !chosenGame && (gameImport.status !== "ready" || gameImport.input !== draft.url.trim())) ||
                     (modal === "connection" && socialProviders.includes(draft.provider) && !advancedSocial) ||
                     (modal === "post" && draft.deliveryMethod === "manual" && (!validTimeZone(localTimeZone) || !draft.scheduledAt || !Number.isFinite(Date.parse(draft.scheduledAt)))) ||
                     (modal === "post" &&
@@ -3049,7 +2948,7 @@ const pageDescriptions: Record<Page, string> = {
   recordings: "Turn recorded gameplay into reusable highlights.",
   content: "Prepare content for review and publication.",
   calendar: "Plan and manage upcoming posts.",
-  research: "Explore evidence, source coverage and opportunities.",
+  research: "Evidence, next steps and the result to check afterward.",
   connections: "Connect games, publishing accounts and research sources.",
   account: "Manage your workspace AI provider, model and Jev key.",
   discovery: "Review the public page, search setup and answer content for one game.",

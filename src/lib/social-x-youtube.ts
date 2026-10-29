@@ -2,22 +2,24 @@ import type { ProviderSecret } from "./types";
 import { socialJson, verifiedScopes, type SocialAdapter, type SocialGrant } from "./social-provider";
 
 const xScopes = ["tweet.read", "tweet.write", "users.read", "offline.access", "media.write"];
+export const xFeedbackScopes = ["tweet.read", "users.read", "offline.access"];
 const youtubeScopes = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.readonly"];
 
-function credentials(provider: "x" | "youtube") {
-  const id = process.env[provider === "x" ? "X_CLIENT_ID" : "YOUTUBE_CLIENT_ID"];
-  const secret = process.env[provider === "x" ? "X_CLIENT_SECRET" : "YOUTUBE_CLIENT_SECRET"];
+function credentials(provider: "x" | "x_feedback" | "youtube") {
+  const id = process.env[provider === "x_feedback" ? "X_FEEDBACK_CLIENT_ID" : provider === "x" ? "X_CLIENT_ID" : "YOUTUBE_CLIENT_ID"];
+  const secret = process.env[provider === "x_feedback" ? "X_FEEDBACK_CLIENT_SECRET" : provider === "x" ? "X_CLIENT_SECRET" : "YOUTUBE_CLIENT_SECRET"];
   if (!id || !secret) throw new Error("Social provider OAuth credentials are not configured.");
+  if (provider === "x_feedback" && process.env.X_CLIENT_ID && id === process.env.X_CLIENT_ID) throw new Error("X feedback requires a separate OAuth app from publishing.");
   return { id, secret };
 }
-function configured(provider: "x" | "youtube") {
+function configured(provider: "x" | "x_feedback" | "youtube") {
   try { credentials(provider); return true; } catch { return false; }
 }
 function formRequest(body: Record<string, string>, headers: Record<string, string> = {}): RequestInit {
   return { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers }, body: new URLSearchParams(body).toString() };
 }
-function xBasic() {
-  const { id, secret } = credentials("x");
+function xBasic(provider: "x" | "x_feedback") {
+  const { id, secret } = credentials(provider);
   // OAuth client credentials are form-encoded before forming the Basic credential.
   const encode = (s: string) => new URLSearchParams({ v: s }).toString().slice(2);
   return `Basic ${Buffer.from(`${encode(id)}:${encode(secret)}`).toString("base64")}`;
@@ -48,10 +50,11 @@ function validIdentity(id: unknown, name: unknown) {
   }
   return { accountId: id, accountName: name.trim() };
 }
-async function makeGrant(provider: "x" | "youtube", data: any, previous?: ProviderSecret): Promise<SocialGrant> {
-  const parsed = parseToken(data, provider === "x" ? xScopes : youtubeScopes, previous);
+async function makeGrant(provider: "x" | "x_feedback" | "youtube", data: any, previous?: ProviderSecret): Promise<SocialGrant> {
+  const parsed = parseToken(data, provider === "x_feedback" ? xFeedbackScopes : provider === "x" ? xScopes : youtubeScopes, previous);
+  if (provider === "x_feedback" && parsed.scopes.some((scope) => !xFeedbackScopes.includes(scope))) throw new Error("X returned unexpected permissions. Reconnect using the read-only feedback app.");
   let identity: { accountId: string; accountName: string };
-  if (provider === "x") {
+  if (provider !== "youtube") {
     const result = await request("https://api.x.com/2/users/me", { headers: { Authorization: `Bearer ${parsed.token}` } });
     identity = validIdentity(result?.data?.id, result?.data?.name);
   } else {
@@ -65,43 +68,43 @@ async function makeGrant(provider: "x" | "youtube", data: any, previous?: Provid
   const secret: ProviderSecret = { token: parsed.token, refreshToken: parsed.refreshToken, expiresAt: parsed.expiresAt, accountId: identity.accountId, scopes: parsed.scopes };
   return { ...identity, secret, scopes: parsed.scopes, expiresAt: parsed.expiresAt };
 }
-function authorize(provider: "x" | "youtube", input: { state: string; challenge: string; redirectUri: string }) {
+function authorize(provider: "x" | "x_feedback" | "youtube", input: { state: string; challenge: string; redirectUri: string }) {
   const { id } = credentials(provider);
-  const url = new URL(provider === "x" ? "https://x.com/i/oauth2/authorize" : "https://accounts.google.com/o/oauth2/v2/auth");
-  const params: Record<string, string> = { response_type: "code", client_id: id, redirect_uri: input.redirectUri, state: input.state, scope: (provider === "x" ? xScopes : youtubeScopes).join(" "), code_challenge: input.challenge, code_challenge_method: "S256" };
+  const url = new URL(provider !== "youtube" ? "https://x.com/i/oauth2/authorize" : "https://accounts.google.com/o/oauth2/v2/auth");
+  const params: Record<string, string> = { response_type: "code", client_id: id, redirect_uri: input.redirectUri, state: input.state, scope: (provider === "x_feedback" ? xFeedbackScopes : provider === "x" ? xScopes : youtubeScopes).join(" "), code_challenge: input.challenge, code_challenge_method: "S256" };
   if (provider === "youtube") Object.assign(params, { access_type: "offline", prompt: "consent" });
   url.search = new URLSearchParams(params).toString();
   return url.toString();
 }
-async function exchange(provider: "x" | "youtube", input: { code: string; verifier: string; redirectUri: string }) {
+async function exchange(provider: "x" | "x_feedback" | "youtube", input: { code: string; verifier: string; redirectUri: string }) {
   const { id, secret } = credentials(provider);
   const common = { grant_type: "authorization_code", code: input.code, redirect_uri: input.redirectUri, code_verifier: input.verifier };
-  const data = provider === "x"
-    ? await request("https://api.x.com/2/oauth2/token", formRequest(common, { Authorization: xBasic() }))
+  const data = provider !== "youtube"
+    ? await request("https://api.x.com/2/oauth2/token", formRequest(common, { Authorization: xBasic(provider as "x" | "x_feedback") }))
     : await request("https://oauth2.googleapis.com/token", formRequest({ ...common, client_id: id, client_secret: secret }));
   return makeGrant(provider, data);
 }
-async function refresh(provider: "x" | "youtube", previous: ProviderSecret) {
+async function refresh(provider: "x" | "x_feedback" | "youtube", previous: ProviderSecret) {
   const refreshToken = tokenString(previous.refreshToken);
   if (!refreshToken || !previous.accountId) throw new Error("Offline credentials are missing. Reconnect the account.");
   const { id, secret } = credentials(provider);
   const body = { grant_type: "refresh_token", refresh_token: refreshToken };
-  const data = provider === "x"
-    ? await request("https://api.x.com/2/oauth2/token", formRequest(body, { Authorization: xBasic() }))
+  const data = provider !== "youtube"
+    ? await request("https://api.x.com/2/oauth2/token", formRequest(body, { Authorization: xBasic(provider as "x" | "x_feedback") }))
     : await request("https://oauth2.googleapis.com/token", formRequest({ ...body, client_id: id, client_secret: secret }));
   return makeGrant(provider, data, previous);
 }
-async function revoke(provider: "x" | "youtube", secret: ProviderSecret) {
+async function revoke(provider: "x" | "x_feedback" | "youtube", secret: ProviderSecret) {
   const token = tokenString(secret.refreshToken) || tokenString(secret.token);
   if (!token) throw new Error("Provider credentials are missing.");
-  if (provider === "x") {
+  if (provider !== "youtube") {
     // X documents each revocation as invalidating the supplied token, so revoke both.
     const accessToken = tokenString(secret.token);
     const refreshToken = tokenString(secret.refreshToken);
     const targets = [...new Set([accessToken, refreshToken].filter((value): value is string => !!value))];
     let failed = false;
     for (const value of targets) {
-      try { await request("https://api.x.com/2/oauth2/revoke", formRequest({ token: value }, { Authorization: xBasic() })); }
+      try { await request("https://api.x.com/2/oauth2/revoke", formRequest({ token: value }, { Authorization: xBasic(provider as "x" | "x_feedback") })); }
       catch { failed = true; }
     }
     if (failed) throw new Error("Provider authorization failed. Reconnect the account and try again.");
@@ -117,4 +120,10 @@ export const youtubeAdapter: SocialAdapter = {
   provider: "youtube", requiredScopes: youtubeScopes, configured: () => configured("youtube"),
   setup: "Enable YouTube Data API, configure a Google web OAuth client and consent screen with the exact callback URL, YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET; complete applicable verification and API audits.",
   authorizationUrl: (input) => authorize("youtube", input), exchange: (input) => exchange("youtube", input), refresh: (secret) => refresh("youtube", secret), revoke: (secret) => revoke("youtube", secret),
+};
+
+export const xFeedbackAdapter: SocialAdapter = {
+  provider: "x_feedback", requiredScopes: xFeedbackScopes, configured: () => configured("x_feedback"),
+  setup: "Configure a separate X feedback OAuth web app, callback URL, X_FEEDBACK_CLIENT_ID and X_FEEDBACK_CLIENT_SECRET. Search access and pricing require separate verification.",
+  authorizationUrl: (input) => authorize("x_feedback", input), exchange: (input) => exchange("x_feedback", input), refresh: (secret) => refresh("x_feedback", secret), revoke: (secret) => revoke("x_feedback", secret),
 };

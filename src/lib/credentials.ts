@@ -61,7 +61,6 @@ export async function researchSecrets(workspace: string) {
   for (const p of [
     "jev",
     "anthropic",
-    "x",
     "reddit",
     "brave",
     "search_console",

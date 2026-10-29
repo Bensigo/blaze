@@ -6,7 +6,7 @@ export async function POST(request: Request) {
     return new Response(null, { status: 401 });
   try {
     const body = await request.json();
-    await heartbeat(body.recordingId || body.clipId);
+    await heartbeat(body.recordingId || body.clipId, request.headers.get("X-Blaze-Worker-Protocol"));
     return Response.json({ ok: true });
   } catch (e) {
     return apiError(e);

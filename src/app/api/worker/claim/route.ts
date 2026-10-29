@@ -6,7 +6,7 @@ export async function POST(request: Request) {
   if (!bearer(request, "WORKER_TOKEN"))
     return new Response(null, { status: 401 });
   try {
-    return Response.json(await claimJob(), {
+    return Response.json(await claimJob(request.headers.get("X-Blaze-Worker-Protocol")), {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (e) {

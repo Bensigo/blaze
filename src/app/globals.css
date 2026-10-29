@@ -18,7 +18,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 14px;
+  font-size: 15px;
 }
 button,
 input,
@@ -2044,7 +2044,7 @@ button.observation {
   --bg: #f8f9f6;
   --side: #f1f4ef;
 }
-body { font-size: 14px; }
+body { font-size: 15px; }
 .sidebar { width: 216px; border-right: 1px solid var(--line); padding-top: 22px; }
 .brand { color: var(--ink); font-weight: 600; }
 .brand-mark { transform: none; }
@@ -2458,3 +2458,30 @@ td { font-size: 12px; }
 .sdk-configuration dd { margin: 0; min-width: 0; }
 .sdk-configuration code { display: block; font-size: 10px; overflow-wrap: anywhere; }
 @media (max-width: 600px) { .sdk-configuration > div { grid-template-columns: 1fr; gap: 6px; } }
+
+/* Readable player evidence and session surfaces. */
+.player-scope, .player-kpis span, .chart-unit, .activity-legend,
+.ordered-funnel > div, .ordered-funnel strong, .text-action,
+.pointer-game, .pointer-filters label, .heatmap-choose label,
+.pointer-counts, .play-measurement dt, .dropoff-rows button,
+.player-breakdown-row, .player-breakdown-row strong { font-size: 13px; }
+.player-kpis small, .analytics-section-title p, .play-measurement > div > p,
+.quiet-help, .instrumentation-note p, .data-empty p, .pointer-overlay > span,
+.pointer-inspection, .pointer-inspection small, .heatmap-choose p,
+.analytics-footnote, .progression-observation { font-size: 13px; line-height: 1.5; color: #586b5e; }
+.analytics-section-title h2, .play-measurement h2, .player-breakdowns h2 { font-size: 16px; }
+.instrumentation-note strong, .data-empty strong, .pointer-overlay strong { font-size: 14px; }
+.player-session-table table, .cohort-section table, .session-link { font-size: 13px; }
+.player-session-table th, .player-session-table td > small, .session-link small { font-size: 12px; color: #5f7064; }
+.pointer-filters select, .heatmap-choose select { min-height: 40px; font-size: 14px; }
+.pointer-x-label, .pointer-y-label, .pointer-scale, .pointer-scale strong { font-size: 12px; color: #596e60; }
+.player-workspace .quiet-help code { font-size: 12px; }
+.session-stats span, .drawer-body .muted, .capture-coverage, .session-pagination { font-size: 13px; line-height: 1.5; }
+.drawer-body h3 { font-size: 16px; }
+.table-wrap th { font-size: 12px; }
+.table-wrap td { font-size: 13px; }
+.table-wrap td small { font-size: 12px; }
+@media (max-width: 600px) {
+  .player-scope, .player-kpis small, .activity-legend, .analytics-section-title p { font-size: 13px; }
+  .pointer-filters select, .heatmap-choose select { font-size: 16px; }
+}

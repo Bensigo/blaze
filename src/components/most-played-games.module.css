@@ -1,0 +1,11 @@
+.section { padding: 25px 0; border-bottom: 1px solid #e5e9e6; }
+.heading h2 { margin: 0; font-size: 17px; letter-spacing: -.02em; }
+.heading p, .empty { margin: 6px 0 0; color: #69736d; font-size: 13px; line-height: 1.5; }
+.scroll { overflow-x: auto; margin-top: 16px; }
+.scroll table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+.scroll th, .scroll td { padding: 12px 14px 12px 0; border-bottom: 1px solid #edf0ee; white-space: nowrap; }
+.scroll thead th { color: #69736d; font-size: 11px; font-weight: 600; }
+.scroll tbody th { color: #1c2922; font-weight: 600; }
+.scroll tbody tr:last-child th, .scroll tbody tr:last-child td { border: 0; }
+.scroll small { display: block; color: #69736d; font-size: 11px; margin-top: 3px; }
+.rank { display: inline-block; width: 26px; color: #87928b; font-weight: 500; }

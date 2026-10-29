@@ -1,13 +1,13 @@
 type Action = { id: string; label: string };
 /** Calls the OpenRouter System One API; never include provider response text in errors. */
-export async function choose(state: unknown, actions: Action[], key: string, model: string): Promise<string> {
+export async function choose(state: unknown, actions: Action[], key: string, model: string, timeoutMs = 12000): Promise<string> {
   if (!['typesafe/jev-1.13', 'typesafe/jev-1.14'].includes(model) || !key || actions.length < 2 || new Set(actions.map(a => a.id)).size !== actions.length || actions.some(a => !/^[a-zA-Z0-9_-]{1,40}$/.test(a.id))) throw new Error('Invalid Jev decision request');
   const criteria = Object.fromEntries(actions.map(a => [a.id, a.label]));
   try {
     const res = await fetch('https://openrouter.ai/api/v1/systemone', {
       method: 'POST', headers: {Authorization: `Bearer ${key}`, 'Content-Type': 'application/json'},
       body: JSON.stringify({model, state, questions: {next: {type: 'choice', instructions: 'Choose the next gameplay action from the allowed options.', criteria}}}),
-      signal: AbortSignal.timeout(12000), redirect: 'error',
+      signal: AbortSignal.timeout(Math.max(1, Math.min(12000, timeoutMs))), redirect: 'error',
     });
     if (!res.ok || !res.body) throw new Error();
     const reader = res.body.getReader(); let size = 0; const chunks: Uint8Array[] = [];
