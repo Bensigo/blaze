@@ -20,19 +20,21 @@ describe('paid Jev gate and worker capabilities',()=>{
    await expect(jobs.enqueue('ws','recording',recording('r'))).rejects.toThrow('Paid Jev runs are blocked');expect(fetch).not.toHaveBeenCalled();expect(await db.list('ws','recording')).toEqual([]);
  });
  it.each([recording('legacy'),{...recording('bounded'),maxActions:1,maxDurationSeconds:30}])('fails pre-existing Jev job $id before sending any credential',async rec=>{
-   await seed(rec);const result=await jobs.claimJob('jev-actions-v1');expect(result).toEqual({});expect(fetch).not.toHaveBeenCalled();
+   await seed(rec);const result=await jobs.claimJob('jev-budget-v1');expect(result).toEqual({});expect(fetch).not.toHaveBeenCalled();
    expect((await db.get<{id:string;status:string;error:string}>('ws','recording',rec.id))).toMatchObject({status:'failed',error:expect.stringContaining('Paid Jev runs are blocked')});
    expect((await db.get<{id:string;active?:string}>('ws','recording_gate','g'))?.active).toBeUndefined();
  });
  it('leaves capped fixture jobs queued for missing or wrong protocol and claims with a capable worker',async()=>{
    await jobs.enqueue('ws','recording',{...recording('fixture','fixture'),maxActions:1,maxDurationSeconds:15});
    for(const protocol of [undefined,'wrong']) {expect(await jobs.claimJob(protocol)).toEqual({});expect((await db.query<{state:string}>("SELECT state FROM jobs WHERE id='fixture'"))[0].state).toBe('queued');expect((await db.query<{body:unknown}>("SELECT body FROM jobs WHERE id='worker-runtime'"))[0].body).toEqual({protocol:'legacy',supportsBoundedRecording:false});}
-   expect(await jobs.claimJob('jev-actions-v1')).toMatchObject({recording:{id:'fixture',mode:'fixture'},limits:{maxActions:1,maxDurationSeconds:15}});expect(fetch).not.toHaveBeenCalled();
+   expect(await jobs.claimJob('jev-budget-v1')).toMatchObject({recording:{id:'fixture',mode:'fixture'},limits:{maxActions:1,maxDurationSeconds:15}});expect(fetch).not.toHaveBeenCalled();
  });
  it('fails a widened capped fixture and releases its gate',async()=>{
-   await jobs.enqueue('ws','recording',{...recording('f','fixture'),maxActions:1,maxDurationSeconds:15});const rec=await db.get<any>('ws','recording','f');await db.put('ws','recording',{...rec,maxActions:30});expect(await jobs.claimJob('jev-actions-v1')).toEqual({});expect((await db.get<{id:string;status:string}>('ws','recording','f'))?.status).toBe('failed');expect((await db.get<{id:string;active?:string}>('ws','recording_gate','g'))?.active).toBeUndefined();
+   await jobs.enqueue('ws','recording',{...recording('f','fixture'),maxActions:1,maxDurationSeconds:15});const rec=await db.get<any>('ws','recording','f');await db.put('ws','recording',{...rec,maxActions:30});expect(await jobs.claimJob('jev-budget-v1')).toEqual({});expect((await db.get<{id:string;status:string}>('ws','recording','f'))?.status).toBe('failed');expect((await db.get<{id:string;active?:string}>('ws','recording_gate','g'))?.active).toBeUndefined();
  });
  it('claims ordinary fixture with legacy worker, without Jev credentials',async()=>{
    await jobs.enqueue('ws','recording',recording('r','fixture'));const result=await jobs.claimJob();expect(result).toMatchObject({recording:{id:'r',mode:'fixture'}});expect(result.jevKey).toBeUndefined();expect(fetch).not.toHaveBeenCalled();
  });
 });
+
+it('targeted validation does not tick automation, publishing or claim another queued job',async()=>{const a=await import('../src/lib/game-automation');const p=await import('../src/lib/publishing');vi.mocked(a.tickAutomation).mockClear();vi.mocked(p.duePublications).mockClear();await jobs.enqueue('ws','recording',{...recording('unrelated','fixture')});expect(await jobs.claimJob('jev-budget-v1','rec_target')).toEqual({});expect(a.tickAutomation).not.toHaveBeenCalled();expect(p.duePublications).not.toHaveBeenCalled();expect((await db.query<{state:string}>("SELECT state FROM jobs WHERE id='unrelated'"))[0].state).toBe('queued');});

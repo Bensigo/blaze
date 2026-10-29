@@ -17,7 +17,7 @@ it("blocks connection and an in-flight callback even with consent and configured
   const res = await connect(post("/api/social/x_feedback/connect", { readOnlyConsent: true }), ctx);
   expect(res.status).toBe(403); expect((await res.json()).error).toContain("total spending cap");
   const result = await callback(new Request(`${origin}/api/social/x_feedback/callback?code=test&state=test`), ctx);
-  expect(result.status).toBe(303); expect(new URL(result.headers.get("location")!).searchParams.get("social")).toBe("budget_blocked");
+  expect(result.status).toBe(303); expect(new URL(result.headers.get("location")!).searchParams.get("social")).toBe("failed");
   expect(fetch).not.toHaveBeenCalled();
 });
 it("blocks refreshing an existing feedback identity without contacting X", async () => {

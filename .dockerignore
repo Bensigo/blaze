@@ -1,0 +1,10 @@
+# Only the worker build inputs enter the Docker context.
+**
+!package.json
+!package-lock.json
+!.npmrc
+!worker
+!worker/**
+!src
+!src/lib
+!src/lib/network-policy.ts

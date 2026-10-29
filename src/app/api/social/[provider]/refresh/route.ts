@@ -14,7 +14,7 @@ export async function POST(request: Request, context: { params: Promise<{ provid
     if (typeof connectionId !== "string" || !/^conn_[a-z0-9]{32}$/.test(connectionId)) throw new HttpError(400, "Invalid connection request.");
     const connection = await get<Connection>(user.workspace_id, "connection", connectionId);
     if (!connection || connection.provider !== (await context.params).provider) throw new HttpError(404, "Connection not found.");
-    if (connection.provider === "x_feedback") requireXFeedbackBudget();
+    if (connection.provider === "x_feedback") await requireXFeedbackBudget(user.workspace_id, "identity", { accountId: connection.accountId });
     if (!(await rateLimit(`social-refresh:${user.workspace_id}:${connectionId}`, 5, 600))) throw new HttpError(429, "Too many refresh attempts. Try again shortly.");
     return Response.json({ connection: (await refreshSocialConnection(user.workspace_id, connectionId)).connection });
   } catch (error) { return apiError(error); }

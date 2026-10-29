@@ -133,6 +133,35 @@ export async function query<T = Record<string, unknown>>(
       : await pgQuery(db.pool, sql, params);
   return result.rows as T[];
 }
+export type TransactionQuery = <Row = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<Row[]>;
+/** Use only database work in the callback; do not hold a transaction across network calls. */
+export async function transaction<T>(operation: (query: TransactionQuery) => Promise<T>): Promise<T> {
+  const db = await client();
+  await ensureSchema(db);
+  if (db.kind === "local") {
+    return db.db.transaction(async (tx) => operation(async <Row = Record<string, unknown>>(sql: string, params: unknown[] = []) => {
+      const result = await tx.query(sql, params);
+      return result.rows as Row[];
+    }));
+  }
+  const tx = await db.pool.connect();
+  try {
+    await tx.query("BEGIN");
+    await tx.query("SET LOCAL statement_timeout = '15s'");
+    await tx.query("SET LOCAL lock_timeout = '10s'");
+    const result = await operation(async <Row = Record<string, unknown>>(sql: string, params: unknown[] = []) => {
+      const rows = await tx.query(sql, params);
+      return rows.rows as Row[];
+    });
+    await tx.query("COMMIT");
+    return result;
+  } catch (error) {
+    await tx.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    tx.release();
+  }
+}
 export function id(prefix: string) {
   return `${prefix}_${randomUUID().replaceAll("-", "")}`;
 }

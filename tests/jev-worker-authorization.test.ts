@@ -16,7 +16,8 @@ describe('worker claim authorization',()=>{
   });
   it('passes the declared protocol only after bearer authorization',async()=>{
     process.env.WORKER_TOKEN='worker-token'; claim.mockResolvedValue({});
-    await POST(new Request('http://localhost/api/worker/claim',{method:'POST',headers:{Authorization:'Bearer worker-token','X-Blaze-Worker-Protocol':'jev-actions-v1'}}));
-    expect(claim).toHaveBeenCalledWith('jev-actions-v1');
+    await POST(new Request('http://localhost/api/worker/claim',{method:'POST',headers:{Authorization:'Bearer worker-token','X-Blaze-Worker-Protocol':'jev-budget-v1'}}));
+    expect(claim).toHaveBeenCalledWith('jev-budget-v1');
   });
+  it('passes the exact targeted recording without enabling global work',async()=>{process.env.WORKER_TOKEN='worker-token';claim.mockResolvedValue({});const recordingId='rec_'+'a'.repeat(32);const r=await POST(new Request('http://localhost/api/worker/claim',{method:'POST',headers:{Authorization:'Bearer worker-token','Content-Type':'application/json'},body:JSON.stringify({recordingId})}));expect(r.status).toBe(200);expect(claim).toHaveBeenCalledWith(null,recordingId);});
 });

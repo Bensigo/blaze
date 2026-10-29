@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { get, id, list, query } from "./db";
 import { HttpError } from "./http-error";
-import { requireXFeedbackBudget } from "./x-feedback-policy";
+import { requireXFeedbackBudget, matchesXApprovedAccount, reserveXIdentity, finishXAttempt } from "./x-feedback-policy";
 import type { Identity } from "./auth";
 import { constantEqual, decrypt, encrypt, hash } from "./security";
 import { appOrigin, canonicalRequestUrl } from "./app-origin";
@@ -18,7 +18,7 @@ async function cookies() { return (await (cookieApi ??= import("next/headers")))
 const adapters: Record<SocialProvider, SocialAdapter> = { x: xAdapter, x_feedback: xFeedbackAdapter, youtube: youtubeAdapter, instagram: instagramAdapter, tiktok: tiktokAdapter };
 const secure = () => process.env.NODE_ENV === "production" || !!process.env.VERCEL;
 const cookieName = (state: string) => `blaze_social_${hash(state).slice(0, 24)}`;
-type Pending = { id: string; userId: string; provider: SocialProvider; redirectUri: string; expiresAt: string; verifier: string; epoch: string; connectionId?: string; accountId?: string };
+type Pending = { id: string; userId: string; provider: SocialProvider; redirectUri: string; expiresAt: string; verifier: string; epoch: string; connectionId?: string; accountId?: string; xReceiptNonce?: string };
 async function authorizationEpoch(workspace: string, provider: string) {
   return (await get<{ id: string; value: string }>(workspace, "social_oauth_epoch", provider))?.value || "initial";
 }
@@ -62,8 +62,9 @@ export async function beginSocialAuthorization(user: Identity, provider: string,
   if (!origin || !canonicalRequestUrl(request)) throw new HttpError(400, "Open the canonical Blaze app URL to connect an account.");
   const current = connectionId ? await get<Connection>(user.workspace_id, "connection", connectionId) : undefined;
   if (connectionId && (!current || current.provider !== provider)) throw new HttpError(404, "Connection not found.");
+  const xReceiptNonce = provider === "x_feedback" ? await requireXFeedbackBudget(user.workspace_id, "identity") : undefined;
   const state = randomBytes(32).toString("base64url"), verifier = randomBytes(48).toString("base64url");
-  const pending: Pending = { id: hash(state), userId: user.id, provider: adapter.provider, redirectUri: `${origin}/api/social/${provider}/callback`, expiresAt: new Date(Date.now() + 600000).toISOString(), verifier: await encrypt({ token: verifier }), epoch: await authorizationEpoch(user.workspace_id, provider), ...(current ? { connectionId: current.id, accountId: current.accountId } : {}) };
+  const pending: Pending = { id: hash(state), userId: user.id, provider: adapter.provider, redirectUri: `${origin}/api/social/${provider}/callback`, expiresAt: new Date(Date.now() + 600000).toISOString(), verifier: await encrypt({ token: verifier }), epoch: await authorizationEpoch(user.workspace_id, provider), ...(current ? { connectionId: current.id, accountId: current.accountId } : {}), ...(xReceiptNonce ? { xReceiptNonce } : {}) };
   await query("DELETE FROM records WHERE workspace_id=$1 AND kind='social_oauth_state' AND (body->>'expiresAt')::timestamptz<now()", [user.workspace_id]);
   await query("INSERT INTO records(workspace_id,kind,id,body) VALUES($1,'social_oauth_state',$2,$3::jsonb)", [user.workspace_id, pending.id, JSON.stringify(pending)]);
   (await cookies()).set(cookieName(state), hash(state), { httpOnly: true, secure: secure(), sameSite: "lax", path: "/api/social", maxAge: 600 });
@@ -83,7 +84,13 @@ export async function finishSocialAuthorization(user: Identity, provider: string
   if (url.searchParams.has("error")) return "denied";
   const code = url.searchParams.get("code");
   if (!code || code.length > 4096) throw new HttpError(400, "Provider did not return an authorization code.");
-  const grant = await adapter.exchange({ code, verifier: (await decrypt(row.body.verifier)).token, redirectUri: row.body.redirectUri });
+  let dispatched = false, settled = false;
+  const nonce = row.body.xReceiptNonce;
+  if (provider === "x_feedback") { if (!nonce) throw new HttpError(403, "X approval is missing."); await reserveXIdentity(user.workspace_id, nonce); }
+  let grant: SocialGrant;
+  try { grant = await adapter.exchange({ code, verifier: (await decrypt(row.body.verifier)).token, redirectUri: row.body.redirectUri, ...(provider === "x_feedback" && nonce ? { beforeIdentity: async () => { await requireXFeedbackBudget(user.workspace_id, "identity", { nonce }, true); dispatched = true; } } : {}) }); settled = true; }
+  finally { if (provider === "x_feedback" && nonce) await finishXAttempt(user.workspace_id, nonce, "identity", dispatched, settled); }
+  if (provider === "x_feedback" && (!row.body.xReceiptNonce || !await matchesXApprovedAccount(user.workspace_id, row.body.xReceiptNonce, grant.accountId))) return "account_mismatch";
   if (row.body.accountId && grant.accountId !== row.body.accountId) {
     // Google revocation can remove the entire project's grant, including other channels.
     // Discard the unintended credentials without revoking the user's existing grant.
@@ -114,20 +121,24 @@ export async function refreshSocialConnection(workspace: string, connectionId: s
   return withConnectionLease(workspace, connectionId, async () => {
     const current = await get<Connection>(workspace, "connection", connectionId);
     if (!current || current.authMethod !== "oauth" || !current.connected) throw new HttpError(400, "Reconnect this account through its provider first.");
-    if (current.provider === "x_feedback") requireXFeedbackBudget();
+    let xNonce: string | undefined;
+    if (current.provider === "x_feedback") { if (!current.accountId) throw new HttpError(403, "X account identity is missing."); if (automatic) throw new HttpError(403, "Automatic X feedback refresh is disabled."); xNonce = await requireXFeedbackBudget(workspace, "identity", { accountId: current.accountId }); }
     const secret = await rawSecret(workspace, connectionId);
-    if (!secret) throw new HttpError(400, "Reconnect this account through its provider first.");
+    if (!secret) { if (xNonce) await finishXAttempt(workspace, xNonce, "identity", false, false); throw new HttpError(400, "Reconnect this account through its provider first."); }
     if (automatic && (!current.expiresAt || new Date(current.expiresAt).getTime() > Date.now() + 300000)) return { connection: current, secret };
     const adapter = socialAdapter(current.provider);
+    if (xNonce) await reserveXIdentity(workspace, xNonce);
+    let dispatched = false, settled = false;
     try {
-      const grant = await adapter.refresh(secret);
+      const grant = await adapter.refresh(secret, xNonce ? async () => { await requireXFeedbackBudget(workspace, "identity", { nonce: xNonce, accountId: current.accountId }, true); dispatched = true; } : undefined);
+      settled = true;
       if (grant.accountId !== current.accountId) throw new Error("Provider refreshed a different account. Reconnect the original destination.");
       return await persistGrant(workspace, current, adapter, grant);
     } catch (error) {
       const details = "Account refresh failed. Reconnect through the provider to verify permissions and expiry.";
       await query("UPDATE records SET body=$4::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='connection' AND id=$2 AND body=$3::jsonb", [workspace, connectionId, JSON.stringify(current), JSON.stringify({ ...current, requiresReconnect: true, details })]);
       throw new HttpError(400, error instanceof HttpError ? error.message : details);
-    }
+    } finally { if (xNonce) await finishXAttempt(workspace, xNonce, "identity", dispatched, settled); }
   });
 }
 export async function freshSocialSecret(workspace: string, connection: Connection, secret: ProviderSecret) {

@@ -1,3 +1,4 @@
+import {paidJevAllowed,JEV_APPROVAL_REQUIRED} from '@/lib/jev-budget';
 import { resolveAISecret, AccountSettingsError } from "@/lib/ai-settings";
 import { loadAgentHistory } from "@/lib/agent-history";
 import { after } from "next/server";
@@ -189,7 +190,6 @@ export async function POST(request: Request) {
     if (action === "queue_recording") {
       const game = await requireRecord<Game>("game", body.gameId);
       const mode = z.enum(["jev", "fixture"]).parse(body.mode);
-      if (mode === "jev") throw new HttpError(400, "Paid Jev runs are blocked until an enforceable total spending cap and explicit paid-run approval are configured. No model request was made.");
       if (
         mode === "fixture" &&
         (new URL(game.url).pathname !== "/fixture/index.html" ||
@@ -206,9 +206,11 @@ export async function POST(request: Request) {
         status: "queued",
         mode,
         createdAt: new Date().toISOString(),
-        maxActions: z.number().int().min(1).max(30).optional().parse(body.maxActions),
-        maxDurationSeconds: z.number().int().min(1).max(30).optional().parse(body.maxDurationSeconds),
+        paidApprovalId: z.string().min(1).max(200).optional().parse(body.paidApprovalId),
+        maxActions: z.number().int().min(1).max(30).optional().parse(body.maxActions) ?? (mode === "jev" ? 1 : undefined),
+        maxDurationSeconds: z.number().int().min(1).max(30).optional().parse(body.maxDurationSeconds) ?? (mode === "jev" ? 30 : undefined),
       };
+      if (mode === "jev" && (body.confirmModelUsage !== true || !await paidJevAllowed(workspace,recording))) throw new HttpError(400,JEV_APPROVAL_REQUIRED);
       await enqueue(workspace, "recording", recording);
       return Response.json({ recording });
     }

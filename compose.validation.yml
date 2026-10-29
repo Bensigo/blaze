@@ -1,0 +1,14 @@
+# Combine with compose.worker.yml for a separately approved, one-claim validation.
+# This override prepares configuration only; it does not start or build anything.
+services:
+  worker:
+    image: ${BLAZE_VALIDATION_IMAGE:?Set the reviewed existing worker image}
+    environment:
+      BLAZE_VALIDATION_RECORDING_ID: ${BLAZE_VALIDATION_RECORDING_ID:?Set the exact queued validation recording ID}
+    restart: "no"
+  egress:
+    image: ${BLAZE_VALIDATION_IMAGE:?Set the reviewed existing worker image}
+    restart: "no"
+  browser:
+    image: ${BLAZE_VALIDATION_IMAGE:?Set the reviewed existing worker image}
+    restart: "no"

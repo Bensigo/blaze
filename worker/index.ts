@@ -7,14 +7,23 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { validateGameUrl } from "./safety";
-import { installAgentMarker, installBrowserPolicy, prepareBrowserPolicy, resolverRules } from "./network-policy";
+import {
+  installAgentMarker,
+  installBrowserPolicy,
+  prepareBrowserPolicy,
+  resolverRules,
+} from "./network-policy";
 import { startIsolatedBrowser, stopIsolatedBrowser } from "./egress-client";
 import { RunEvidence, failureCode } from "./observations";
 import { validateAdapterSnapshot } from "./adapter";
 import { recordedDuration } from "./media-timing";
+import { matchesValidationClaim, validationTarget } from "./validation-target";
 
 const app = new URL(process.env.APP_URL || "http://127.0.0.1:3000");
 const token = process.env.WORKER_TOKEN;
+const targetRecording = validationTarget(
+  process.env.BLAZE_VALIDATION_RECORDING_ID,
+);
 if (!token) throw new Error("WORKER_TOKEN is required");
 if (!["http:", "https:"].includes(app.protocol) || app.username || app.password)
   throw new Error("Invalid APP_URL");
@@ -23,14 +32,21 @@ if (
   !["127.0.0.1", "localhost"].includes(app.hostname)
 )
   throw new Error("APP_URL must use HTTPS except localhost");
-const headers = { Authorization: `Bearer ${token}`, "X-Blaze-Worker-Protocol": BOUNDED_WORKER_PROTOCOL };
+const headers = {
+  Authorization: `Bearer ${token}`,
+  "X-Blaze-Worker-Protocol": BOUNDED_WORKER_PROTOCOL,
+};
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function api(path: string, body?: unknown) {
   const response = await fetch(new URL(path, app), {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify(body || {}),
-    signal: AbortSignal.timeout(path === "/api/worker/claim" || path === "/api/worker/neon-upload" ? 65000 : 15000),
+    signal: AbortSignal.timeout(
+      path === "/api/worker/claim" || path === "/api/worker/neon-upload"
+        ? 65000
+        : 15000,
+    ),
   });
   if (!response.ok)
     throw new Error(`Worker API ${path} returned ${response.status}`);
@@ -46,13 +62,36 @@ async function upload(
   if (data.byteLength > 150 * 1024 * 1024)
     throw new Error("Asset exceeds worker size limit");
   if (process.env.NEON_CLIENT_UPLOAD === "true") {
-    const reservation = await api("/api/worker/neon-upload", {action: "reserve", recordingId, clipId, kind, size: data.byteLength});
-    if (typeof reservation.uploadUrl !== "string" || typeof reservation.intentId !== "string" || typeof reservation.contentType !== "string") throw new Error("Asset reservation missing");
+    const reservation = await api("/api/worker/neon-upload", {
+      action: "reserve",
+      recordingId,
+      clipId,
+      kind,
+      size: data.byteLength,
+    });
+    if (
+      typeof reservation.uploadUrl !== "string" ||
+      typeof reservation.intentId !== "string" ||
+      typeof reservation.contentType !== "string"
+    )
+      throw new Error("Asset reservation missing");
     const target = new URL(reservation.uploadUrl);
-    if (target.protocol !== "https:" || target.username || target.password) throw new Error("Invalid asset upload endpoint");
-    const response = await fetch(target, {method: "PUT", headers: {"Content-Type": reservation.contentType}, body: data, signal: AbortSignal.timeout(120000)});
-    if (!response.ok) throw new Error(`Asset upload returned ${response.status}`);
-    const result = await api("/api/worker/neon-upload", {action: "finalize", recordingId, clipId, intentId: reservation.intentId});
+    if (target.protocol !== "https:" || target.username || target.password)
+      throw new Error("Invalid asset upload endpoint");
+    const response = await fetch(target, {
+      method: "PUT",
+      headers: { "Content-Type": reservation.contentType },
+      body: data,
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!response.ok)
+      throw new Error(`Asset upload returned ${response.status}`);
+    const result = await api("/api/worker/neon-upload", {
+      action: "finalize",
+      recordingId,
+      clipId,
+      intentId: reservation.intentId,
+    });
     if (typeof result.url !== "string") throw new Error("Asset URL missing");
     return result.url as string;
   }
@@ -115,7 +154,11 @@ async function upload(
   return result.url as string;
 }
 import { choose } from "./jev-decision";
-import { recordingLimits, RecordingBudget, BOUNDED_WORKER_PROTOCOL } from "./recording-limits";
+import {
+  recordingLimits,
+  RecordingBudget,
+  BOUNDED_WORKER_PROTOCOL,
+} from "./recording-limits";
 type Action = { id: string; label: string };
 function fixtureChoice(state: unknown, actions: Action[]): string {
   const s = state as { phase?: string; player?: number; star?: number };
@@ -150,8 +193,15 @@ async function runRecording(job: any) {
   if (!recording?.id || !game?.url) throw new Error("Invalid recording claim");
   const limits = recordingLimits(recording);
   const claimedLimits = recordingLimits(job.limits);
-  if (limits.maxActions !== claimedLimits.maxActions || limits.maxDurationSeconds !== claimedLimits.maxDurationSeconds) throw new Error("Recording limits changed after claim");
-  if (recording.mode === "jev" && (!jevKey || !["typesafe/jev-1.13", "typesafe/jev-1.14"].includes(jevModel)))
+  if (
+    limits.maxActions !== claimedLimits.maxActions ||
+    limits.maxDurationSeconds !== claimedLimits.maxDurationSeconds
+  )
+    throw new Error("Recording limits changed after claim");
+  if (
+    recording.mode === "jev" &&
+    (!jevKey || !["typesafe/jev-1.13", "typesafe/jev-1.14"].includes(jevModel))
+  )
     throw new Error("Jev key not configured");
   const safe = await validateGameUrl(
     game.url,
@@ -165,7 +215,11 @@ async function runRecording(job: any) {
     throw new Error("Fixture mode is limited to this app’s controlled fixture");
   if (safe.local && recording.mode !== "fixture")
     throw new Error("Local fixture requires fixture mode");
-  const policy = await prepareBrowserPolicy(safe, game.networkPolicy, recording.mode === "fixture");
+  const policy = await prepareBrowserPolicy(
+    safe,
+    game.networkPolicy,
+    recording.mode === "fixture",
+  );
   const dir = await mkdtemp(join(tmpdir(), "game-recording-"));
   let context: BrowserContext | undefined;
   let browser;
@@ -206,7 +260,15 @@ async function runRecording(job: any) {
   try {
     if (safe.local && recording.mode === "fixture") {
       // Only the app's exact controlled local fixture may run without the container boundary.
-      browser = await chromium.launch({ headless: true, args: ["--no-proxy-server", "--disable-quic", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp", `--host-resolver-rules=${resolverRules(policy)}`] });
+      browser = await chromium.launch({
+        headless: true,
+        args: [
+          "--no-proxy-server",
+          "--disable-quic",
+          "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+          `--host-resolver-rules=${resolverRules(policy)}`,
+        ],
+      });
     } else {
       const endpoint = await startIsolatedBrowser(policy);
       isolated = true;
@@ -223,13 +285,26 @@ async function runRecording(job: any) {
     started = Date.now();
     evidence.beginCapture();
     const page = await context.newPage();
-    await installBrowserPolicy(context, page, policy, () => evidence.blockedRequest(), app.origin, job.syntheticCapability ? { url: safe.url, capability: job.syntheticCapability } : undefined);
+    await installBrowserPolicy(
+      context,
+      page,
+      policy,
+      () => evidence.blockedRequest(),
+      app.origin,
+      job.syntheticCapability
+        ? { url: safe.url, capability: job.syntheticCapability }
+        : undefined,
+    );
     page.on("pageerror", (error) => evidence.pageError(error.name));
     page.setDefaultTimeout(5000);
     page.setDefaultNavigationTimeout(15000);
     await page.goto(safe.url, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(
-      () => Boolean((window as any).BlazeGameAdapter || (window as any).gameMarketingAdapter),
+      () =>
+        Boolean(
+          (window as any).BlazeGameAdapter ||
+          (window as any).gameMarketingAdapter,
+        ),
       null,
       { timeout: 10000 },
     );
@@ -242,10 +317,12 @@ async function runRecording(job: any) {
       if (!leaseValid) throw new Error("Worker lease heartbeat failed");
       const raw = await bounded(
         page.evaluate(async () => {
-          const a = (window as any).BlazeGameAdapter || (window as any).gameMarketingAdapter;
+          const a =
+            (window as any).BlazeGameAdapter ||
+            (window as any).gameMarketingAdapter;
           const state = JSON.stringify(await a.getState());
           if (!state || state.length > 8000)
-            throw new Error("Adapter state exceeds 8 KB");
+            throw new Error("Adapter state exceeds 8,000 characters");
           const actions = a.actions;
           if (!Array.isArray(actions) || actions.length > 20)
             throw new Error("Invalid adapter actions");
@@ -266,7 +343,10 @@ async function runRecording(job: any) {
         state: JSON.parse(raw.state) as unknown,
         actions: raw.actions,
       };
-      const { phase, terminal, actions } = validateAdapterSnapshot(snap.state, snap.actions);
+      const { phase, terminal, actions } = validateAdapterSnapshot(
+        snap.state,
+        snap.actions,
+      );
       evidence.state(snap.state, raw.state);
       if (terminal) {
         await event("round_complete", { result: String(phase) });
@@ -278,15 +358,42 @@ async function runRecording(job: any) {
         recording.mode === "fixture"
           ? fixtureChoice(snap.state, actions)
           : needsJev
-            ? await choose(snap.state, actions, jevKey, jevModel, Math.max(1, remaining()))
+            ? await choose(
+                snap.state,
+                actions,
+                jevKey,
+                jevModel,
+                Math.max(1, remaining()),
+                async () => {
+                  if (!leaseValid || !budget.canAct())
+                    throw new Error(
+                      "Recording no longer eligible for a decision",
+                    );
+                  await api("/api/worker/jev-authorize", {
+                    recordingId: recording.id,
+                  });
+                  if (!leaseValid || !budget.canAct() || remaining() <= 0)
+                    throw new Error(
+                      "Recording no longer eligible for a decision",
+                    );
+                },
+                (audit) => evidence.auditJev(audit),
+              )
             : actions[0].id;
       if (needsJev) evidence.modelDecision();
       if (!leaseValid) throw new Error("Worker lease heartbeat failed");
       if (remaining() <= 0) break;
-      evidence.decision(recording.mode === "fixture" ? "fixture" : needsJev ? "jev" : "forced", selected, phase);
+      evidence.decision(
+        recording.mode === "fixture" ? "fixture" : needsJev ? "jev" : "forced",
+        selected,
+        phase,
+      );
       await bounded(
         page.evaluate(async (id) => {
-          await ((window as any).BlazeGameAdapter || (window as any).gameMarketingAdapter).act(id);
+          await (
+            (window as any).BlazeGameAdapter ||
+            (window as any).gameMarketingAdapter
+          ).act(id);
         }, selected),
         Math.max(1, Math.min(5000, remaining())),
       );
@@ -326,7 +433,10 @@ async function runRecording(job: any) {
       duration,
       videoUrl,
       screenshotUrl,
-      actions: actionsLog.map(action => ({ ...action, at: Math.min(action.at, duration) })),
+      actions: actionsLog.map((action) => ({
+        ...action,
+        at: Math.min(action.at, duration),
+      })),
       observations: evidence.finish({
         fixture: recording.mode === "fixture",
         screenshotUrl,
@@ -404,9 +514,14 @@ async function runClip(job: any) {
         const location = res.headers.get("location");
         if (!location) throw new Error("Media redirect missing");
         const target = new URL(location);
-        if (target.protocol !== "https:" || target.username || target.password) throw new Error("Invalid media redirect");
+        if (target.protocol !== "https:" || target.username || target.password)
+          throw new Error("Invalid media redirect");
         // Do not forward the worker bearer token to the storage endpoint.
-        res = await fetch(target, {headers: {Range: `bytes=${offset}-${offset + chunkSize - 1}`}, signal: AbortSignal.timeout(30000), redirect: "error"});
+        res = await fetch(target, {
+          headers: { Range: `bytes=${offset}-${offset + chunkSize - 1}` },
+          signal: AbortSignal.timeout(30000),
+          redirect: "error",
+        });
       }
       if (!res.ok) throw new Error(`Source download returned ${res.status}`);
       const bytes = Buffer.from(await res.arrayBuffer());
@@ -493,7 +608,15 @@ async function main() {
   for (;;) {
     let job: any;
     try {
-      job = await api("/api/worker/claim");
+      job = await api(
+        "/api/worker/claim",
+        targetRecording ? { recordingId: targetRecording } : undefined,
+      );
+      if (targetRecording && !matchesValidationClaim(targetRecording, job)) {
+        if (job.recording || job.clip)
+          throw new Error("Unexpected validation claim");
+        return;
+      }
       if (!job.recording && !job.clip) {
         await sleep(5000);
         continue;
@@ -502,7 +625,10 @@ async function main() {
         if (job.clip) await runClip(job);
         else await runRecording(job);
       } catch (error) {
-        if (error instanceof ReportedFailure) continue;
+        if (error instanceof ReportedFailure) {
+          if (targetRecording) return;
+          continue;
+        }
         const code = failureCode(error);
         await api(
           "/api/worker/complete",
@@ -522,7 +648,15 @@ async function main() {
               },
         );
       }
+      if (targetRecording) return;
     } catch {
+      if (targetRecording) {
+        console.error(
+          "Validation worker stopped after its single claim attempt",
+        );
+        process.exitCode = 1;
+        return;
+      }
       console.error("Worker request failed; retrying");
       await sleep(5000);
     }

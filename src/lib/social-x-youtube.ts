@@ -50,11 +50,12 @@ function validIdentity(id: unknown, name: unknown) {
   }
   return { accountId: id, accountName: name.trim() };
 }
-async function makeGrant(provider: "x" | "x_feedback" | "youtube", data: any, previous?: ProviderSecret): Promise<SocialGrant> {
+async function makeGrant(provider: "x" | "x_feedback" | "youtube", data: any, previous?: ProviderSecret, beforeIdentity?: () => Promise<void>): Promise<SocialGrant> {
   const parsed = parseToken(data, provider === "x_feedback" ? xFeedbackScopes : provider === "x" ? xScopes : youtubeScopes, previous);
   if (provider === "x_feedback" && parsed.scopes.some((scope) => !xFeedbackScopes.includes(scope))) throw new Error("X returned unexpected permissions. Reconnect using the read-only feedback app.");
   let identity: { accountId: string; accountName: string };
   if (provider !== "youtube") {
+    if (provider === "x_feedback") { if (!beforeIdentity) throw new Error("X identity approval is required."); await beforeIdentity(); }
     const result = await request("https://api.x.com/2/users/me", { headers: { Authorization: `Bearer ${parsed.token}` } });
     identity = validIdentity(result?.data?.id, result?.data?.name);
   } else {
@@ -76,15 +77,17 @@ function authorize(provider: "x" | "x_feedback" | "youtube", input: { state: str
   url.search = new URLSearchParams(params).toString();
   return url.toString();
 }
-async function exchange(provider: "x" | "x_feedback" | "youtube", input: { code: string; verifier: string; redirectUri: string }) {
+async function exchange(provider: "x" | "x_feedback" | "youtube", input: { code: string; verifier: string; redirectUri: string; beforeIdentity?: () => Promise<void> }) {
+  if (provider === "x_feedback" && !input.beforeIdentity) throw new Error("X identity approval is required.");
   const { id, secret } = credentials(provider);
   const common = { grant_type: "authorization_code", code: input.code, redirect_uri: input.redirectUri, code_verifier: input.verifier };
   const data = provider !== "youtube"
     ? await request("https://api.x.com/2/oauth2/token", formRequest(common, { Authorization: xBasic(provider as "x" | "x_feedback") }))
     : await request("https://oauth2.googleapis.com/token", formRequest({ ...common, client_id: id, client_secret: secret }));
-  return makeGrant(provider, data);
+  return makeGrant(provider, data, undefined, input.beforeIdentity);
 }
-async function refresh(provider: "x" | "x_feedback" | "youtube", previous: ProviderSecret) {
+async function refresh(provider: "x" | "x_feedback" | "youtube", previous: ProviderSecret, beforeIdentity?: () => Promise<void>) {
+  if (provider === "x_feedback" && !beforeIdentity) throw new Error("X identity approval is required.");
   const refreshToken = tokenString(previous.refreshToken);
   if (!refreshToken || !previous.accountId) throw new Error("Offline credentials are missing. Reconnect the account.");
   const { id, secret } = credentials(provider);
@@ -92,7 +95,7 @@ async function refresh(provider: "x" | "x_feedback" | "youtube", previous: Provi
   const data = provider !== "youtube"
     ? await request("https://api.x.com/2/oauth2/token", formRequest(body, { Authorization: xBasic(provider as "x" | "x_feedback") }))
     : await request("https://oauth2.googleapis.com/token", formRequest({ ...body, client_id: id, client_secret: secret }));
-  return makeGrant(provider, data, previous);
+  return makeGrant(provider, data, previous, beforeIdentity);
 }
 async function revoke(provider: "x" | "x_feedback" | "youtube", secret: ProviderSecret) {
   const token = tokenString(secret.refreshToken) || tokenString(secret.token);
@@ -125,5 +128,5 @@ export const youtubeAdapter: SocialAdapter = {
 export const xFeedbackAdapter: SocialAdapter = {
   provider: "x_feedback", requiredScopes: xFeedbackScopes, configured: () => configured("x_feedback"),
   setup: "Configure a separate X feedback OAuth web app, callback URL, X_FEEDBACK_CLIENT_ID and X_FEEDBACK_CLIENT_SECRET. Search access and pricing require separate verification.",
-  authorizationUrl: (input) => authorize("x_feedback", input), exchange: (input) => exchange("x_feedback", input), refresh: (secret) => refresh("x_feedback", secret), revoke: (secret) => revoke("x_feedback", secret),
+  authorizationUrl: (input) => authorize("x_feedback", input), exchange: (input) => exchange("x_feedback", input), refresh: (secret, hook) => refresh("x_feedback", secret, hook), revoke: (secret) => revoke("x_feedback", secret),
 };

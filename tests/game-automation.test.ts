@@ -21,7 +21,7 @@ describe("automatic Jev recording and clip candidates", () => {
   it("requires verified same-game model decisions, provider, worker, and investigated profile", async () => {
     await ready();
     let result = await automation.automationState("ws", game.id);
-    expect(result.ready).toBe(false); expect(result.reasons.join(" ")).toContain("Paid Jev runs are blocked"); expect(result.adapterVerified).toBe(true); expect(result.draftReady).toBe(false);
+    expect(result.ready).toBe(false); expect(result.reasons.join(" ")).toContain("Recurring background play needs separate approval"); expect(result.adapterVerified).toBe(true); expect(result.draftReady).toBe(false);
     await db.put("ws", "recording", { ...rec, observations: [{ at: 1, text: "Observed 1 actions and 0 Jev model decisions.", type: "observation" }] });
     await db.put("ws", "recording", { ...rec, id: "fixture", mode: "fixture", videoUrl: "/api/media/media_real" });
     result = await automation.automationState("ws", game.id);
@@ -140,3 +140,5 @@ describe("bounded content recovery", () => {
     } finally { vi.unstubAllGlobals(); }
   }, 60000);
 });
+
+it("never uses controlled-lab Jev evidence as real-game readiness",()=>{expect(automation.actualJev({...rec,targetProvenance:"controlled_lab"})).toBe(false);});

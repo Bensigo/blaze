@@ -4,6 +4,7 @@ export type Observation = {
   type: "observation" | "hypothesis" | "error";
   screenshotUrl?: string;
 };
+import type { JevAudit } from "./jev-decision";
 const phases = new Set([
   "ready",
   "playing",
@@ -55,15 +56,21 @@ export class RunEvidence {
   private blocked = 0;
   private actionCount = 0;
   private models = 0;
+  private jevDispatches = 0;
+  private jevAudit: Observation[] = [];
   private completed = false;
   private capturedDuration?: number;
   private pending?: { at: number; source: string; id: string; before: string };
   constructor(start = Date.now()) {
     this.start = start;
   }
-  beginCapture() { this.start = Date.now(); this.capturedDuration = undefined; }
+  beginCapture() {
+    this.start = Date.now();
+    this.capturedDuration = undefined;
+  }
   endCapture(duration: number) {
-    if (!Number.isFinite(duration) || duration <= 0 || duration > 180) throw new Error("Invalid capture duration");
+    if (!Number.isFinite(duration) || duration <= 0 || duration > 180)
+      throw new Error("Invalid capture duration");
     this.capturedDuration = duration;
   }
   now() {
@@ -96,7 +103,11 @@ export class RunEvidence {
   private trace(result: string) {
     if (!this.pending) return;
     const p = this.pending;
-    this.add({ at: p.at, type: "observation", text: `Trace v1: ${p.source} selected ${p.id}; phase ${p.before} -> ${result}.` });
+    this.add({
+      at: p.at,
+      type: "observation",
+      text: `Trace v1: ${p.source} selected ${p.id}; phase ${p.before} -> ${result}.`,
+    });
     this.pending = undefined;
   }
   action() {
@@ -104,6 +115,25 @@ export class RunEvidence {
   }
   modelDecision() {
     this.models++;
+  }
+  auditJev(event: JevAudit) {
+    if (event.type === "dispatch") {
+      this.jevDispatches++;
+      if (this.jevAudit.length < 4)
+        this.jevAudit.push({
+          at: this.now(),
+          type: "observation",
+          text: `Jev dispatch intent ${this.jevDispatches}: requested model ${event.model}; request ${event.requestBytes} bytes.`,
+        });
+    } else if (this.jevAudit.length < 4) {
+      const value = (n: number | null) =>
+        n === null ? "unavailable" : String(n);
+      this.jevAudit.push({
+        at: this.now(),
+        type: "observation",
+        text: `Jev response: resolved model ${event.model}; response ${event.responseBytes} bytes; input tokens ${value(event.inputTokens)}; output tokens ${value(event.outputTokens)}; provider cost USD ${value(event.cost)}.`,
+      });
+    }
   }
   pageError(name: unknown) {
     this.errorCount++;
@@ -131,7 +161,22 @@ export class RunEvidence {
   }): Observation[] {
     this.trace(options.failure ? "action_or_run_failed" : "result_unobserved");
     const at = this.now(),
-      items = this.items.map(item => ({ ...item, at: Math.min(item.at, at) }));
+      items = this.items.map((item) => ({
+        ...item,
+        at: Math.min(item.at, at),
+      }));
+    items.push(
+      ...this.jevAudit.map((item) => ({ ...item, at: Math.min(item.at, at) })),
+    );
+    if (
+      this.jevDispatches &&
+      !this.jevAudit.some((item) => item.text.startsWith("Jev response:"))
+    )
+      items.push({
+        at,
+        type: "observation",
+        text: "Jev response usage and cost unavailable; dispatch may have incurred charges.",
+      });
     items.push({
       at,
       text: `Observed ${this.actionCount} actions and ${this.models} Jev model decisions. Final observed phase: ${this.lastPhase || "unobserved"}; completion ${this.completed ? "observed" : "not observed"}.`,

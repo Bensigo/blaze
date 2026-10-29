@@ -3,7 +3,7 @@ import {sameOrigin} from './security';
 import {rateLimit} from './db';
 import {AccountSettingsError} from './ai-settings';
 import {ZodError,type ZodType} from 'zod';
-export async function accountWrite<T>(request:Request,schema:ZodType<T>,operation:(workspace:string,input:T)=>Promise<unknown>) {
+export async function accountWrite<T>(request:Request,schema:ZodType<T>,operation:(workspace:string,input:T,actor:string)=>Promise<unknown>) {
   try {
     if(!sameOrigin(request))return Response.json({error:'Invalid request origin.'},{status:403});
     const user=await requireIdentity();
@@ -17,6 +17,6 @@ export async function accountWrite<T>(request:Request,schema:ZodType<T>,operatio
     let text:string;try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{return Response.json({error:'Invalid settings request.'},{status:400});}
     let input:T;
     try {input=schema.parse(JSON.parse(text));}catch(error){return Response.json({error:error instanceof ZodError?'Check the provider, key and model fields.':'Invalid settings request.'},{status:400});}
-    try {return Response.json(await operation(user.workspace_id,input),{headers:{'Cache-Control':'no-store'}});}catch(error){return Response.json({error:error instanceof AccountSettingsError?error.message:'Unable to update account settings. Please try again.'},{status:400,headers:{'Cache-Control':'no-store'}});}
+    try {return Response.json(await operation(user.workspace_id,input,user.id),{headers:{'Cache-Control':'no-store'}});}catch(error){return Response.json({error:error instanceof AccountSettingsError?error.message:'Unable to update account settings. Please try again.'},{status:400,headers:{'Cache-Control':'no-store'}});}
   } catch(error){return apiError(error);}
 }

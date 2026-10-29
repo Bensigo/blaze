@@ -1,7 +1,7 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 import {z} from 'zod';
 const state=vi.hoisted(()=>({workspace:'ws-a',allowed:true,authenticated:true}));
-vi.mock('../src/lib/auth',()=>({requireIdentity:async()=>{if(!state.authenticated)throw new Error('unauthorized');return {workspace_id:state.workspace};},apiError:()=>Response.json({error:'Sign in required.'},{status:401})}));
+vi.mock('../src/lib/auth',()=>({requireIdentity:async()=>{if(!state.authenticated)throw new Error('unauthorized');return {id:"owner-a",workspace_id:state.workspace};},apiError:()=>Response.json({error:'Sign in required.'},{status:401})}));
 vi.mock('../src/lib/db',()=>({rateLimit:async()=>state.allowed}));
 import {accountWrite} from '../src/lib/account-request';
 import {AccountSettingsError} from '../src/lib/ai-settings';
@@ -21,7 +21,7 @@ describe('account settings API boundary',()=>{
   const rejected=await accountWrite(request({provider:'openrouter',token:'controlled-key',workspace:'ws-b'}),schema,operation);
   expect(rejected.status).toBe(400);expect(await rejected.text()).not.toContain('controlled-key');expect(operation).not.toHaveBeenCalled();
   expect((await accountWrite(request({provider:'openrouter',token:'controlled-key'}),schema,operation)).status).toBe(200);
-  expect(operation).toHaveBeenCalledWith('ws-a',{provider:'openrouter',token:'controlled-key'});
+  expect(operation).toHaveBeenCalledWith('ws-a',{provider:'openrouter',token:'controlled-key'},'owner-a');
  });
  it('only returns deliberate safe errors, never internal provider or secret messages',async()=>{
   const response=await accountWrite(request({provider:'openrouter',token:'controlled-key'}),schema,async()=>{throw new Error('controlled-key provider raw body');});
