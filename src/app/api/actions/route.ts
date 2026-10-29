@@ -40,7 +40,7 @@ import type {
   Channel,
 } from "@/lib/types";
 import { createReleaseMeasurement } from "@/lib/measurements";
-import { setFindingDecision } from "@/lib/finding-decisions";
+import { saveFindingNote, setFindingDecision } from "@/lib/finding-decisions";
 import { validateMeasurementWindows } from "@/lib/measurement-outcomes";
 const str = z.string().trim().min(1).max(500);
 const rid = z.string().max(100);
@@ -566,6 +566,13 @@ export async function POST(request: Request) {
       const measurement = await createReleaseMeasurement(workspace, input);
       return Response.json({ measurement });
     }
+    if (action === "save_finding_note") {
+      const findingId = rid.parse(body.id);
+      const note = z.string().max(500).parse(body.note);
+      const gameId = body.gameId === undefined ? undefined : rid.parse(body.gameId);
+      const finding = await saveFindingNote(workspace, findingId, note, new Date(), gameId);
+      return Response.json({ finding });
+    }
     if (action === "update_finding") {
       const finding = await requireRecord<Finding>("finding", body.id);
       const status = z
@@ -575,8 +582,8 @@ export async function POST(request: Request) {
       const note = z.string().trim().max(500).optional().parse(body.note);
       const deferredUntil = status === "deferred" ? z.string().datetime().parse(body.deferredUntil) : undefined;
       if (deferredUntil && (Date.parse(deferredUntil)<=Date.now()||Date.parse(deferredUntil)>Date.now()+366*86400000)) throw new HttpError(400,"Choose a defer date within the next year.");
-      await setFindingDecision(workspace,finding.id,{status,...(note!==undefined?{note}:{}),...(deferredUntil?{deferredUntil}:{})});
-      return Response.json({ ok: true });
+      const updated = await setFindingDecision(workspace,finding.id,{status,...(note!==undefined?{note}:{}),...(deferredUntil?{deferredUntil}:{})});
+      return Response.json({ ok: true, finding: updated });
     }
     throw new HttpError(400, "Unknown action.");
   } catch (e) {
