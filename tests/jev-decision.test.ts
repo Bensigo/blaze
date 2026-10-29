@@ -29,7 +29,7 @@ describe("Jev decision transport", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(JSON.parse(init.body)).toEqual({
       model: "typesafe/jev-1.13",
-      state: { turn: 1 },
+      state: '{"turn":1}',
       questions: {
         next: {
           type: "choice",
