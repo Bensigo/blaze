@@ -1,0 +1,23 @@
+.account-settings { max-width: 960px; color: var(--ink, #1d2922); }
+.account-settings-heading { padding-bottom: 28px; }
+.account-settings-heading h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: -.03em; }
+.account-settings-heading p, .account-settings-section > div > p { color: var(--muted, #707a73); font-size: 14px; line-height: 1.5; margin: 7px 0 0; }
+.account-settings-section { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(280px, 1.6fr); gap: 40px; padding: 28px 0; border-top: 1px solid var(--line, #e2e7e1); }
+.account-settings-section h2 { margin: 0; font-size: 16px; }
+.account-settings-identity { display: flex; flex-direction: column; gap: 5px; font-size: 14px; }
+.account-settings-identity span { color: var(--muted, #707a73); }
+.account-settings-form { display: grid; gap: 17px; min-width: 0; }
+.account-settings-form label { display: grid; gap: 7px; font-size: 13px; font-weight: 600; }
+.account-settings-form input, .account-settings-form select { width: 100%; min-width: 0; height: 40px; padding: 0 11px; border: 1px solid #d9e1da; border-radius: 7px; background: #fff; color: var(--ink, #1d2922); font: inherit; font-size: 14px; font-weight: 400; }
+.account-settings-form small, .account-settings-hint { color: var(--muted, #707a73); font-size: 12px; font-weight: 400; line-height: 1.5; margin: 6px 0 0; }
+.account-settings-form button { min-height: 38px; padding: 0 15px; border-radius: 7px; font-size: 13px; font-weight: 600; }
+.account-settings-primary { border: 1px solid var(--accent, #397455); background: var(--accent, #397455); color: #fff; }
+.account-settings-secondary { border: 1px solid #d9e1da; background: #fff; color: var(--ink, #1d2922); }
+.account-settings-primary:hover:not(:disabled) { background: var(--accent-dark, #2e6147); }
+.account-settings-secondary:hover:not(:disabled) { background: #f1f4ef; }
+.account-settings-form button:disabled { opacity: .55; cursor: not-allowed; }
+.account-settings-error, .account-settings-warning, .account-settings-success { margin: 0; font-size: 13px; line-height: 1.5; }
+.account-settings-error { color: #a12c2c; }.account-settings-warning { color: #805418; }.account-settings-success { color: #28633f; }
+@media (max-width: 680px) { .account-settings-section { grid-template-columns: 1fr; gap: 18px; padding: 24px 0; } .account-settings-heading h1 { font-size: 24px; } }
+.account-settings-load-error { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.account-settings-load-error button { min-height: 38px; padding: 0 15px; border-radius: 7px; font-size: 13px; font-weight: 600; }

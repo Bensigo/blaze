@@ -1,5 +1,5 @@
-import { query, list } from "./db";
-import { decrypt, encrypt } from "./security";
+import { query, list, get } from "./db";
+import { decrypt, encrypt, hash } from "./security";
 import type { Connection, ProviderSecret } from "./types";
 export async function saveSecret(
   workspace: string,
@@ -16,14 +16,32 @@ export async function secretFor(
   provider: string,
   accountId?: string,
 ): Promise<ProviderSecret | undefined> {
+  if (provider === "jev") {
+    if (accountId) return;
+    const settings = await get<{connectionId:string;model:string;revision:string;credentialVersion:string}>(workspace, "jev_settings", "default");
+    if (!settings?.revision || !['typesafe/jev-1.13','typesafe/jev-1.14'].includes(settings.model)) return;
+    const connection = await get<Connection>(workspace, "connection", settings.connectionId);
+    const row = (await query<{encrypted:string}>("SELECT encrypted FROM credentials WHERE workspace_id=$1 AND provider=$2", [workspace, settings.connectionId]))[0];
+    if (!connection?.connected || connection.provider !== 'openrouter' || !row || `${connection.credentialVersion || 'legacy'}:${hash(row.encrypted)}` !== settings.credentialVersion) return;
+    const secret = await secretForConnection(workspace, connection.id);
+    if (!secret?.token) return;
+    return {...secret, model:settings.model, jevSettingsRevision:settings.revision, jevCredentialVersion:settings.credentialVersion, jevConnectionId:settings.connectionId};
+  }
   const connections = await list<Connection>(workspace, "connection");
-  const conn = connections.find(
+  const candidates = connections.filter(
     (c) =>
       c.provider === provider &&
       c.connected &&
       (!accountId || c.accountId === accountId),
   );
+  const conn = candidates[0];
   if (!conn) return;
+  return secretForConnection(workspace, conn.id);
+}
+
+export async function secretForConnection(workspace: string, connectionId: string): Promise<ProviderSecret | undefined> {
+  const conn = await get<Connection>(workspace, "connection", connectionId);
+  if (!conn?.connected) return;
   const row = (
     await query<{ encrypted: string }>(
       "SELECT encrypted FROM credentials WHERE workspace_id=$1 AND provider=$2",

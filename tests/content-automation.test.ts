@@ -1,4 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+const catalogState = vi.hoisted(() => ({ compatible: true }));
+vi.mock("../src/lib/ai-model-catalog", () => ({ discoverAIModels: async (provider: string) => ({ provider, models: [{ id: "test", name: "test", compatible: catalogState.compatible, supportsTools: true, supportsStructuredOutput: true }], fetchedAt: "", source: "fixture" }) }));
 import type { Clip, Game, Recording } from "../src/lib/types";
 let db: typeof import("../src/lib/db");
 let automation: typeof import("../src/lib/content-automation");
@@ -8,6 +10,7 @@ const recording: Recording = { id: "r", gameId: "g", title: "run", status: "read
 const clip: Clip = { id: "c", gameId: "g", recordingId: "r", title: "Clip", start: 0, end: 10, layout: "landscape", status: "ready", videoUrl: "/api/media/media_clip", createdAt: new Date().toISOString() };
 beforeAll(async () => { delete process.env.DATABASE_URL; delete process.env.VERCEL; process.env.LOCAL_DATABASE_PATH = "memory://"; process.env.CREDENTIALS_ENCRYPTION_KEY = "01234567890123456789012345678901"; db = await import("../src/lib/db"); automation = await import("../src/lib/content-automation"); credentials = await import("../src/lib/credentials"); });
 beforeEach(async () => {
+  catalogState.compatible = true;
   await db.query("DELETE FROM jobs"); await db.query("DELETE FROM records"); await db.query("DELETE FROM credentials"); await db.query("DELETE FROM events");
   await db.put("ws", "game", game); await db.put("ws", "recording", recording); await db.put("ws", "clip", clip);
   await db.put("ws", "media", { id: "media_real", recordingId: "r", kind: "video" }); await db.put("ws", "media", { id: "media_clip", recordingId: "r", clipId: "c", kind: "clip", contentType: "video/mp4" });
@@ -41,8 +44,50 @@ describe("automatic clip draft", () => {
     await db.put("ws", "recording", recording); expect(await automation.queueClipDraft("ws", clip)).toBe(true);
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("provider failed"); }));
     try { await automation.drainContentAutomation(); await automation.drainContentAutomation(); } finally { vi.unstubAllGlobals(); }
-    const posts = await db.list<import("../src/lib/types").Post>("ws", "post"); expect(posts).toHaveLength(1); expect(posts[0]).toMatchObject({ status: "failed", deliveryMethod: "manual" }); expect(posts[0].error).toContain("Anthropic");
+    const posts = await db.list<import("../src/lib/types").Post>("ws", "post"); expect(posts).toHaveLength(1); expect(posts[0]).toMatchObject({ status: "failed", deliveryMethod: "manual" }); expect(posts[0].error).toContain("Account settings");
     expect(await automation.queueClipDraft("ws", clip)).toBe(false);
+  });
+  it("pins selection and fails changed or legacy unpinned jobs without a model request", async () => {
+    await connect();
+    expect(await automation.queueClipDraft("ws", clip)).toBe(true);
+    const job = (await db.query<{body:{ai:unknown}}>("SELECT body FROM jobs WHERE kind='content_draft'"))[0];
+    expect(job.body.ai).toMatchObject({ provider: "anthropic", model: "test", connectionId: "anth", settingsRevision: expect.any(String), credentialVersion: expect.any(String) });
+    await db.put("ws", "connection", { id: "other", provider: "anthropic", connected: true, checkedAt: new Date().toISOString(), model: "test" });
+    await credentials.saveSecret("ws", "other", { token: "different", model: "test" });
+    await db.put("ws", "ai_settings", { id: "default", provider: "anthropic", model: "test", connectionId: "other", validatedAt: new Date().toISOString() });
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    try {
+      await automation.drainContentAutomation();
+      const posts = await db.list<import("../src/lib/types").Post>("ws", "post");
+      expect(posts[0]).toMatchObject({ status: "failed", error: expect.stringContaining("changed") });
+      expect(fetchMock).not.toHaveBeenCalled();
+      await db.query("DELETE FROM jobs WHERE kind='content_draft'"); await db.query("DELETE FROM records WHERE kind='post'");
+      await db.query("INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES('old','ws','content_draft','queued',$1::jsonb)", [JSON.stringify({ gameId: 'g', clipId: 'c' })]);
+      await automation.drainContentAutomation();
+      expect((await db.list<import("../src/lib/types").Post>("ws", "post"))[0]).toMatchObject({ status: "failed", error: expect.stringContaining("no AI selection") });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("does not run a queued draft after the same connection key is replaced", async () => {
+    await connect(); expect(await automation.queueClipDraft("ws", clip)).toBe(true);
+    await credentials.saveSecret("ws", "anth", { token: "rotated", model: "test" });
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    try {
+      await automation.drainContentAutomation();
+      expect((await db.list<import("../src/lib/types").Post>("ws", "post"))[0]).toMatchObject({ status: "failed", error: expect.stringContaining("changed") });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("validates availability again before a paid request", async () => {
+    await connect();
+    expect(await automation.queueClipDraft("ws", clip)).toBe(true);
+    catalogState.compatible = false;
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    try {
+      await automation.drainContentAutomation();
+      expect((await db.list<import("../src/lib/types").Post>("ws", "post"))[0]).toMatchObject({ status: "failed", error: expect.stringContaining("Account settings") });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
   });
   it("surfaces an expired model lease without retrying the request", async () => {
     await connect();

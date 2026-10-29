@@ -215,7 +215,22 @@ export function summarize(
   const measured = sessions.map((s) => s.activePlaySeconds).filter((n): n is number => n !== null && n !== undefined).sort((a,b) => a-b);
   const totalSeconds = measured.length ? measured.reduce((a,b) => a+b, 0) : null;
   const middle = Math.floor(measured.length / 2);
+  const conversion = new Map<string, NonNullable<Analytics["launch"]>["conversion"][number]>();
+  for (const s of sessions) {
+    const names = groups.get(`${s.gameId}:${s.id}`)!.map(e => e.name);
+    if (!names.includes("visit")) continue;
+    const source = s.source || "Unknown", campaign = s.campaign || "Unspecified";
+    const key = JSON.stringify([source, campaign]);
+    const row = conversion.get(key) || { source, campaign, visits: 0, starts: 0, meaningful: 0, activeMeasured: 0 };
+    const started = names.includes("round_start");
+    row.visits++; if (started) row.starts++;
+    if (started && (names.indexOf("round_complete", names.indexOf("round_start") + 1) >= 0 || (s.activePlaySeconds != null && s.activePlaySeconds >= 30))) row.meaningful++;
+    if (started && s.activePlaySeconds != null) row.activeMeasured++;
+    conversion.set(key, row);
+  }
+  const conversionRows = [...conversion.values()].sort((a,b) => b.visits - a.visits || a.source.localeCompare(b.source) || a.campaign.localeCompare(b.campaign));
   return {
+    launch: { coverage: { sessions: sessions.length, visit: sessions.filter(s=>groups.get(`${s.gameId}:${s.id}`)!.some(e=>e.name === "visit")).length, loaded: sessions.filter(s=>groups.get(`${s.gameId}:${s.id}`)!.some(e=>e.name === "loaded")).length, roundStart: sessions.filter(s=>groups.get(`${s.gameId}:${s.id}`)!.some(e=>e.name === "round_start")).length, firstAction: sessions.filter(s=>groups.get(`${s.gameId}:${s.id}`)!.some(e=>e.name === "first_action")).length, roundComplete: sessions.filter(s=>s.completed).length, exit: sessions.filter(s=>groups.get(`${s.gameId}:${s.id}`)!.some(e=>e.name === "exit")).length }, visits: conversionRows.reduce((n,r)=>n+r.visits,0), exits: sessions.filter(s=>groups.get(`${s.gameId}:${s.id}`)!.some(e=>e.name === "exit")).length, conversion: conversionRows.slice(0,100), conversionTotal: conversionRows.length },
     windowEnd: new Date(now).toISOString(),
     loadedSessions: sessions.filter((s) => groups.get(`${s.gameId}:${s.id}`)!.some((e) => e.name === "loaded")).length,
     progressionSessions: sessions.filter((s) => groups.get(`${s.gameId}:${s.id}`)!.some((e) => e.name === "progression")).length,

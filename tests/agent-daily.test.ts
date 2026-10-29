@@ -2,7 +2,9 @@ import { beforeAll, beforeEach, expect, it, vi } from 'vitest';
 const state=vi.hoisted(()=>({connected:true,fail:false}));
 vi.mock('../src/lib/credentials',()=>({researchSecrets:async()=>state.connected?{anthropic:{token:'fixture',model:'fixture'}}:{},secretFor:async()=>undefined}));
 vi.mock('../src/lib/integrations',()=>({runResearch:async()=>({findings:[],coverage:[{source:'fixture',status:'complete',detail:'baseline'}]})}));
-vi.mock('../src/lib/agent',()=>({anthropicModel:()=>({}),interpretResearch:async()=>{
+vi.mock('../src/lib/ai-settings',()=>({readAISettings:async()=>state.connected?{provider:'openrouter',model:'test',connectionId:'key'}:null,resolveAISecret:async()=>({token:'fixture',model:'test',aiProvider:'openrouter'})}));
+vi.mock('../src/lib/ai-provider',()=>({aiModel:()=>({})}));
+vi.mock('../src/lib/agent',()=>({interpretResearch:async()=>{
   if(state.fail) throw new Error('offline');
   return ['gameplay','content'].map(topic=>({gameId:'g',aiTopic:topic,title:`AI suggestion: ${topic}`,detail:'Fixture proposal',type:'hypothesis',priority:'medium',evidence:[{label:'Same evidence'}]}));
 }}));

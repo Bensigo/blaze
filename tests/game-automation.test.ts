@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ jev: true, anth: false, profile: true }));
-vi.mock("../src/lib/credentials", () => ({ secretFor: async (_workspace: string, provider: string) => provider === "jev" && state.jev ? { token: "test-jevs" } : provider === "anthropic" && state.anth ? { token: "test-anth", model: "test-model" } : undefined }));
+vi.mock("../src/lib/credentials", () => ({ secretFor: async (_workspace: string, provider: string) => provider === "jev" && state.jev ? { token: "test-jevs", model: "typesafe/jev-1.13", jevConnectionId: "jev", jevSettingsRevision: "rev", jevCredentialVersion: "cred" } : provider === "anthropic" && state.anth ? { token: "test-anth", model: "test-model" } : undefined }));
+vi.mock("../src/lib/ai-settings", () => ({ verifyJevModel: async () => {}, resolveAISecret: async (_workspace: string, live?: boolean) => { if (live !== false || !state.anth) throw new Error("unavailable"); return { token: "test-anth", model: "test-model", aiProvider: "anthropic", aiConnectionId: "anth", aiSettingsRevision: "rev", aiCredentialVersion: "cred" }; } }));
 vi.mock("../src/lib/game-profile", () => ({ readProfile: async () => ({ status: state.profile ? "partial" : "queued", lastRefresh: state.profile ? "2026-01-01T00:00:00Z" : null }), drainProfile: async () => {} }));
 let db: typeof import("../src/lib/db");
 let automation: typeof import("../src/lib/game-automation");
@@ -11,7 +12,7 @@ const game = { id: "game-a", title: "Actual game", url: "https://game.example/",
 const rec = { id: "rec-real", gameId: game.id, title: "Jev", mode: "jev" as const, status: "ready" as const, createdAt: "2026-01-01T00:00:00Z", videoUrl: "/api/media/media_real", duration: 25, actions: [{ id: "left", at: 3 }], observations: [{ at: 10, text: "Observed 1 actions and 1 Jev model decisions.", type: "observation" as const }] };
 async function ready() {
   await db.put("ws", "game", game);
-  await db.put("ws", "connection", { id: "jev", provider: "jev", label: "Jev", connected: true, checkedAt: "2026-01-01T00:00:00Z" });
+  await db.put("ws", "connection", { id: "jev", provider: "openrouter", label: "Jev", connected: true, checkedAt: "2026-01-01T00:00:00Z" });
   await db.put("ws", "recording", rec);
   await db.put("ws", "media", { id: "media_real", recordingId: rec.id, kind: "video", size: 100, contentType: "video/webm", backend: "local", location: "private", createdAt: rec.createdAt });
   await db.query(`INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES('worker-runtime','system','worker_heartbeat','active','{}')`);

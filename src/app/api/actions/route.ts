@@ -1,3 +1,4 @@
+import { resolveAISecret, AccountSettingsError } from "@/lib/ai-settings";
 import { loadAgentHistory } from "@/lib/agent-history";
 import { after } from "next/server";
 import { createGameWithProfile, drainProfile } from "@/lib/game-profile";
@@ -251,14 +252,8 @@ export async function POST(request: Request) {
         : undefined;
       if (clip && clip.gameId !== game.id)
         throw new HttpError(400, "Choose a clip from this game.");
-      const secret = await secretFor(workspace, "anthropic");
-      if (!secret)
-        throw new HttpError(400, "Connect Anthropic to generate a draft.");
-      if (!secret.model)
-        throw new HttpError(
-          400,
-          "Set a valid Anthropic model in Connections before generating a draft.",
-        );
+      let secret;
+      try { secret = await resolveAISecret(workspace); } catch (error) { if (error instanceof AccountSettingsError) throw new HttpError(400,error.message); throw error; }
       const recording = clip
         ? await get<Recording>(workspace, "recording", clip.recordingId)
         : undefined;
@@ -460,6 +455,7 @@ export async function POST(request: Request) {
       return Response.json({ post: await reconcile(workspace, post) });
     }
     if (action === "save_connection") {
+      if (["jev","anthropic","openrouter"].includes(body.provider)) throw new HttpError(400,"Manage Jev and AI provider keys in Account settings.");
       const v = z
         .object({
           provider: z.enum([

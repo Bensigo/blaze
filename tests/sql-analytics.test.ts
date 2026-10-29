@@ -50,6 +50,7 @@ describe("SQL analytics on Postgres",()=>{
     {name:"First action",count:4},{name:"Round completed",count:3},
   ]);
   expect(actual.funnel).toEqual(expected.funnel);
+  expect(actual.launch?.coverage).toEqual(expected.launch?.coverage);
   expect(actual).toMatchObject({sessions:6,starts:5,firstActions:4,completions:4,replays:1,syntheticSessions:1});
   expect(actual.dropoffs).toEqual(expect.arrayContaining([{name:"Viewed, no round start",count:1},{name:"Started, no first action",count:1}]));
  });

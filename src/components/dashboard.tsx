@@ -42,6 +42,9 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import ManualExportPanel from "./manual-export-panel";
+import GameConnections from "./game-connections";
+const AccountSettings = dynamic(() => import("./account-settings"), { loading: () => <p role="status">Loading account settings…</p> });
+const DiscoveryReview = dynamic(() => import("./discovery-review").then(module => module.DiscoveryReview), { loading: () => <p role="status">Loading search review…</p> });
 import type {
   Analytics,
   Channel,
@@ -73,6 +76,8 @@ type Page =
   | "calendar"
   | "research"
   | "connections"
+  | "account"
+  | "discovery"
   | "help";
 type Modal =
   | "game"
@@ -421,7 +426,7 @@ export default function Dashboard() {
     text: "",
     accountId: "",
     scheduledAt: "",
-    provider: "jev",
+    provider: "x",
     token: "",
     refreshToken: "",
     model: "",
@@ -775,7 +780,7 @@ export default function Dashboard() {
       text: "",
       accountId: "",
       scheduledAt: "",
-      provider: "jev",
+      provider: "x",
       token: "",
       refreshToken: "",
       model: "",
@@ -914,7 +919,7 @@ export default function Dashboard() {
   };
   const title =
     nav.find((n) => n.id === page)?.label ||
-    (page === "connections" ? "Connections" : "Setup & help");
+    (page === "connections" ? "Connections" : page === "account" ? "Account settings" : page === "discovery" ? "Search & answers" : "Setup & help");
   const editPost = (p: Post) => {
     const t = (
       p as Post & {
@@ -1258,7 +1263,7 @@ export default function Dashboard() {
                 <button
                   key={n.id}
                   onClick={() => changePage(n.id)}
-                  className={`nav-item ${page === n.id ? "active" : ""}`}
+                  className={`nav-item ${page === n.id || (page === "discovery" && n.id === "games") ? "active" : ""}`}
                 >
                   <n.icon size={17} />
                   <span>{n.label}</span>
@@ -1277,6 +1282,7 @@ export default function Dashboard() {
           >
             <Link2 size={17} /> Connections
           </button>
+          <button className={`nav-item ${page === "account" ? "active" : ""}`} onClick={() => changePage("account")}><Settings2 size={17}/> Account settings</button>
           <button
             className={`nav-item ${page === "help" ? "active" : ""}`}
             onClick={() => changePage("help")}
@@ -1346,9 +1352,9 @@ export default function Dashboard() {
                 ↻
               </button>
             )}
-            <Button variant="primary" onClick={() => openModal("game")}>
+            {page !== "account" && <Button variant="primary" onClick={() => openModal("game")}>
               <Plus size={16} /> Add game
-            </Button>
+            </Button>}
           </div>
         </header>
         {process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_BLAZE_CONTROLLED_FIXTURE === "true" && (
@@ -1386,7 +1392,7 @@ export default function Dashboard() {
           </div>
         )}
         <main className="main-content">
-          <div className="page-heading">
+          {page !== "account" && <div className="page-heading">
             <div>
               <h1>{title}</h1>
               <p>{pageDescriptions[page]}</p>
@@ -1409,7 +1415,7 @@ export default function Dashboard() {
                   </select>
                   <ChevronDown size={14} />
                 </label>
-                <label>
+                {page !== "discovery" && <label>
                   <span className="sr-only">Filter by date</span>
                   <CalendarDays size={15} />
                   <select
@@ -1421,10 +1427,10 @@ export default function Dashboard() {
                     <option value="30">Last 30 days</option>
                   </select>
                   <ChevronDown size={14} />
-                </label>
+                </label>}
               </div>
             )}
-          </div>
+          </div>}
           {(page === "overview" || page === "analytics") && (sessionScopeReady ? <PlayerAnalytics
             analytics={analytics} games={games} gameId={selectedGame} days={period} demo={snapshot.demo} detailed={page === "analytics"}
             onChooseGame={setSelectedGame} onAddGame={() => openModal("game")} onSetup={() => changePage("help")}
@@ -1475,6 +1481,7 @@ export default function Dashboard() {
                       <div className="game-actions">
                         <Button onClick={() => editGame(g)}>Edit</Button>
                         <Button onClick={() => setSelectedGame(g.id)}>Game profile</Button>
+                        <Button onClick={() => { setSelectedGame(g.id); changePage("discovery"); }}>Search &amp; answers</Button>
                         <Button
                           onClick={() => {
                             setSelectedGame(g.id);
@@ -1509,6 +1516,10 @@ export default function Dashboard() {
               )}
             </>
           )}
+          {page === "discovery" && <>
+            <SectionHead title={games.find(game => game.id === selectedGame)?.title || "Choose a game"} detail="Public discovery review. Gameplay investigation and AI keys are not required." action={<Button onClick={() => changePage("games")}>Back to games</Button>}/>
+            {snapshot.demo ? <Empty title="Sign in to review your game" detail="Public checks are unavailable in the example workspace."/> : selectedGame === "all" ? <Empty title="Choose one game" detail="Select a game above to read its cached observations or run a public-page review."/> : <DiscoveryReview key={selectedGame} gameId={selectedGame}/>}
+          </>}
           {page === "sessions" && (
             <>
               <SectionHead
@@ -1933,11 +1944,13 @@ export default function Dashboard() {
               </div>
             </>
           )}
+          {page === "account" && (snapshot.demo ? <Empty title="Sign in to configure your account" detail="The example workspace does not store credentials."/> : <AccountSettings user={snapshot.user} onSaved={async () => { await refresh(); }}/>) }
           {page === "connections" && (
             <>
+              <GameConnections games={games} origin={origin} onAdd={() => openModal("game")} onSetup={(gameId) => { setSelectedGame(gameId); changePage("help"); }} onSessions={(gameId) => { setSelectedGame(gameId); changePage("sessions"); }}/>
               <SectionHead
-                title="Connections"
-                detail="Provider credentials are stored on the server. Account authorization and platform review may be required."
+                title="Social & research integrations"
+                detail="Connect publishing accounts and research sources. Jev and AI provider keys are in Account settings."
                 action={
                   <Button
                     variant="primary"
@@ -1949,8 +1962,6 @@ export default function Dashboard() {
               />
               <div className="connection-list">
                 {[
-                  "jev",
-                  "anthropic",
                   "x",
                   "youtube",
                   "instagram",
@@ -2715,7 +2726,7 @@ export default function Dashboard() {
                     <Sparkles size={15} /> Generate draft
                   </Button>
                   <p className="muted">
-                    Generation requires a configured Anthropic connection.
+                    Generation uses the provider and compatible model saved in Account settings.
                     Review all generated copy.
                   </p>
                   <Field label={draft.deliveryMethod === "manual" ? "Planned time" : "Planned time (optional)"} hint={draft.deliveryMethod === "manual" ? `Required for manual review. Uses your browser time zone (${localTimeZone || "unavailable"}); you can edit this time.` : `Uses your browser time zone (${localTimeZone || "local time"}).`}>
@@ -2757,8 +2768,6 @@ export default function Dashboard() {
                       }
                     >
                       {[
-                        "jev",
-                        "anthropic",
                         "x",
                         "youtube",
                         "instagram",
@@ -2825,27 +2834,6 @@ export default function Dashboard() {
                       }
                     />
                   </Field>
-                  <Field label="Model (required for Anthropic)">
-                    <input
-                      value={draft.model}
-                      onChange={(e) =>
-                        setDraft({ ...draft, model: e.target.value })
-                      }
-                    />
-                  </Field>
-                  {draft.provider === "anthropic" && (
-                    <Field
-                      label="Anthropic workspace ID (optional)"
-                      hint="Required for multi-workspace keys; omit for workspace-scoped keys."
-                    >
-                      <input
-                        value={draft.workspaceId}
-                        onChange={(e) =>
-                          setDraft({ ...draft, workspaceId: e.target.value })
-                        }
-                      />
-                    </Field>
-                  )}
                   <Field label="Refresh token (optional)">
                     <input
                       type="password"
@@ -3062,7 +3050,9 @@ const pageDescriptions: Record<Page, string> = {
   content: "Prepare content for review and publication.",
   calendar: "Plan and manage upcoming posts.",
   research: "Explore evidence, source coverage and opportunities.",
-  connections: "Manage providers, accounts and services.",
+  connections: "Connect games, publishing accounts and research sources.",
+  account: "Manage your workspace AI provider, model and Jev key.",
+  discovery: "Review the public page, search setup and answer content for one game.",
   help: "Get your workspace ready and understand the workflow.",
 };
 const modalTitles: Record<Exclude<Modal, null>, string> = {
@@ -3588,7 +3578,7 @@ function Help({
           <div>
             <h3>Connect providers and worker</h3>
             <p>
-              Add Jev for gameplay decisions and Anthropic for drafts and
+              In Account settings, add Jev for gameplay decisions and choose an AI provider and model for drafts and
               research suggestions. Each request uses this game's past posts,
               observed campaign traffic, player trends and measured changes.
               Missing data and small samples limit conclusions. Run

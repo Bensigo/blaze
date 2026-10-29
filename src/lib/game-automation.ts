@@ -1,5 +1,6 @@
 import { get, query } from "./db";
 import { secretFor } from "./credentials";
+import { resolveAISecret } from "./ai-settings";
 import { readProfile } from "./game-profile";
 import { hash } from "./security";
 import type { Clip, Connection, Game, Recording } from "./types";
@@ -17,22 +18,20 @@ export async function hasRecordingAsset(workspace: string, recording: Recording)
 }
 
 export async function automationState(workspace: string, gameId: string) {
-  const [configRecord, gate, profile, worker, connections, recordings] = await Promise.all([
+  const [configRecord, gate, profile, worker, connections, recordings, jevSelection] = await Promise.all([
     get<Config>(workspace, "game_automation", gameId), get<Gate>(workspace, "recording_gate", gameId), readProfile(workspace, gameId),
     query<{ updated_at: Date }>(`SELECT updated_at FROM jobs WHERE id='worker-runtime' AND kind='worker_heartbeat'`),
-    query<{ body: Connection }>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='connection' AND body->>'provider' IN ('jev','anthropic') ORDER BY updated_at DESC`, [workspace]),
+    query<{ body: Connection }>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='connection' AND body->>'provider'='jev' ORDER BY updated_at DESC`, [workspace]),
     query<{ body: Recording }>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='recording' AND body->>'gameId'=$2 AND body->>'status'='ready' AND body->>'mode'='jev' ORDER BY updated_at DESC LIMIT 30`, [workspace, gameId]),
+    get<{ id: string; connectionId: string }>(workspace, "jev_settings", "default"),
   ]);
   const config = configRecord || defaultConfig(gameId);
-  const selectedJev = connections.find(c => c.body.provider === "jev" && c.body.connected)?.body;
-  const selectedAnth = connections.find(c => c.body.provider === "anthropic" && c.body.connected)?.body;
-  const jev = selectedJev?.checkedAt ? selectedJev : undefined;
-  const anth = selectedAnth?.checkedAt && selectedAnth.model ? selectedAnth : undefined;
-  const jevSecret = jev ? await secretFor(workspace, "jev").catch(() => undefined) : undefined;
-  const anthSecret = anth ? await secretFor(workspace, "anthropic").catch(() => undefined) : undefined;
+  const jevSecret = await secretFor(workspace, "jev").catch(() => undefined);
+  // Historical saved verification only: current provider availability is checked on generation.
+  const aiSecret = await resolveAISecret(workspace, false).catch(() => undefined);
   const reasons: string[] = [];
   if (!config.enabled) reasons.push("Automatic recording is paused.");
-  if (!jev || !jevSecret?.token) reasons.push("Connect and verify a Jev key.");
+  if (!jevSecret?.token || !jevSecret.model) reasons.push("Connect and verify a Jev key.");
   if (!worker[0] || Date.now() - new Date(worker[0].updated_at).getTime() > 90000) reasons.push("A fresh browser worker heartbeat is required.");
   if (!["partial", "complete"].includes(profile.status) || !profile.lastRefresh) reasons.push("Complete the initial game investigation.");
   const actualRuns = recordings.filter(r => actualJev(r.body));
@@ -41,7 +40,7 @@ export async function automationState(workspace: string, gameId: string) {
   const active = (await query<{ id: string }>(`SELECT j.id FROM jobs j JOIN records r ON r.workspace_id=j.workspace_id AND r.id=j.id AND r.kind='recording' WHERE j.workspace_id=$1 AND j.kind='recording' AND j.state IN ('queued','claimed') AND r.body->>'gameId'=$2 LIMIT 1`, [workspace, gameId]))[0];
   const lastQueuedAt = gate?.lastQueuedAt || null;
   const due = lastQueuedAt ? new Date(new Date(lastQueuedAt).getTime() + config.intervalHours * 3600000).toISOString() : null;
-  const draftReasons = anth && anthSecret?.token && anthSecret.model ? [] : ["Connect Anthropic and configure a model for optional draft generation."];
+  const draftReasons = aiSecret?.token && aiSecret.model ? [] : ["Choose an AI provider and model in Account settings for optional draft generation."];
   return { gameId, enabled: config.enabled, intervalHours: config.intervalHours, ready: reasons.length === 0, adapterVerified: hasEvidence, reasons, draftReady: draftReasons.length === 0, draftReasons, lastQueuedAt, activeRecordingId: active?.id || null, nextDueAt: due };
 }
 
@@ -54,6 +53,11 @@ export async function setAutomationConfig(workspace: string, gameId: string, pat
 // A gate is held until completion/lease failure. All newly queued recordings use it.
 export async function enqueueRecording(workspace: string, recording: Recording, scheduled = false, intervalHours = 24) {
   if (intervalHours < INTERVAL_MIN || intervalHours > INTERVAL_MAX) throw new Error("Invalid recording interval");
+  if (recording.mode === "jev") {
+    const secret = await secretFor(workspace, "jev");
+    if (!secret?.token || typeof secret.model !== "string" || typeof secret.jevConnectionId !== "string" || typeof secret.jevSettingsRevision !== "string" || typeof secret.jevCredentialVersion !== "string") throw new Error("Configure Jev gameplay in Account settings before queueing.");
+    recording.jevSelection = {connectionId: secret.jevConnectionId, model: secret.model, settingsRevision: secret.jevSettingsRevision, credentialVersion: secret.jevCredentialVersion};
+  }
   const stamp = new Date().toISOString();
   const gate = { id: recording.gameId, active: recording.id, ...(scheduled ? { lastQueuedAt: stamp } : {}) };
   const inserted = await query<{ id: string }>(`WITH gate AS (
