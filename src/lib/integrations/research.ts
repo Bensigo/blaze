@@ -17,7 +17,7 @@ import {
 import { fetchPublic } from "./safe-fetch";
 import { readGameManifest } from "../game-manifest";
 type FindingDraft = Omit<Finding, "id" | "createdAt" | "status">;
-type PageFacts = {
+export type PageFacts = {
   url: string;
   title: string;
   description: string;
@@ -25,6 +25,8 @@ type PageFacts = {
   robots: string;
   xRobots: string;
   content: string;
+  canonical: string;
+  heading: string;
 };
 const cleanUrl = (input: string) => {
   const u = new URL(input);
@@ -38,7 +40,7 @@ const cleanQuery = (s: string) =>
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 80);
-function extractPage(url: string, body: string, xRobots: string): PageFacts {
+export function extractPage(url: string, body: string, xRobots: string): PageFacts {
   const $ = load(body);
   const meta = (name: string) =>
     $("meta")
@@ -51,6 +53,8 @@ function extractPage(url: string, body: string, xRobots: string): PageFacts {
   const title = $("title").first().text().trim().slice(0, 200),
     description = meta("description"),
     robots = [meta("robots"), meta("googlebot")].filter(Boolean).join("; ");
+  const canonical = $('link[rel~="canonical" i]').first().attr("href")?.trim() || "";
+  const heading = $("h1").first().text().trim();
   $("script,style,noscript,template").remove();
   const content = $("body").text().replace(/\s+/g, " ").trim();
   return {
@@ -61,6 +65,8 @@ function extractPage(url: string, body: string, xRobots: string): PageFacts {
     xRobots: xRobots.slice(0, 300),
     words: content ? content.split(/\s+/).length : 0,
     content: content.slice(0, 100_000),
+    canonical,
+    heading,
   };
 }
 export async function runResearch({

@@ -1,8 +1,10 @@
 import { get, list, put, query, id } from "./db";
 import { analytics } from "./analytics";
 import { loadAgentHistory } from "./agent-history";
-import { anthropicModel, interpretResearch } from "./agent";
-import { researchSecrets, secretFor } from "./credentials";
+import { interpretResearch } from "./agent";
+import { aiModel } from "./ai-provider";
+import { readAISettings, resolveAISecret } from "./ai-settings";
+import { secretFor } from "./credentials";
 import { runResearch } from "./integrations";
 import { hash } from "./security";
 import type {
@@ -54,26 +56,12 @@ export async function researchJob(
       observedAt: string;
       words: number;
     }>(workspace, "seo_baseline", game.id);
-    const connections: Record<string, ProviderSecret> = await researchSecrets(
-      workspace,
-    ).catch(async () => {
-      // A broken credential must not discard healthy integrations or abort baseline research.
-      const result: Record<string, ProviderSecret> = {};
-      for (const provider of [
-        "jev",
-        "anthropic",
-        "x",
-        "reddit",
-        "brave",
-        "search_console",
-      ]) {
-        const secret = await secretFor(workspace, provider).catch(
-          () => undefined,
-        );
-        if (secret) result[provider] = secret;
-      }
-      return result;
-    });
+    // Each independent integration may fail without discarding baseline research.
+    const connections: Record<string, ProviderSecret> = {};
+    for (const provider of ["jev", "x", "reddit", "brave", "search_console"]) {
+      const secret = await secretFor(workspace, provider).catch(() => undefined);
+      if (secret) connections[provider] = secret;
+    }
     const result = await runResearch({
       game,
       analytics: await analytics(workspace, game.id, 30),
@@ -137,18 +125,19 @@ export async function researchJob(
       }
     }
     try {
-      const secret = connections.anthropic;
-      if (!secret?.token || !secret.model) {
+      const configured = await readAISettings(workspace);
+      if (!configured) {
         result.coverage.push({
           source: "AI research agent",
           status: "disconnected",
           detail:
-            "Connect Anthropic and configure a model to enable AI interpretation.",
+            "Choose an AI provider and model in Account settings to enable AI interpretation.",
         });
       } else {
+        const secret = await resolveAISecret(workspace);
         const history = await loadAgentHistory(workspace, game.id);
         const suggestions = await interpretResearch({
-          model: anthropicModel(secret),
+          model: aiModel(secret),
           gameId: game.id,
           findings: result.findings,
           history,
@@ -169,7 +158,7 @@ export async function researchJob(
         result.coverage.push({
           source: "AI research agent",
           status: "complete",
-          detail: `Anthropic interpreted same-game research and 90-day human history; ${suggestions.length} supported proposals. Suggestions require human review.`,
+          detail: `The selected AI provider interpreted same-game research and 90-day human history; ${suggestions.length} supported proposals. Suggestions require human review.`,
         });
       }
     } catch {
@@ -177,7 +166,7 @@ export async function researchJob(
         source: "AI research agent",
         status: "failed",
         detail:
-          "AI interpretation or scoped history was unavailable; deterministic research remains available. Check the configured Anthropic connection and model.",
+          "AI interpretation or scoped history was unavailable; deterministic research remains available. Review the selected provider and model in Account settings.",
       });
     }
     run.coverage = result.coverage;

@@ -36,7 +36,7 @@ pos4 AS (SELECT *, CASE WHEN l IS NOT NULL THEN array_position(names,'round_star
 sessions AS (
  SELECT p.*, CASE WHEN s IS NOT NULL AND a IS NOT NULL THEN array_position(names,'round_complete',greatest(s,a)+1) END c,
   'round_start'=ANY(names) started, 'round_complete'=ANY(names) completed,
-  'first_action'=ANY(names) acted,
+  'first_action'=ANY(names) acted, 'exit'=ANY(names) exited,
   (f.first_at IS NOT NULL AND p.session_id<>f.first_session_id AND p.started_at >= f.first_at+interval '24 hours') returned
  FROM pos4 p LEFT JOIN player_first_seen f ON f.workspace_id=$1 AND f.game_id=p.game_id AND f.player_id=p.player_id
 )`;
@@ -108,9 +108,11 @@ export async function sqlAnalytics(workspace:string,gameId?:string,days=14,now=D
  dropoff AS (SELECT ${dropoffName} name,count(*)::int count FROM sessions WHERE NOT completed GROUP BY 1),
  returned_players AS (SELECT DISTINCT game_id,player_id FROM sessions WHERE returned),
  campaign AS (SELECT s.campaign name,count(*)::int visits,count(*) FILTER(WHERE s.started)::int starts,count(*) FILTER(WHERE s.completed)::int completions,count(DISTINCT (s.game_id,s.player_id)) FILTER(WHERE r.player_id IS NOT NULL)::int returns FROM sessions s LEFT JOIN returned_players r USING(game_id,player_id) WHERE s.campaign<>'' GROUP BY s.campaign),
+ conversion AS (SELECT coalesce(nullif(source,''),'Unknown') source,coalesce(nullif(campaign,''),'Unspecified') campaign,count(*)::int visits,count(*) FILTER(WHERE started)::int starts,count(*) FILTER(WHERE started AND (array_position(names,'round_complete',array_position(names,'round_start')+1) IS NOT NULL OR active_seconds>=30))::int meaningful,count(*) FILTER(WHERE started AND active_seconds IS NOT NULL)::int active_measured FROM sessions WHERE v IS NOT NULL GROUP BY 1,2),
  ${pointerCte},
  heat AS (SELECT game_id,surface,screen,device,least(19,floor(x*20))::int bx,least(19,floor(y*20))::int by,count(*)::int count FROM pointer_data WHERE x BETWEEN 0 AND 1 AND y BETWEEN 0 AND 1 AND surface IS NOT NULL GROUP BY 1,2,3,4,5,6)
  SELECT jsonb_build_object(
+ 'launch',jsonb_build_object('visits',(SELECT count(*) FROM sessions WHERE v IS NOT NULL),'exits',(SELECT count(*) FROM sessions WHERE exited),'coverage',jsonb_build_object('sessions',(SELECT count(*) FROM sessions),'visit',(SELECT count(*) FROM sessions WHERE v IS NOT NULL),'loaded',(SELECT count(*) FROM sessions WHERE loaded),'roundStart',(SELECT count(*) FROM sessions WHERE started),'firstAction',(SELECT count(*) FROM sessions WHERE acted),'roundComplete',(SELECT count(*) FROM sessions WHERE completed),'exit',(SELECT count(*) FROM sessions WHERE exited)),'conversion',coalesce((SELECT jsonb_agg(jsonb_build_object('source',source,'campaign',campaign,'visits',visits,'starts',starts,'meaningful',meaningful,'activeMeasured',active_measured) ORDER BY visits DESC,source,campaign) FROM (SELECT * FROM conversion ORDER BY visits DESC,source,campaign LIMIT 100) x),'[]'::jsonb),'conversionTotal',(SELECT count(*) FROM conversion)),
  'sessions',(SELECT count(*) FROM sessions),'players',(SELECT count(DISTINCT (game_id,player_id)) FROM sessions),
  'starts',(SELECT count(*) FROM sessions WHERE started),'completions',(SELECT count(*) FROM sessions WHERE completed),
  'replays',(SELECT coalesce(sum(retries),0) FROM sessions),'returns',(SELECT count(DISTINCT (game_id,player_id)) FROM sessions WHERE returned),

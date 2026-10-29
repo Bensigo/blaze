@@ -1,4 +1,4 @@
-import { createAnthropic } from "@ai-sdk/anthropic";
+import { aiModel } from "./ai-provider";
 import {
   Output,
   ToolLoopAgent,
@@ -10,19 +10,8 @@ import { z } from "zod";
 import type { Finding, ProviderSecret } from "./types";
 import type { AgentHistory } from "./agent-history";
 
-export function anthropicModel(secret: ProviderSecret) {
-  if (!secret?.token || !secret?.model || typeof secret.model !== "string")
-    throw new Error("Connect Anthropic and configure a model.");
-  return createAnthropic({
-    baseURL: "https://api.anthropic.com/v1",
-    apiKey: secret.token,
-    headers:
-      typeof secret.workspaceId === "string"
-        ? { "anthropic-workspace-id": secret.workspaceId }
-        : {},
-    fetch: (input, init) => fetch(input, { ...init, redirect: "error" }),
-  })(secret.model);
-}
+// Retained for callers using the former Anthropic-only helper.
+export const anthropicModel = (secret: ProviderSecret) => aiModel({...secret, aiProvider:'anthropic'});
 
 type Draft = Omit<Finding, "id" | "createdAt" | "status">;
 const suggestionSchema = z.object({

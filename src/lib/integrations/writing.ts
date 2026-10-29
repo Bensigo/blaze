@@ -1,6 +1,6 @@
 import type { Game, Clip, Channel, ProviderSecret } from "../types";
 import { generateText } from "ai";
-import { anthropicModel } from "../agent";
+import { aiModel } from "../ai-provider";
 import type { AgentHistory } from "../agent-history";
 export async function draftContent({
   game,
@@ -24,7 +24,7 @@ export async function draftContent({
   let gameUrl = "";
   try { const url = new URL(game.url); url.search = ""; url.hash = ""; url.username = ""; url.password = ""; gameUrl = url.href; } catch { /* omit invalid URL */ }
   const { text } = await generateText({
-    model: anthropicModel(secret),
+    model: aiModel(secret),
     maxRetries: 0,
     maxOutputTokens: 500,
     abortSignal: AbortSignal.timeout(12000),
@@ -40,6 +40,6 @@ export async function draftContent({
       history: history ?? { limitations: ["History unavailable"] },
     }),
   });
-  if (!text.trim()) throw new Error("Anthropic returned no text");
+  if (!text.trim()) throw new Error("The selected AI provider returned no text");
   return text.trim();
 }

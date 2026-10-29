@@ -2,6 +2,7 @@ export type Channel = "x" | "youtube" | "instagram" | "tiktok";
 export type Provider =
   | "jev"
   | "anthropic"
+  | "openrouter"
   | "x"
   | "reddit"
   | "brave"
@@ -65,6 +66,7 @@ export interface SessionCapture {
   cleanupPending?: boolean;
 }
 export interface Recording {
+  jevSelection?: { connectionId: string; model: string; settingsRevision: string; credentialVersion: string };
   id: string;
   gameId: string;
   title: string;
@@ -142,6 +144,7 @@ export interface Post {
   };
 }
 export interface Connection {
+  credentialVersion?: string;
   id: string;
   provider: string;
   label: string;
@@ -246,6 +249,7 @@ export interface SessionSummary {
   captureId?: string;
 }
 export interface Analytics {
+  launch?: { visits: number; exits: number; coverage?: { sessions: number; visit: number; loaded: number; roundStart: number; firstAction: number; roundComplete: number; exit: number }; conversion: { source: string; campaign: string; visits: number; starts: number; meaningful: number; activeMeasured: number }[]; conversionTotal: number };
   windowEnd?: string;
   activePlay?: { totalSeconds: number | null; averageSeconds: number | null; medianSeconds: number | null; measuredSessions: number; eligibleSessions: number };
   loadedSessions?: number;

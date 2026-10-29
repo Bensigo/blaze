@@ -114,40 +114,8 @@ async function upload(
   if (typeof result.url !== "string") throw new Error("Asset URL missing");
   return result.url as string;
 }
+import { choose } from "./jev-decision";
 type Action = { id: string; label: string };
-async function choose(
-  state: unknown,
-  actions: Action[],
-  key: string,
-): Promise<string> {
-  const criteria = Object.fromEntries(actions.map((a) => [a.id, a.label]));
-  const res = await fetch("https://api.typesafe.ai/v1/systemone", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "jev-latest",
-      state,
-      questions: {
-        next: {
-          type: "choice",
-          instructions:
-            "Choose the next gameplay action from the allowed options.",
-          criteria,
-        },
-      },
-    }),
-    signal: AbortSignal.timeout(12000),
-  });
-  if (!res.ok) throw new Error(`Jev returned ${res.status}`);
-  const json = await res.json();
-  const selected = json?.answers?.next?.choice;
-  if (typeof selected !== "string" || !actions.some((a) => a.id === selected))
-    throw new Error("Jev returned an action outside the allowlist");
-  return selected;
-}
 function fixtureChoice(state: unknown, actions: Action[]): string {
   const s = state as { phase?: string; player?: number; star?: number };
   const id =
@@ -177,9 +145,9 @@ async function bounded<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 class ReportedFailure extends Error {}
 async function runRecording(job: any) {
-  const { recording, game, jevKey } = job;
+  const { recording, game, jevKey, jevModel } = job;
   if (!recording?.id || !game?.url) throw new Error("Invalid recording claim");
-  if (recording.mode === "jev" && !jevKey)
+  if (recording.mode === "jev" && (!jevKey || !["typesafe/jev-1.13", "typesafe/jev-1.14"].includes(jevModel)))
     throw new Error("Jev key not configured");
   const safe = await validateGameUrl(
     game.url,
@@ -302,7 +270,7 @@ async function runRecording(job: any) {
         recording.mode === "fixture"
           ? fixtureChoice(snap.state, actions)
           : needsJev
-            ? await choose(snap.state, actions, jevKey)
+            ? await choose(snap.state, actions, jevKey, jevModel)
             : actions[0].id;
       if (needsJev) evidence.modelDecision();
       if (!leaseValid) throw new Error("Worker lease heartbeat failed");

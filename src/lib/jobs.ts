@@ -2,6 +2,7 @@ import { query, get, put, id } from "./db";
 import type { Game, Recording, Clip } from "./types";
 import { HttpError } from "./http-error";
 import { secretFor } from "./credentials";
+import { verifyJevModel } from "./ai-settings";
 import { duePublications } from "./publishing";
 import { drainResearch } from "./research-jobs";
 import { drainProfile } from "./game-profile";
@@ -96,13 +97,30 @@ export async function claimJob() {
       status: "recording",
       heartbeatAt: new Date().toISOString(),
     });
-    const secret = await secretFor(row.workspace_id, "jev");
+    const secret = recording.mode === "jev" ? await secretFor(row.workspace_id, "jev") : undefined;
+    if (recording.mode === "jev") {
+      try {
+        const pin = recording.jevSelection;
+        if (!pin?.connectionId || !pin.model || !pin.settingsRevision || !pin.credentialVersion) throw new Error('This queued recording has no Jev selection. Queue a new run.');
+        if (!secret?.token || secret.model !== pin.model || secret.jevConnectionId !== pin.connectionId || secret.jevSettingsRevision !== pin.settingsRevision || secret.jevCredentialVersion !== pin.credentialVersion) throw new Error('Jev settings changed since this recording was queued. Queue a new run.');
+        await verifyJevModel(secret.model);
+        const latest = await secretFor(row.workspace_id, "jev");
+        if (!latest || latest.jevSettingsRevision !== secret.jevSettingsRevision || latest.jevCredentialVersion !== secret.jevCredentialVersion || latest.jevConnectionId !== secret.jevConnectionId || latest.model !== secret.model) throw new Error('Jev settings changed while claiming the job.');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Jev settings unavailable.';
+        await put(row.workspace_id, "recording", {...recording,status:"failed",error:message});
+        await query("UPDATE jobs SET state='failed',updated_at=now() WHERE id=$1 AND state='claimed'",[row.id]);
+        await releaseRecordingGate(row.workspace_id,recording.gameId,recording.id);
+        return {};
+      }
+    }
     if (!game) throw new Error("Missing game");
     const syntheticCapability = recording.mode === "fixture" ? undefined : await mintSyntheticCapability(row.workspace_id, recording.id, game.id, game.url);
     return {
       recording,
       game,
       jevKey: recording.mode === "jev" ? secret?.token : undefined,
+      jevModel: recording.mode === "jev" ? secret?.model : undefined,
       syntheticCapability,
     };
   }
