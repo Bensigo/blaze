@@ -344,6 +344,8 @@ it("claims the approved bounded job with a capable worker, then authorizes only 
     jevKey: "controlled-not-real-key",
     limits: { maxActions: 1, maxDurationSeconds: 30 },
   });
+  expect(job.syntheticCapability).toBeUndefined();
+  expect(await db.query("SELECT id FROM records WHERE workspace_id='w' AND kind='synthetic_capability'")).toEqual([]);
   expect(await b.authorizeJevRequest("w", "r")).toEqual({
     allowed: true,
     maxRequests: 1,

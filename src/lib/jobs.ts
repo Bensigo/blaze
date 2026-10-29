@@ -11,6 +11,7 @@ import { enqueueRecording, releaseRecordingGate, tickAutomation, PAID_JEV_BLOCKE
 import { mintSyntheticCapability } from "./synthetic-capability";
 import { drainContentAutomation } from "./content-automation";
 import { recordingLimits, workerProtocol, BOUNDED_WORKER_PROTOCOL } from "../../worker/recording-limits";
+import { usesSyntheticTelemetry } from "../../worker/synthetic-telemetry";
 export async function enqueue(
   workspace: string,
   kind: "recording" | "clip",
@@ -142,7 +143,7 @@ export async function claimJob(protocol?: string | null,targetJobId?:string) {
       }
     }
     if (!game) throw new Error("Missing game");
-    const syntheticCapability = recording.mode === "fixture" ? undefined : await mintSyntheticCapability(row.workspace_id, recording.id, game.id, game.url);
+    const syntheticCapability = recording.mode === "fixture" || !usesSyntheticTelemetry(recording) ? undefined : await mintSyntheticCapability(row.workspace_id, recording.id, game.id, game.url);
     if(recording.mode==="jev")await assertJevDispatch(row.workspace_id,recording);
     return {
       recording,
