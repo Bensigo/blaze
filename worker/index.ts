@@ -18,6 +18,7 @@ import { RunEvidence, failureCode } from "./observations";
 import { validateAdapterSnapshot } from "./adapter";
 import { recordedDuration } from "./media-timing";
 import { matchesValidationClaim, validationTarget } from "./validation-target";
+import { emitSyntheticEvent } from "./synthetic-telemetry";
 
 const app = new URL(process.env.APP_URL || "http://127.0.0.1:3000");
 const token = process.env.WORKER_TOKEN;
@@ -239,7 +240,7 @@ async function runRecording(job: any) {
   const actionsLog: { at: number; id: string }[] = [];
   let lastPhase = "";
   async function event(name: string, properties: Record<string, unknown> = {}) {
-    await api("/api/worker/events", {
+    await emitSyntheticEvent(recording, () => api("/api/worker/events", {
       recordingId: recording.id,
       events: [
         {
@@ -255,7 +256,7 @@ async function runRecording(job: any) {
           device: "desktop",
         },
       ],
-    });
+    }));
   }
   try {
     if (safe.local && recording.mode === "fixture") {

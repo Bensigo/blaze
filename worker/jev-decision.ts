@@ -49,7 +49,7 @@ export async function choose(
       throw new Error();
     const body = JSON.stringify({
       model,
-      state: JSON.parse(serializedState),
+      state: serializedState,
       questions: {
         next: {
           type: "choice",
