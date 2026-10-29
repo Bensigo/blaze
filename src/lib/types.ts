@@ -67,6 +67,8 @@ export interface SessionCapture {
   cleanupPending?: boolean;
 }
 export interface Recording {
+  paidApprovalId?: string;
+  targetProvenance?: 'controlled_lab';
   maxActions?: number;
   maxDurationSeconds?: number;
   jevSelection?: { connectionId: string; model: string; settingsRevision: string; credentialVersion: string };

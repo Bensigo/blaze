@@ -14,7 +14,7 @@ export async function POST(request: Request, context: { params: Promise<{ provid
     try { body = text ? JSON.parse(text) : {}; } catch { throw new HttpError(400, "Invalid connection request."); }
     if (!body || typeof body !== "object" || (body.connectionId !== undefined && (typeof body.connectionId !== "string" || !/^conn_[a-z0-9]{32}$/.test(body.connectionId)))) throw new HttpError(400, "Invalid connection request.");
     const provider = (await context.params).provider;
-    if (provider === "x_feedback") requireXFeedbackBudget();
+    if (provider === "x_feedback") await requireXFeedbackBudget(user.workspace_id, "identity");
     if (provider === "x_feedback" && body.readOnlyConsent !== true) throw new HttpError(400, "Explicit consent to the disclosed read-only X scopes and possible identity lookup charges is required.");
     return Response.json({ url: await beginSocialAuthorization(user, provider, request, body.connectionId) });
   } catch (error) { return apiError(error); }

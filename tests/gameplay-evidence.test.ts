@@ -20,7 +20,7 @@ describe('gameplay evidence', () => {
      const budget = new RecordingBudget(recordingLimits({maxActions:1}), Date.now());
      const choices = [{id:'left',label:'Left'},{id:'right',label:'Right'}];
      const before = validateAdapterSnapshot({phase:'ready'}, choices);
-     const selected = await choose({phase:'ready'}, before.actions, 'mock-key', 'typesafe/jev-1.13');
+     const selected = await choose({phase:'ready'}, before.actions, 'mock-key', 'typesafe/jev-1.13', 12000, async () => {});
      const act = vi.fn(); const e = new RunEvidence(); expect(budget.canAct()).toBe(true); e.decision('jev',selected,before.phase); act(selected); budget.acted(); expect(budget.canAct()).toBe(false); expect(budget.canObserve()).toBe(true); e.state({phase:'playing'}, 'playing');
      const notes = e.finish({fixture:false}); const trace = notes.find(n=>n.text.startsWith('Trace v1:'))!;
      const run = {...recording, actions:[{id:selected,at:trace.at}], observations:[trace]};

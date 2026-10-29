@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Blaze controlled decision lab v1</title>
+  <style>body{margin:0;background:#101727;color:#f5f7ff;font:16px system-ui;display:grid;place-items:center;min-height:100vh}main{width:min(90vw,720px)}canvas{display:block;width:100%;background:#17223d;border-radius:14px}button{background:#8ef0c5;color:#102738;border:0;border-radius:8px;padding:.8rem 1.2rem;margin:12px 6px 0 0;font-weight:700}</style>
+</head>
+<body><main>
+  <small>CONTROLLED DECISION LAB · BUILD v1 · SYNTHETIC</small>
+  <h1>Choose a star</h1>
+  <p>One choice ends this controlled test.</p>
+  <canvas id="game" width="720" height="400" aria-label="Controlled decision lab"></canvas>
+  <button id="left">Choose left</button><button id="right">Choose right</button>
+  <p id="status" aria-live="polite">Ready</p>
+</main><script src="/fixture/decision-validation.js"></script></body>
+</html>

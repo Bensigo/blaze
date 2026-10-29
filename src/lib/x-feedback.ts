@@ -1,7 +1,7 @@
 import { get, list, query } from "./db";
 import { decrypt, hash } from "./security";
 import { HttpError } from "./http-error";
-import { X_FEEDBACK_BUDGET_BLOCK } from "./x-feedback-policy";
+import { X_FEEDBACK_BUDGET_BLOCK, getXControls, requireXFeedbackBudget, finishXAttempt } from "./x-feedback-policy";
 import { xFeedbackAdapter } from "./social-x-youtube";
 import type { Connection, Finding, Game } from "./types";
 
@@ -28,7 +28,8 @@ export async function readFeedback(workspace: string, game: Game) {
     else groups.mentions.push(finding);
   }
   const connection = (await list<Connection>(workspace, "connection")).find((c) => c.provider === "x_feedback" && c.connected && c.authMethod === "oauth");
-  return { query: feedbackQuery(game), limit: X_FEEDBACK_LIMIT, spendCap: "not_enforced", blocked: true, blockedReason: X_FEEDBACK_BUDGET_BLOCK, configured: xFeedbackAdapter.configured(), identity: connection ? "connected" : "disconnected", needsReconnect: !!connection && (!!connection.requiresReconnect || !connection.expiresAt || !Number.isFinite(Date.parse(connection.expiresAt)) || Date.parse(connection.expiresAt) <= Date.now() + 300000), entitlement: "not_tested", groups };
+  const providerControls = await getXControls(workspace);
+  return { query: feedbackQuery(game), limit: X_FEEDBACK_LIMIT, spendCap: "not_enforced", providerControls, blocked: providerControls.status !== "owner_reviewed_not_api_verified" || (!providerControls.identityAvailable && !providerControls.searchAvailable), blockedReason: X_FEEDBACK_BUDGET_BLOCK, configured: xFeedbackAdapter.configured(), identity: connection ? "connected" : "disconnected", needsReconnect: !!connection && (!!connection.requiresReconnect || !connection.expiresAt || !Number.isFinite(Date.parse(connection.expiresAt)) || Date.parse(connection.expiresAt) <= Date.now() + 300000), entitlement: "not_tested", groups };
 }
 export async function collectFeedback(workspace: string, game: Game) {
   const search = feedbackQuery(game);
@@ -38,11 +39,13 @@ export async function collectFeedback(workspace: string, game: Game) {
   if (!row) throw new HttpError(409, "Read-only X feedback authorization is unavailable. Reconnect first.");
   const secret = await decrypt(row.encrypted);
   const scopes = secret.scopes;
-  if (!secret.token || !Array.isArray(scopes) || !["tweet.read", "users.read", "offline.access"].every(s => scopes.includes(s)) || scopes.some(s => !["tweet.read", "users.read", "offline.access"].includes(s))) throw new HttpError(409, "Read-only X feedback authorization is unavailable. Reconnect first.");
+  if (!connection.accountId || secret.accountId !== connection.accountId || !secret.token || !Array.isArray(scopes) || !["tweet.read", "users.read", "offline.access"].every(s => scopes.includes(s)) || scopes.some(s => !["tweet.read", "users.read", "offline.access"].includes(s))) throw new HttpError(409, "Read-only X feedback authorization is unavailable. Reconnect first.");
+  const receiptNonce = await requireXFeedbackBudget(workspace, "search", { gameId: game.id, accountId: connection.accountId }, true);
   const params = new URLSearchParams({ query: search, max_results: String(X_FEEDBACK_LIMIT), "tweet.fields": "created_at" });
   let response: Response;
   try { response = await fetch(`https://api.x.com/2/tweets/search/recent?${params}`, { headers: { Authorization: `Bearer ${secret.token}` }, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(10000) }); }
-  catch { throw new HttpError(502, "X search failed or timed out; access and charges are unknown. Check X before retrying."); }
+  catch { await finishXAttempt(workspace, receiptNonce, "search", true, false); throw new HttpError(502, "X search failed or timed out; access and charges are unknown. Check X before retrying."); }
+  await finishXAttempt(workspace, receiptNonce, "search", true, response.ok);
   if (!response.ok) throw new HttpError(response.status === 401 || response.status === 403 ? 403 : 502, `X search was unavailable (HTTP ${response.status}); check entitlement, credentials, quota and charges before retrying.`);
   let payload: any;
   try { const text = await response.text(); if (text.length > 262144) throw new Error(); payload = JSON.parse(text); } catch { throw new HttpError(502, "X returned an invalid or oversized response; charges are unknown."); }

@@ -11,7 +11,7 @@ const recording = (override: Partial<Recording> = {}): Recording => ({ id: 'r1',
 
 describe('execution status', () => {
   it('normalizes database timestamps for browser date parsing', () => {
-    const status = projectExecutionStatus([{...config,saved_at:'2026-10-29 10:00:00.123+00'}],[],[],'2026-10-29 11:59:30.456+00',{queued:0,expired:0},now,'jev-actions-v1');
+    const status = projectExecutionStatus([{...config,saved_at:'2026-10-29 10:00:00.123+00'}],[],[],'2026-10-29 11:59:30.456+00',{queued:0,expired:0},now,'jev-budget-v1');
     expect(status.ai.savedAt).toBe('2026-10-29T10:00:00.123Z');
     expect(status.worker.lastHeartbeatAt).toBe('2026-10-29T11:59:30.456Z');
     expect(status.worker.oneActionCapable).toBe(true);

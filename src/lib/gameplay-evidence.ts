@@ -37,8 +37,8 @@ export function gameplayFindings(recording: Recording): Finding[] {
   if (recording.status === "failed" && recording.error) notes.push({ at: 0, type: "observation", text: `Recording failed with worker code ${recording.error}.` });
   return notes.map(note => {
     const fid = `finding_${createHash("sha256").update(`gameplay:${recording.id}:${note.at}:${note.text}`).digest("hex").slice(0, 24)}`;
-    const fixture = recording.mode === "fixture";
-    const finding: Finding = { id: fid, gameId: recording.gameId, title: fixture ? "Controlled fixture playthrough" : "Review recorded gameplay", detail: `${fixture ? "Controlled fixture; not live Jev. " : "Synthetic playthrough; not human feedback. "}${note.text} Review the recording and reproduce before classifying a bug.`, type: "observation", priority: "low", evidence: [{ label: fixture ? "Controlled fixture recording" : "Synthetic recording", recordingId: recording.id, at: note.at }], status: "open", createdAt: new Date().toISOString() };
+    const fixture = recording.mode === "fixture" || recording.targetProvenance === "controlled_lab";
+    const finding: Finding = { id: fid, gameId: recording.gameId, title: fixture ? "Controlled fixture playthrough" : "Review recorded gameplay", detail: `${fixture ? (recording.mode === "jev" ? "Controlled decision lab with Jev runtime; not a real game or human feedback. " : "Controlled fixture; not live Jev. ") : "Synthetic playthrough; not human feedback. "}${note.text} Review the recording and reproduce before classifying a bug.`, type: "observation", priority: "low", evidence: [{ label: fixture ? "Controlled fixture recording" : "Synthetic recording", recordingId: recording.id, at: note.at }], status: "open", createdAt: new Date().toISOString() };
     return finding;
   });
 }

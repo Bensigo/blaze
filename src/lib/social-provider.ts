@@ -15,8 +15,8 @@ export interface SocialAdapter {
   configured(): boolean;
   setup: string;
   authorizationUrl(input: { state: string; challenge: string; redirectUri: string }): string;
-  exchange(input: { code: string; verifier: string; redirectUri: string }): Promise<SocialGrant>;
-  refresh(secret: ProviderSecret): Promise<SocialGrant>;
+  exchange(input: { code: string; verifier: string; redirectUri: string; beforeIdentity?: () => Promise<void> }): Promise<SocialGrant>;
+  refresh(secret: ProviderSecret, beforeIdentity?: () => Promise<void>): Promise<SocialGrant>;
   revoke(secret: ProviderSecret): Promise<void>;
 }
 export function isSocialProvider(value: string): value is SocialProvider {

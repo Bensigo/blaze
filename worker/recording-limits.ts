@@ -1,5 +1,5 @@
 /** Explicit per-run limits. Never coerce strings or silently widen invalid limits. */
-export const BOUNDED_WORKER_PROTOCOL = 'jev-actions-v1';
+export const BOUNDED_WORKER_PROTOCOL = 'jev-budget-v1';
 export function workerProtocol(value: string | null | undefined) {
   return value === BOUNDED_WORKER_PROTOCOL ? BOUNDED_WORKER_PROTOCOL : 'legacy';
 }

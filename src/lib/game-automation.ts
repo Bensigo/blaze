@@ -1,4 +1,4 @@
-import { get, query } from "./db";
+import { get, query,transaction } from "./db";
 import { secretFor } from "./credentials";
 import { resolveAISecret } from "./ai-settings";
 import { readProfile } from "./game-profile";
@@ -7,14 +7,16 @@ import type { Clip, Connection, Game, Recording } from "./types";
 import type { MediaRecord } from "./media";
 import { recordingLimits } from "../../worker/recording-limits";
 
+import {paidJevAllowed,prepareJevReservation,reserveJevValidation,JEV_APPROVAL_REQUIRED} from './jev-budget';
+export {paidJevAllowed} from './jev-budget';
+import {isControlledLabTarget} from './target-provenance';
+
 const INTERVAL_MIN = 6, INTERVAL_MAX = 24;
-export const PAID_JEV_BLOCKED = "Paid Jev runs are blocked until an enforceable total spending cap and explicit paid-run approval are configured.";
-// No provider spending-cap mechanism or paid-run approval exists yet.
-export function paidJevAllowed(): boolean { return false; }
+export const PAID_JEV_BLOCKED = JEV_APPROVAL_REQUIRED;
 type Config = { id: string; enabled: boolean; intervalHours: number };
 type Gate = { id: string; active?: string; lastQueuedAt?: string };
 const defaultConfig = (gameId: string): Config => ({ id: gameId, enabled: true, intervalHours: 24 });
-export const actualJev = (recording: Recording) => recording.status === "ready" && recording.mode === "jev" && !!recording.videoUrl && Number(recording.duration) > 0 && Array.isArray(recording.actions) && recording.actions.some(a => typeof a === "object" && a !== null && "id" in a && typeof a.id === "string" && /^[a-zA-Z0-9_-]{1,40}$/.test(a.id) && "at" in a && typeof a.at === "number" && a.at >= 0 && a.at <= recording.duration!) && (recording.observations || []).some(o => o.type === "observation" && /\b[1-9]\d* Jev model decisions\b/.test(o.text));
+export const actualJev = (recording: Recording) => recording.targetProvenance !== "controlled_lab" && recording.status === "ready" && recording.mode === "jev" && !!recording.videoUrl && Number(recording.duration) > 0 && Array.isArray(recording.actions) && recording.actions.some(a => typeof a === "object" && a !== null && "id" in a && typeof a.id === "string" && /^[a-zA-Z0-9_-]{1,40}$/.test(a.id) && "at" in a && typeof a.at === "number" && a.at >= 0 && a.at <= recording.duration!) && (recording.observations || []).some(o => o.type === "observation" && /\b[1-9]\d* Jev model decisions\b/.test(o.text));
 export async function hasRecordingAsset(workspace: string, recording: Recording) {
   const mediaId = /^\/api\/media\/(media_[a-z0-9]+)$/.exec(recording.videoUrl || "")?.[1];
   const media = mediaId ? await get<MediaRecord>(workspace, "media", mediaId) : undefined;
@@ -34,7 +36,7 @@ export async function automationState(workspace: string, gameId: string) {
   // Historical saved verification only: current provider availability is checked on generation.
   const aiSecret = await resolveAISecret(workspace, false).catch(() => undefined);
   const reasons: string[] = [];
-  reasons.push(PAID_JEV_BLOCKED);
+  reasons.push("Recurring background play needs separate approval; a single validation approval does not authorize recurring usage.");
   if (!config.enabled) reasons.push("Automatic recording is paused.");
   if (!jevSecret?.token || !jevSecret.model) reasons.push("Connect and verify a Jev key.");
   if (!worker[0] || Date.now() - new Date(worker[0].updated_at).getTime() > 90000) reasons.push("A fresh browser worker heartbeat is required.");
@@ -59,15 +61,21 @@ export async function setAutomationConfig(workspace: string, gameId: string, pat
 export async function enqueueRecording(workspace: string, recording: Recording, scheduled = false, intervalHours = 24) {
   recordingLimits(recording);
   if (intervalHours < INTERVAL_MIN || intervalHours > INTERVAL_MAX) throw new Error("Invalid recording interval");
+  let reservation: Awaited<ReturnType<typeof prepareJevReservation>> | undefined;
   if (recording.mode === "jev") {
-    if (!paidJevAllowed()) throw new Error(PAID_JEV_BLOCKED);
+    if (!await paidJevAllowed(workspace,recording)) throw new Error(PAID_JEV_BLOCKED);
+    reservation=await prepareJevReservation(workspace,recording);
     const secret = await secretFor(workspace, "jev");
     if (!secret?.token || typeof secret.model !== "string" || typeof secret.jevConnectionId !== "string" || typeof secret.jevSettingsRevision !== "string" || typeof secret.jevCredentialVersion !== "string") throw new Error("Configure Jev gameplay in Account settings before queueing.");
     recording.jevSelection = {connectionId: secret.jevConnectionId, model: secret.model, settingsRevision: secret.jevSettingsRevision, credentialVersion: secret.jevCredentialVersion};
   }
+  const game = await get<Game>(workspace,"game",recording.gameId);
+  if (game && isControlledLabTarget(game.url,process.env.APP_URL)) recording.targetProvenance="controlled_lab";
   const stamp = new Date().toISOString();
   const gate = { id: recording.gameId, active: recording.id, ...(scheduled ? { lastQueuedAt: stamp } : {}) };
-  const inserted = await query<{ id: string }>(`WITH gate AS (
+  return transaction(async tx=>{
+  if(reservation)await reserveJevValidation(tx,workspace,recording,reservation.grant);
+  const inserted = await tx<{ id: string }>(`WITH gate AS (
     INSERT INTO records(workspace_id,kind,id,body)
     SELECT $1,'recording_gate',$2,$3::jsonb WHERE NOT EXISTS (
       SELECT 1 FROM records r JOIN jobs j ON j.id=r.id AND j.workspace_id=r.workspace_id
@@ -78,7 +86,9 @@ export async function enqueueRecording(workspace: string, recording: Recording, 
   ), created AS (INSERT INTO records(workspace_id,kind,id,body) SELECT $1,'recording',$6,$7::jsonb FROM gate RETURNING id)
   INSERT INTO jobs(id,workspace_id,kind,state,body) SELECT id,$1,'recording','queued',$7::jsonb FROM created RETURNING id`,
     [workspace, recording.gameId, JSON.stringify(gate), scheduled, String(intervalHours), recording.id, JSON.stringify(recording)]);
+  if(reservation&&!inserted.length)throw new Error("A recording is already active; approval reservation rolled back.");
   return inserted.length > 0;
+  });
 }
 export async function releaseRecordingGate(workspace: string, gameId: string, recordingId: string) {
   await query(`UPDATE records SET body=body-'active',updated_at=now() WHERE workspace_id=$1 AND kind='recording_gate' AND id=$2 AND body->>'active'=$3`, [workspace, gameId, recordingId]);

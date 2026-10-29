@@ -8,8 +8,7 @@ export async function GET(request: Request, context: { params: Promise<{ provide
   const provider = (await context.params).provider;
   let status = "failed";
   try {
-    if (provider === "x_feedback") status = "budget_blocked";
-    else if (isSocialProvider(provider)) status = await finishSocialAuthorization(await requireIdentity(), provider, request);
+    if (isSocialProvider(provider)) status = await finishSocialAuthorization(await requireIdentity(), provider, request);
   } catch { /* Callback errors never echo authorization codes, state or provider responses. */ }
   const target = new URL("/app", origin);
   target.searchParams.set("social", status);

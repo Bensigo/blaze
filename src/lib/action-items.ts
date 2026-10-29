@@ -61,7 +61,7 @@ export function toActionItem(finding: Finding, measurements: Measurement[] = [],
     traced = true;
     const game = games.find(g => g.id === finding.gameId);
     const context = game ? ` for ${text(game.title, 120)}` : '';
-    const label = recording.mode === 'fixture' ? 'Controlled fixture, not live Jev' : 'Synthetic playthrough, not human feedback';
+    const label = recording.targetProvenance === 'controlled_lab' ? 'Controlled decision lab with Jev runtime, not real-game acceptance' : recording.mode === 'fixture' ? 'Controlled fixture, not live Jev' : 'Synthetic playthrough, not human feedback';
     observation = `${label}${context}; one observation, not a confirmed bug. Selected ${match[2]}: ${match[3]} → ${match[4]}.`;
     suggestion = `Review the recording and reproduce: select ${match[2]} from phase ${match[3]} and check the resulting phase ${match[4]}. ${text(finding.action?.suggestion)}`.trim().slice(0, 800);
     break;

@@ -1,3 +1,4 @@
+import {consumeJevValidation,assertJevDispatch} from './jev-budget';
 import { query, get, put, id } from "./db";
 import type { Game, Recording, Clip } from "./types";
 import { HttpError } from "./http-error";
@@ -46,10 +47,10 @@ export async function workerHeartbeat(protocol?: string | null) {
     [JSON.stringify({ protocol: normalized, supportsBoundedRecording: normalized === BOUNDED_WORKER_PROTOCOL })],
   );
 }
-export async function claimJob(protocol?: string | null) {
+export async function claimJob(protocol?: string | null,targetJobId?:string) {
   const supportsLimits = workerProtocol(protocol) === BOUNDED_WORKER_PROTOCOL;
   await workerHeartbeat(protocol);
-  const stale = await query<{ id: string; workspace_id: string; kind: string }>(
+  const stale = targetJobId ? [] : await query<{ id: string; workspace_id: string; kind: string }>(
     `UPDATE jobs SET state='failed',updated_at=now() WHERE kind IN ('recording','clip') AND state='claimed' AND lease_until<now() RETURNING id,workspace_id,kind`,
   );
   for (const row of stale) {
@@ -67,9 +68,9 @@ export async function claimJob(protocol?: string | null) {
       });
     if (body && row.kind === "recording") await releaseRecordingGate(row.workspace_id, (body as Recording).gameId, body.id);
   }
-  await tickAutomation();
+  if(!targetJobId)await tickAutomation();
   // Publish checks are durable and bounded. A crashed tick can resume after its lease; write reservations prevent duplicate posts.
-  const tick = await query(
+  const tick = targetJobId ? [] : await query(
     `INSERT INTO jobs(id,workspace_id,kind,state,body,lease_until) VALUES('publish-tick','system','scheduler','running','{}',now()+interval '1 minute') ON CONFLICT(id) DO UPDATE SET lease_until=excluded.lease_until,updated_at=now() WHERE jobs.lease_until<now() RETURNING id`,
   );
   if (tick.length) await duePublications();
@@ -79,10 +80,11 @@ export async function claimJob(protocol?: string | null) {
     kind: "recording" | "clip";
     body: unknown;
   }>(
-    `UPDATE jobs SET state='claimed',lease_until=now()+interval '2 minutes',updated_at=now() WHERE id=(SELECT id FROM jobs WHERE state='queued' AND kind IN ('recording','clip') AND available_at<=now() AND ($1::boolean OR kind='clip' OR ((body->'maxActions' IS NULL OR body->'maxActions'='30'::jsonb) AND (body->'maxDurationSeconds' IS NULL OR body->'maxDurationSeconds'='30'::jsonb))) ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,workspace_id,kind,body`,
-    [supportsLimits],
+    `UPDATE jobs SET state='claimed',lease_until=now()+interval '2 minutes',updated_at=now() WHERE id=(SELECT id FROM jobs WHERE state='queued' AND kind IN ('recording','clip') AND available_at<=now() AND ($2::text IS NULL OR id=$2) AND ($1::boolean OR kind='clip' OR ((body->'maxActions' IS NULL OR body->'maxActions'='30'::jsonb) AND (body->'maxDurationSeconds' IS NULL OR body->'maxDurationSeconds'='30'::jsonb))) ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,workspace_id,kind,body`,
+    [supportsLimits,targetJobId||null],
   );
   const row = rows[0];
+  if (!row && targetJobId)return {};
   if (!row) {
     const auxiliary = (await query<{kind: string}>(`SELECT kind FROM jobs WHERE kind IN ('game_profile','content_draft','research') AND available_at<=now() AND (state='queued' OR (state='claimed' AND lease_until<now())) ORDER BY available_at,id LIMIT 1`))[0];
     if (auxiliary?.kind === "game_profile") await drainProfile();
@@ -115,7 +117,7 @@ export async function claimJob(protocol?: string | null) {
       await releaseRecordingGate(row.workspace_id, recording.gameId, recording.id);
       return {};
     }
-    if (recording.mode === "jev" && !paidJevAllowed()) {
+    if (recording.mode === "jev" && !await paidJevAllowed(row.workspace_id,recording,"claim")) {
       await put(row.workspace_id, "recording", {...recording,status:"failed",error:PAID_JEV_BLOCKED});
       await query("UPDATE jobs SET state='failed',updated_at=now() WHERE id=$1 AND state='claimed'",[row.id]);
       await releaseRecordingGate(row.workspace_id,recording.gameId,recording.id);
@@ -128,6 +130,7 @@ export async function claimJob(protocol?: string | null) {
         if (!pin?.connectionId || !pin.model || !pin.settingsRevision || !pin.credentialVersion) throw new Error('This queued recording has no Jev selection. Queue a new run.');
         if (!secret?.token || secret.model !== pin.model || secret.jevConnectionId !== pin.connectionId || secret.jevSettingsRevision !== pin.settingsRevision || secret.jevCredentialVersion !== pin.credentialVersion) throw new Error('Jev settings changed since this recording was queued. Queue a new run.');
         await verifyJevModel(secret.model);
+        await consumeJevValidation(row.workspace_id,recording);
         const latest = await secretFor(row.workspace_id, "jev");
         if (!latest || latest.jevSettingsRevision !== secret.jevSettingsRevision || latest.jevCredentialVersion !== secret.jevCredentialVersion || latest.jevConnectionId !== secret.jevConnectionId || latest.model !== secret.model) throw new Error('Jev settings changed while claiming the job.');
       } catch (error) {
@@ -140,6 +143,7 @@ export async function claimJob(protocol?: string | null) {
     }
     if (!game) throw new Error("Missing game");
     const syntheticCapability = recording.mode === "fixture" ? undefined : await mintSyntheticCapability(row.workspace_id, recording.id, game.id, game.url);
+    if(recording.mode==="jev")await assertJevDispatch(row.workspace_id,recording);
     return {
       recording,
       limits,
