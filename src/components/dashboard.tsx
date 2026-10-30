@@ -1,4 +1,5 @@
 "use client";
+import GameSourceEditor from "./game-source-editor";
 
 import {
   useCallback,
@@ -1019,6 +1020,8 @@ export default function Dashboard() {
           ? {
               action: "update_game",
               id: chosenGame.id,
+              expectedSourceUrl: chosenGame.url,
+              expectedSourceRevision: chosenGame.sourceUrlRevision || null,
               title: draft.title,
               image: draft.image,
               genre: draft.genre,
@@ -1476,6 +1479,7 @@ export default function Dashboard() {
                           {g.url} <ExternalLink size={12} />
                         </a>
                         <p>{g.description || "No description provided."}</p>
+                        {!snapshot.demo && <GameSourceEditor game={g} onSaved={() => { void refresh(); }}/>}
                         {g.manifestSource && <a className="game-manifest-source" href={g.manifestSource.url} target="_blank" rel="noreferrer">Imported from forever.json <ExternalLink size={11}/></a>}
                         <span className="tag">
                           {g.genre || "Web game"}
@@ -1486,6 +1490,7 @@ export default function Dashboard() {
                       </div>
                       <div className="game-actions">
                         <Button onClick={() => editGame(g)}>Edit</Button>
+                        <Button onClick={() => { setSelectedGame(g.id); changePage("content"); }}>Scripts &amp; video studio</Button>
                         <Button onClick={() => setSelectedGame(g.id)}>Game profile</Button>
                         <Button onClick={() => { setSelectedGame(g.id); changePage("discovery"); }}>Search &amp; answers</Button>
                         <Button
@@ -2187,9 +2192,9 @@ export default function Dashboard() {
               {error && <div ref={formError} className="alert error" role="alert">{error}</div>}
               {modal === "game" && (
                 <>
-                  <Field label="Game page URL" hint={chosenGame ? "The registered source URL." : "Blaze reads this game page’s /forever.json file and imports its metadata."}>
-                    <input required disabled={!!chosenGame} type="url" placeholder="https://yourgame.com/my/game" value={draft.url} onChange={e => { setError(""); setDraft({ ...draft, url: e.target.value }); }} />
-                  </Field>
+                  {chosenGame ? <><p>Main source URL: {chosenGame.url}</p><GameSourceEditor game={chosenGame} onSaved={() => { setModal(null); void refresh(); }}/></> : <Field label="Game page URL" hint="Blaze reads this game page’s /forever.json file and imports its metadata.">
+                    <input required type="url" placeholder="https://yourgame.com/my/game" value={draft.url} onChange={e => { setError(""); setDraft({ ...draft, url: e.target.value }); }} />
+                  </Field>}
                   {!chosenGame && <div className="manifest-import">
                     {manifestAddress(draft.url) && <div className="manifest-address"><span>Manifest URL</span><code>{manifestAddress(draft.url)}</code></div>}
                     {(gameImport.status === "waiting" || gameImport.status === "loading") && <p className="manifest-status" role="status"><LoaderCircle className="spin" size={15} /> Fetching and validating the manifest…</p>}

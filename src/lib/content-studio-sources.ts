@@ -19,5 +19,5 @@ export async function gameSources(workspace: string, gameId: string, sql?: Trans
   const url = new URL(game.url); url.search = ""; url.hash = "";
   if (url.protocol !== "https:" || url.username || url.password) throw new HttpError(409, "A public HTTPS game URL is required.");
   const networkPolicy = game.networkPolicy || { resourceOrigins: [], webSocketOrigins: [] };
-  return { gameId, title: game.title, url: url.href, facts, networkPolicy, revision: hash(JSON.stringify({ url: url.href, manifest: game.manifestSource, facts, networkPolicy })) };
+  return { gameId, title: game.title, url: url.href, facts, networkPolicy, revision: hash(JSON.stringify({ url: url.href, manifest: game.manifestSource, sourceUrlRevision: game.sourceUrlRevision, facts, networkPolicy })) };
 }

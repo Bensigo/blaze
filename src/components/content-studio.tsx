@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { DEFAULT_VIDEO_SETTINGS, type ContentIdea, type StudioSnapshot, type VideoProduction, type VideoSettings, type PilotReview } from "@/lib/content-studio-contract";
+import ScriptReviewScore from "./script-review-score";
 import ContentScriptEditor from "./content-script-editor";
 import type { Game } from "@/lib/types";
 import "./content-studio.css";
@@ -70,6 +71,8 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
   };
   if (demo) return <section className="content-engine"><p>Sign in to prepare ideas and produce videos for your games.</p></section>;
   const title = (id: string) => games.find(g => g.id === id)?.title || "Game";
+  const ideaPriority = (idea: ContentIdea) => { const script = data?.scripts?.find(s=>s.ideaId===idea.id); return script?.score ? 2 : script ? 1 : 0; };
+  const ideas = [...(data?.ideas || [])].sort((a,b)=>ideaPriority(b)-ideaPriority(a));
   const videos = (data?.productions || []).filter(p => !calendarOnly || p.plannedDate).sort((a, b) => (a.plannedDate || "").localeCompare(b.plannedDate || ""));
   return <section className="content-engine" aria-label={calendarOnly ? "Video planning calendar" : "Gameplay video studio"}>
     {error && <p role="alert" className="studio-error">{error}</p>}
@@ -91,14 +94,15 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
           <button className="button" disabled={busy}>Save preferences</button>
         </form><p>Source outlines are free preparation. Daily AI ideas stay paused until the account, budget and schedule are approved.</p>
       </details>
-      <div className="studio-ideas">{data.ideas.map(idea => <article className="studio-idea" key={idea.id}>
+      <div className="studio-ideas">{ideas.map(idea => { const saved = data.scripts?.find(s=>s.ideaId===idea.id); const shownScore = saved?.score || saved?.staleScore; return <article className="studio-idea" key={idea.id}>
         <div><small>{title(idea.gameId)} · {idea.origin === "daily_agent" ? "Daily AI proposal" : "Source outline · no AI run"}</small><h3>{idea.title}</h3><p>{idea.hook}</p><p className="studio-secondary">{idea.treatment}</p>
           <details><summary>Shots and source facts</summary><ol>{idea.shots.map(shot => <li key={shot}>{shot}</li>)}</ol><p>Facts: {idea.factKeys.join(", ")}</p></details></div>
-        <button className="button" disabled={busy} onClick={() => { setChosen(idea); setScriptReady(false); setSettings(DEFAULT_VIDEO_SETTINGS); setAcknowledge(false); requestId.current = null; }}>Choose idea</button>
-      </article>)}</div>
+        {saved && <div className="studio-saved-script"><details><summary>Saved script</summary><p style={{whiteSpace:"pre-wrap"}}>{saved.text}</p></details>{shownScore ? <ScriptReviewScore score={shownScore} stale={saved.sourceStale}/> : <p role="status">{saved.sourceStale ? "Source changed · earlier script and score are stale. Prepare fresh source outlines." : `Jev review: ${saved.reviewState || "not requested"}`}</p>}</div>}
+        <button className="button" disabled={busy} onClick={() => { setChosen(idea); setScriptReady(false); setSettings(DEFAULT_VIDEO_SETTINGS); setAcknowledge(false); requestId.current = null; }}>Review script &amp; video settings</button>
+      </article>; })}</div>
       {!data.ideas.length && <p className="studio-empty">No ideas yet. Select a game and prepare source outlines while the daily agent is being connected.</p>}
       {chosen && <form className="studio-approval" onSubmit={approve} aria-label="Video settings and approval">
-        <div className="studio-heading"><h3>{chosen.title}</h3><button type="button" className="button" disabled={busy} onClick={() => setChosen(null)}>Close settings</button></div>
+        <div className="studio-heading"><h3>{chosen.title}</h3><button type="button" className="button" disabled={busy} onClick={() => { setChosen(null); void refresh(); }}>Close settings</button></div>
         <ContentScriptEditor key={chosen.id} ideaId={chosen.id} onReady={setScriptReady}/>
         <h4>3. Approve the reviewed script and video settings</h4>
         <div className="studio-settings">

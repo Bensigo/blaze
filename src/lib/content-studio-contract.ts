@@ -36,6 +36,7 @@ export type IdeaSchedule = {
   localTime: string | null; enabled: boolean; maxOutputTokensPerGame: number;
 };
 export type StudioSnapshot = {
+  scripts?: { ideaId: string; text: string; sourceStale: boolean; reviewState?: string; staleScore?: import("./content-scripts").ScriptScore; score?: { overall: number; hook: {score:number;explanation:string}; pacing: {score:number;explanation:string}; clarity: {score:number;explanation:string}; shareability: {score:number;explanation:string}; improvements:string[] } }[];
   ideas: ContentIdea[]; productions: VideoProduction[]; schedule: IdeaSchedule;
   pilot?: { operator: boolean; ready: boolean; reasons: string[] };
   readiness: { ready: boolean; reasons: string[]; provider: "anthropic_managed_agents"; connectionLabel?: string };

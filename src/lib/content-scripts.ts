@@ -36,7 +36,9 @@ export async function saveContentScript(workspace: string, ideaId: string, text?
 export async function scriptState(workspace: string, ideaId: string) {
   const script = await get<ContentScript>(workspace, "content_script", scriptId(ideaId));
   const reviews = (await list<ScriptReview>(workspace, "script_review")).filter(r=>r.scriptId===scriptId(ideaId)).sort((a,b)=>b.approvedAt.localeCompare(a.approvedAt)||b.id.localeCompare(a.id));
-  return { script, review: reviews.find(r=>r.scriptRevision===script?.revision), staleReview: reviews.find(r=>r.scriptRevision!==script?.revision), caveat: "Jev's review score is not a predicted probability of virality. Each category is scored out of 25; overall is their sum out of 100." };
+  const source = script ? await gameSources(workspace, script.gameId).catch(() => null) : null;
+  const sourceStale = !!script && source?.revision !== script.sourceRevision;
+  return { script, sourceStale, review: sourceStale ? undefined : reviews.find(r=>r.scriptRevision===script?.revision), staleReview: reviews.find(r=>sourceStale || r.scriptRevision!==script?.revision), caveat: "Jev's review score is not a predicted probability of virality. Each category is scored out of 25; overall is their sum out of 100." };
 }
 export async function reviewedScript(workspace: string, ideaId: string, sourceRevision: string, sql?: TransactionQuery) {
   const script = sql ? (await sql<{ body: ContentScript }>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='content_script' AND id=$2 FOR UPDATE`, [workspace, scriptId(ideaId)]))[0]?.body : await get<ContentScript>(workspace,"content_script",scriptId(ideaId));

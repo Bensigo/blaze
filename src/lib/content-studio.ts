@@ -1,5 +1,5 @@
 import { approvalJson } from "./approval-json";
-import { reviewedScript } from "./content-scripts";
+import { reviewedScript, type ContentScript, type ScriptReview } from "./content-scripts";
 import { z } from "zod";
 import { comparePut, get, list, put, query, transaction, type TransactionQuery } from "./db";
 import { hash } from "./security";
@@ -60,7 +60,15 @@ export async function studioSnapshot(workspace: string, gameId?: string, actor?:
     get<IdeaSchedule>(workspace, "idea_schedule", "default"), studioReadiness(workspace),
   ]);
   const activeGames = new Set((await list<Game>(workspace, "game")).map(game => game.id));
-  return { ideas: ideas.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), productions: productions.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), schedule: schedule || defaultSchedule, readiness, ...(pilotOperator(workspace, actor) ? { pilot: { operator: true, ...await studioReadiness(workspace, "pilot") } } : {}) };
+  const visibleIdeas = ideas.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId));
+  const [savedScripts, reviews] = await Promise.all([list<ContentScript>(workspace, "content_script"), list<ScriptReview>(workspace, "script_review")]);
+  const revisions = new Map(await Promise.all([...new Set(visibleIdeas.map(i=>i.gameId))].map(async id => [id, (await gameSources(workspace,id).catch(()=>null))?.revision] as const)));
+  const scripts = savedScripts.filter(s=>visibleIdeas.some(i=>i.id===s.ideaId)).map(s=>{
+    const sourceStale = s.sourceRevision !== revisions.get(s.gameId);
+    const review = reviews.filter(r=>r.scriptId===s.id&&r.scriptRevision===s.revision&&r.sourceRevision===s.sourceRevision).sort((a,b)=>b.approvedAt.localeCompare(a.approvedAt)||b.id.localeCompare(a.id))[0];
+    return {ideaId:s.ideaId,text:s.text,sourceStale,reviewState:sourceStale?"stale":review?.state,...(review?.state==="complete"&&review.score?(sourceStale?{staleScore:review.score}:{score:review.score}):{})};
+  });
+  return { scripts, ideas: ideas.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), productions: productions.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), schedule: schedule || defaultSchedule, readiness, ...(pilotOperator(workspace, actor) ? { pilot: { operator: true, ...await studioReadiness(workspace, "pilot") } } : {}) };
 }
 export async function saveIdeaSchedule(workspace: string, input: z.infer<typeof scheduleSchema>) {
   // Saving preferences never activates a metered recurring task or preserves an old spend approval.
