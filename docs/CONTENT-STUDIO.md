@@ -69,3 +69,7 @@ Existing subscription-credit eligibility and the provider's current pricing must
 - GitHub main was read-only verified at `c8f7d40e0f798134ae5414fd62b8c2fc89a53329`; the original `/Users/macbook/work/web-game-marketing` remained clean. No PR publication, merge or deployment was performed.
 
 The saved Anthropic key also returned HTTP200 from the read-only Managed Agents list endpoint (`GET /v1/agents?limit=1`). This verifies metadata access with the existing credential, not permission to create a persistent agent, run inference, expand access or activate a schedule.
+
+## Concrete rollout preparation
+
+See `CONTENT-STUDIO-ROLLOUT.md` for verified workspace/connection/game IDs, observed WHOT redirect and guest resource hosts, non-secret storage destination, and exact provider schema. The native one-minute adapter is prepared under `netlify/paused-functions`, outside deployment discovery, so releasing this slice cannot register its cron. Both schedule and route flags default off. Normal generation still requires verified pilot readiness; a dedicated first-pilot admission path is not implemented and must not be replaced by prematurely setting verification flags. Actual Netlify plan/allowance inspection was blocked by automatic review of a broad Dia read; no retry or workaround was attempted. No provider call or production write occurred in readiness preparation.

@@ -33,3 +33,7 @@ The public game and its explicitly approved asset/network origins are accessed f
 Application limits are 150 MB final video and 128 KB evidence JSON. Prefer a final MP4 under 25 MB and raw capture under 100 MB for this pilot. Raw capture is currently referenced in scoped Files metadata and evidence; it is not downloaded/structurally validated or copied to Blaze. Retain it until manual review. A separate retention/cleanup decision is needed before relying on durable raw evidence. Do not report metadata presence as validated raw footage.
 
 On failure, record the session identifier, provider state and observed usage, request one interruption when possible, confirm idle/terminated, retain diagnostic evidence, and stop. No automatic retry, regenerated replacement or destructive cloud cleanup. Inspect for a possibly created session before considering any further action. After accepted download, propose exact cleanup targets for owner approval; do not delete cloud resources speculatively.
+
+## Readiness update
+
+`CONTENT-STUDIO-ROLLOUT.md` now supplies exact provider fields/IDs, the observed redirect to forever.africa, confirmed computer-only guest entry, observed two-host resource policy, existing private storage endpoint and a prepared native Netlify adapter kept outside deployed functions. Normal generation requires pilot verification, so first-pilot admission remains an implementation gap, not permission to falsify verification flags. The actual Netlify plan/billing inspection remains blocked; no paid or recurring work is enabled.
