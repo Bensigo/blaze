@@ -50,8 +50,9 @@ export async function snapshot(
     googleAvailable(),
     databaseUsage(),
   ]);
+  const activeGames = new Set(games.map(game => game.id));
   const match = <T extends { gameId: string }>(items: T[]) =>
-    gameId ? items.filter((x) => x.gameId === gameId) : items;
+    items.filter((x) => activeGames.has(x.gameId) && (!gameId || x.gameId === gameId));
   return {
     user: { name: user.name, email: user.email },
     workspace: { id: workspace, name: "Your workspace" },
@@ -63,7 +64,7 @@ export async function snapshot(
     connections,
     findings: match(findings),
     runs: match(runs),
-    measurements: await measurementResults(workspace, gameId),
+    measurements: match(await measurementResults(workspace, gameId)),
     analytics: stats,
     system: {
       database: true,

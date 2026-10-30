@@ -1,5 +1,11 @@
 # Web game marketing — implementation context
 
+## Content Studio continuation — 30 October 2026
+
+The current requested slice is a reusable multi-game video workflow: daily source-grounded ideas (two or three per game, default three), idea/settings approval, a cloud producer that actively plays and captures the real game, private video return with preview/download, and Dubai calendar planning for manual X/YouTube posting. Social connections, automated publishing and comment ingestion are deferred for this slice. Calendar dates confer no publishing authority. New producer/daily execution flags and authorization records stay disabled until account, budget, schedule and a bounded cloud capture pilot are approved. The new provider path reuses the existing direct Anthropic credential selection; it does not assume Jev/OpenRouter credits apply. Details and exact verification limits are in `docs/CONTENT-STUDIO.md`.
+
+The owner also requested recoverable Delete game from Blaze: exact-name confirmation, remove active eligibility, retain data, restore support and explicit handling of active/uncertain jobs. The feature request does not authorize deleting any existing production game.
+
 Approved 28 October 2026. Independent Blaze product at `/Users/macbook/work/web-game-marketing`, now served on its separate permanent Netlify site. Forever is the intended first integration; work in its own project is separately scoped and its real integration is not yet accepted.
 
 ## Product decisions

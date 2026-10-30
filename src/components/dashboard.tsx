@@ -46,6 +46,8 @@ import GameConnections from "./game-connections";
 import InfoHint from "./info-hint";
 import MostPlayedGames from "./most-played-games";
 const ActionsPage = dynamic(() => import("./actions-page"), { loading: () => <p role="status">Loading actions…</p> });
+const ContentStudio = dynamic(() => import("./content-studio"), { loading: () => <p role="status">Loading video studio…</p> });
+const GameArchiveControls = dynamic(() => import("./game-archive-controls"));
 const AccountSettings = dynamic(() => import("./account-settings"), { loading: () => <p role="status">Loading account settings…</p> });
 const DiscoveryReview = dynamic(() => import("./discovery-review").then(module => module.DiscoveryReview), { loading: () => <p role="status">Loading search review…</p> });
 import type {
@@ -1520,6 +1522,7 @@ export default function Dashboard() {
               )}
             </>
           )}
+          {page === "games" && <GameArchiveControls games={games} demo={snapshot.demo} onUpdated={async () => { setSelectedGame("all"); await refresh("all", false); }}/>}
           {page === "discovery" && <>
             <SectionHead title={games.find(game => game.id === selectedGame)?.title || "Choose a game"} detail="Public discovery review. Gameplay investigation and AI keys are not required." action={<Button onClick={() => changePage("games")}>Back to games</Button>}/>
             {snapshot.demo ? <Empty title="Sign in to review your game" detail="Public checks are unavailable in the example workspace."/> : selectedGame === "all" ? <Empty title="Choose one game" detail="Select a game above to read its cached observations or run a public-page review."/> : <DiscoveryReview key={selectedGame} gameId={selectedGame}/>}
@@ -1762,9 +1765,10 @@ export default function Dashboard() {
           )}
           {page === "content" && (
             <>
+              <ContentStudio key={selectedGame} games={games} gameId={selectedGame} demo={snapshot.demo}/>
               <SectionHead
-                title="Content studio"
-                detail="Draft, review and approve the exact content before publishing."
+                title="Post drafts"
+                detail="Prepare text for the videos you will post manually."
                 action={
                   <Button variant="primary" onClick={() => openModal("post")}>
                     <Plus size={16} /> New post
@@ -1798,6 +1802,7 @@ export default function Dashboard() {
           )}
           {page === "calendar" && (
             <>
+              <ContentStudio key={selectedGame} games={games} gameId={selectedGame} demo={snapshot.demo} calendarOnly/>
               <div className="calendar-toolbar">
                 <div>
                   <h2>Publishing calendar</h2>

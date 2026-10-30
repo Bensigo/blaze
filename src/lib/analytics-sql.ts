@@ -5,6 +5,7 @@ import type { Analytics, SessionSummary, SessionCapture } from "./types";
 export const sessionsCte = `
 WITH window_events AS MATERIALIZED (
  SELECT * FROM events WHERE workspace_id=$1 AND ($2::text IS NULL OR game_id=$2)
+   AND NOT EXISTS (SELECT 1 FROM records archived WHERE archived.workspace_id=$1 AND archived.kind='archived_game' AND archived.id=events.game_id)
    AND occurred_at >= $3::timestamptz AND occurred_at <= $4::timestamptz AND received_at <= $4::timestamptz
 ), human AS (SELECT * FROM window_events WHERE kind='human'), numbered AS (
  SELECT *,row_number() OVER (PARTITION BY game_id,session_id ORDER BY occurred_at,id) seq FROM human
@@ -120,7 +121,7 @@ export async function sqlAnalytics(workspace:string,gameId?:string,days=14,now=D
  query<{data: Analytics & {coverage:Record<string,{shown:number;total:number}>}}>(`${sessionsCte},
  cohort AS (
  SELECT f.*, EXISTS(SELECT 1 FROM events e WHERE e.workspace_id=f.workspace_id AND e.game_id=f.game_id AND e.player_id=f.player_id AND e.kind='human' AND e.name='visit' AND e.session_id<>f.first_session_id AND e.occurred_at>=f.first_at+interval '24 hours' AND e.occurred_at<f.first_at+interval '48 hours' AND e.occurred_at<=$4::timestamptz AND e.received_at<=$4::timestamptz) came_back
- FROM player_first_seen f WHERE f.workspace_id=$1 AND ($2::text IS NULL OR f.game_id=$2) AND f.first_at >= ($5::date::timestamp AT TIME ZONE 'UTC') AND f.first_at < ((($4::timestamptz AT TIME ZONE 'UTC')::date + 1)::timestamp AT TIME ZONE 'UTC') AND f.first_at<=$4::timestamptz
+ FROM player_first_seen f WHERE f.workspace_id=$1 AND ($2::text IS NULL OR f.game_id=$2) AND NOT EXISTS (SELECT 1 FROM records archived WHERE archived.workspace_id=$1 AND archived.kind='archived_game' AND archived.id=f.game_id) AND f.first_at >= ($5::date::timestamp AT TIME ZONE 'UTC') AND f.first_at < ((($4::timestamptz AT TIME ZONE 'UTC')::date + 1)::timestamp AT TIME ZONE 'UTC') AND f.first_at<=$4::timestamptz
 ), trend_days AS (SELECT ($5::date + n)::date AS day_date FROM generate_series(0,$6::int-1) n),
  country AS (SELECT coalesce(nullif(country,''),'Unknown') name,count(*)::int count FROM sessions GROUP BY 1),
  source AS (SELECT coalesce(nullif(source,''),'Unknown') name,count(*)::int count FROM sessions GROUP BY 1),
