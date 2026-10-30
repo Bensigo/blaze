@@ -46,6 +46,7 @@ import ManualExportPanel from "./manual-export-panel";
 import GameConnections from "./game-connections";
 import InfoHint from "./info-hint";
 import MostPlayedGames from "./most-played-games";
+import {dashboardHref,readDashboardLocation,type DashboardView} from "@/lib/dashboard-location";
 const ActionsPage = dynamic(() => import("./actions-page"), { loading: () => <p role="status">Loading actions…</p> });
 const ContentStudio = dynamic(() => import("./content-studio"), { loading: () => <p role="status">Loading video studio…</p> });
 const GameArchiveControls = dynamic(() => import("./game-archive-controls"));
@@ -72,19 +73,7 @@ const PlayerAnalytics = dynamic(() => import("./player-analytics"), { loading: (
 type GameImportMetadata = { url: string; title: string; description: string; image: string; genre: string; metadataStatus: string; manifestSource: { url: string; observedAt: string; sha256: string; formatVersion: 1 } };
 type GameImportState = { status: "idle" | "waiting" | "loading" | "ready" | "error"; input: string; metadata?: GameImportMetadata; error?: string };
 
-type Page =
-  | "overview"
-  | "games"
-  | "analytics"
-  | "sessions"
-  | "recordings"
-  | "content"
-  | "calendar"
-  | "research"
-  | "connections"
-  | "account"
-  | "discovery"
-  | "help";
+type Page = DashboardView;
 type Modal =
   | "game"
   | "recording"
@@ -363,6 +352,41 @@ export default function Dashboard() {
     [mobileNav, setMobileNav] = useState(false),
     [modal, setModal] = useState<Modal>(null);
   const [chosenGame, setChosenGame] = useState<Game | null>(null);
+  const mainWorkspace=useRef<HTMLElement>(null);
+  const initialSearch=useRef("");
+  const availableGameIds=useRef<string[]>([]);
+  availableGameIds.current=(snapshot?.games||[]).map(game=>game.id);
+  const [locationReady,setLocationReady]=useState(false);
+  useEffect(()=>{
+    if(!snapshot){setLocationReady(false);return;}
+    if(locationReady)return;
+    const location=readDashboardLocation(initialSearch.current,availableGameIds.current);
+    setPage(location.page);setSelectedGame(location.gameId);setPeriod(location.days);
+    window.history.replaceState(null,"",dashboardHref(location));
+    setLocationReady(true);
+  },[snapshot,locationReady]);
+  useEffect(()=>{
+    if(!locationReady)return;
+    const href=dashboardHref({page,gameId:selectedGame,days:period});
+    if(window.location.pathname+window.location.search+window.location.hash!==href)window.history.pushState(null,"",href);
+  },[page,selectedGame,period,locationReady]);
+  useEffect(()=>{
+    const back=()=>{
+      if(window.location.pathname!=="/app")return;
+      initialSearch.current=window.location.search;
+      if(!locationReady)return;
+      const location=readDashboardLocation(window.location.search,availableGameIds.current);
+      window.history.replaceState(null,"",dashboardHref(location));
+      setPage(location.page);setSelectedGame(location.gameId);setPeriod(location.days);setMobileNav(false);
+    };
+    window.addEventListener("popstate",back);
+    return()=>window.removeEventListener("popstate",back);
+  },[locationReady]);
+  useEffect(()=>{
+    if(!locationReady)return;
+    window.scrollTo({top:0,left:0,behavior:"auto"});
+    mainWorkspace.current?.focus({preventScroll:true});
+  },[page,selectedGame,locationReady]);
   const navigationPanel=useRef<HTMLElement>(null);
   const navigationTrigger=useRef<HTMLButtonElement>(null);
   useEffect(()=>{
@@ -533,6 +557,7 @@ export default function Dashboard() {
     setOrigin(window.location.origin);
     setLocalTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
     const params = new URLSearchParams(window.location.search);
+    initialSearch.current=window.location.search;
     const authResult = params.get("auth");
     const socialResult = params.get("social");
     const provider = params.get("provider") || "";
@@ -696,6 +721,7 @@ export default function Dashboard() {
     }
   };
   const changePage = (p: Page) => {
+    if(p===page){window.scrollTo({top:0,left:0,behavior:"auto"});mainWorkspace.current?.focus({preventScroll:true});}
     setPage(p);
     setMobileNav(false);
     sessionRequest.current++;
@@ -1421,7 +1447,7 @@ export default function Dashboard() {
             </button>
           </div>
         )}
-        <main className="main-content">
+        <main ref={mainWorkspace} tabIndex={-1} className="main-content">
           {page !== "account" && <div className="page-heading">
             <div>
               <div className="page-title-line"><h1>{title}</h1><InfoHint label={`About ${title}`}>{pageDescriptions[page]}</InfoHint></div>

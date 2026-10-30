@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import InfoHint from "./info-hint";
 import type { Game } from "@/lib/types";
 
 
@@ -27,7 +28,7 @@ export default function GameConnections({ games, origin, onAdd, onSetup, onSessi
     {!game ? <div className="game-connections-empty"><p>No games added yet.</p><button type="button" className="game-connections-primary" onClick={onAdd}>Add a game</button></div> : <>
       <label className="game-connections-selector">Game<select value={game.id} onChange={(event) => setSelectedId(event.target.value)}>{games.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
       <div className="game-connections-detail">
-        <div className="game-connections-intro"><h3>{game.title}</h3><p><span className="game-connections-status">SDK telemetry unverified</span> Check Sessions for consented events. Imported metadata does not verify SDK installation.</p></div>
+        <div className="game-connections-intro"><h3>{game.title}</h3><p><span className="game-connections-status">SDK telemetry unverified</span> <InfoHint label="About SDK verification">Check Sessions for consented events. Imported metadata does not verify SDK installation.</InfoHint></p></div>
         <dl className="game-connections-list">
           <div><dt>Public game URL</dt><dd><Address value={game.url} /></dd></div>
           <div><dt>Manifest provenance</dt><dd>{game.manifestSource ? <><span>Metadata imported · version {game.manifestSource.formatVersion} · checked {observedDate(game.manifestSource.observedAt)}</span><Address value={game.manifestSource.url} /><span className="game-connections-hash">SHA-256: {game.manifestSource.sha256}</span></> : <span>Legacy record · manifest source unavailable</span>}</dd></div>

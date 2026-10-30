@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { DEFAULT_VIDEO_SETTINGS, type ContentIdea, type StudioSnapshot, type VideoProduction, type VideoSettings, type PilotReview } from "@/lib/content-studio-contract";
 import ContentReferenceLibrary from "./content-reference-library";
-import ScriptReviewScore from "./script-review-score";
 import ContentScriptEditor from "./content-script-editor";
 import type { Game } from "@/lib/types";
 import { browserRead } from "@/lib/browser-read";
@@ -17,6 +16,7 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
   const [settings, setSettings] = useState<VideoSettings>(DEFAULT_VIDEO_SETTINGS);
   const [budget, setBudget] = useState(100); const [acknowledge, setAcknowledge] = useState(false);
   const [scriptReady, setScriptReady] = useState(false);
+  const [editorStep, setEditorStep] = useState<1 | 2 | 3>(1);
   const [pilotReview, setPilotReview] = useState<PilotReview | null>(null);
   const [pilotAck, setPilotAck] = useState(false);
   const requestId = useRef<string | null>(null);
@@ -48,7 +48,7 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
     finally { lock.current = false; setBusy(false); }
   };
   const approve = async (event: FormEvent) => {
-    event.preventDefault(); if (!chosen || lock.current || !acknowledge) return;
+    event.preventDefault(); if (editorStep !== 3 || !chosen || lock.current || !acknowledge) return;
     lock.current = true; setBusy(true); setError("");
     requestId.current ||= crypto.randomUUID();
     try {
@@ -107,14 +107,17 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
       {!chosen&&<div className="studio-ideas">{ideas.map(idea => { const saved = data.scripts?.find(s=>s.ideaId===idea.id); const shownScore = saved?.score || saved?.staleScore; const facts=data.sourceFacts?.find(s=>s.gameId===idea.gameId&&s.sourceRevision===idea.sourceRevision)?.facts.filter(f=>idea.factKeys.includes(f.key)); return <article className="studio-idea" key={idea.id}>
         <div><small>{title(idea.gameId)} · {idea.origin === "daily_agent" ? "Daily AI proposal" : "Source outline · no AI run"}</small><h3>{idea.title}</h3><p>{idea.hook}</p>
           <details><summary>Shots and source facts</summary><p>{idea.treatment}</p><ol>{idea.shots.map(shot => <li key={shot}>{shot}</li>)}</ol>{facts?.length?<ul className="studio-source-facts">{facts.map(f=><li key={f.key}>{f.value}</li>)}</ul>:<p>Current source evidence is unavailable for this outline. Prepare fresh outlines after reviewing the game source.</p>}</details></div>
-        {saved && <div className="studio-saved-script"><details><summary>Saved script</summary><p style={{whiteSpace:"pre-wrap"}}>{saved.text}</p></details>{shownScore ? <><ScriptReviewScore score={shownScore} stale={!!saved.staleScore}/>{saved.staleScore&&!saved.scoreReferenceSetRevision&&<p className="studio-secondary">Historical review · no reference examples were supplied. Save with current references before requesting a new score.</p>}</> : <p role="status">{saved.sourceStale ? "Source changed · earlier script and score are stale. Prepare fresh source outlines." : `Jev review: ${saved.reviewState || "not requested"}`}</p>}</div>}
-        <button className="button" disabled={busy} onClick={() => { setChosen(idea); setScriptReady(false); setSettings(DEFAULT_VIDEO_SETTINGS); setAcknowledge(false); requestId.current = null; }}>Review script &amp; video settings</button>
+        <div className="studio-idea-action">{shownScore ? <span className="studio-score-summary"><strong>{shownScore.overall}/100</strong><span>{saved?.staleScore ? "Earlier score" : "Jev score"}</span><InfoHint label="About this score">{saved?.staleScore ? "Historical score. Open the script to inspect the earlier review; it does not authorize production." : "A creative review, not a prediction of virality."}</InfoHint></span> : <span className="studio-secondary">{saved?.sourceStale ? "Source changed" : "Not scored"}</span>}
+        <button className="button" disabled={busy} onClick={() => { setChosen(idea); setEditorStep(1); setScriptReady(false); setSettings(DEFAULT_VIDEO_SETTINGS); setAcknowledge(false); requestId.current = null; }}>Open script</button></div>
       </article>; })}</div>}
       {!data.ideas.length && <p className="studio-empty">No ideas yet. Select a game and prepare source outlines while the daily agent is being connected.</p>}
       {chosen && <form ref={approvalPanel} tabIndex={-1} className="studio-approval" onSubmit={approve} aria-label="Video settings and approval">
         <div className="studio-heading"><div><small>{title(chosen.gameId)}</small><h3>{chosen.title}</h3></div><button type="button" className="button" disabled={busy} onClick={() => { setChosen(null); ideaHeading.current?.focus(); void refresh().catch(e=>setError(e.message)); }}>Close settings</button></div>
-        <ContentScriptEditor key={chosen.id} ideaId={chosen.id} onReady={setScriptReady}/>
-        <h4>3. Approve the reviewed script and video settings</h4>
+        <nav className="studio-editor-steps" aria-label="Production steps">{(["Script", "Jev score", "Video"] as const).map((label, index) => <button type="button" key={label} aria-current={editorStep === index + 1 ? "step" : undefined} onClick={() => setEditorStep((index + 1) as 1 | 2 | 3)}><span>{index + 1}</span>{label}</button>)}</nav>
+        <div hidden={editorStep === 3} className="studio-editor-section"><ContentScriptEditor key={chosen.id} ideaId={chosen.id} onReady={setScriptReady} step={editorStep === 1 ? "script" : "review"}/></div>
+        {editorStep < 3 && <div className="studio-step-actions"><button type="button" className="button primary" onClick={() => setEditorStep(editorStep === 1 ? 2 : 3)}>{editorStep === 1 ? "Continue to Jev score" : "Continue to video"}</button></div>}
+        <section hidden={editorStep !== 3} className="studio-editor-section">
+        <h4>Video settings</h4>
         <div className="studio-settings">
           <label>Aspect ratio<select value={settings.aspectRatio} onChange={e => { requestId.current = null; setSettings({ ...settings, aspectRatio: e.target.value as VideoSettings["aspectRatio"] }); }}><option>9:16</option><option>16:9</option><option>1:1</option></select></label>
           <label>Duration · seconds<input type="number" min="10" max="60" value={settings.durationSeconds} onChange={e => { requestId.current = null; setSettings({ ...settings, durationSeconds: Number(e.target.value) }); }}/></label>
@@ -124,6 +127,7 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
         </div>
         <label className="studio-check"><input type="checkbox" checked={settings.motionGraphics} onChange={e => setSettings({ ...settings, motionGraphics: e.target.checked })}/>Motion graphics</label>
         <label className="studio-check"><input type="checkbox" checked={settings.gameAudio} onChange={e => setSettings({ ...settings, gameAudio: e.target.checked })}/>Require captured game audio</label>
+        {!scriptReady && <p role="status">A current saved script and Jev review are required before approval.</p>}
         <p>Claude checks the threshold between model requests; the final request can exceed it. Existing credits depend on the key's organization and eligibility. Storage costs are separate. No automatic retry.</p>
         <label className="studio-check"><input type="checkbox" required checked={acknowledge} onChange={e => setAcknowledge(e.target.checked)}/>I approve this idea, these settings and one metered cloud production attempt.</label>
         <button className="button primary" disabled={busy || !acknowledge || !scriptReady || !data.readiness.ready}>{busy ? "Saving…" : "Approve & generate video"}</button>
@@ -131,6 +135,7 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
         {data.pilot?.operator && <div className="studio-pilot"><h4>Single-use operator pilot</h4><p>Only this reviewed script, game and provider configuration can be used. This does not enable normal generation or recurrence.</p><button type="button" className="button" disabled={busy || !scriptReady} onClick={() => void pilot(false)}>Inspect exact pilot approval</button>
           {pilotReview && <><p>{pilotReview.settings.durationSeconds}s · {pilotReview.settings.aspectRatio} · threshold ${(pilotReview.maxListCostCents / 100).toFixed(2)} (may overshoot; no hard total spending cap)</p><p>Agent {pilotReview.provider.agentId} v{pilotReview.provider.agentVersion} · environment {pilotReview.provider.environmentId}</p><small>Source revision {pilotReview.sourceRevision}</small><ul>{pilotReview.reasons.map(x => <li key={x}>{x}</li>)}</ul><label className="studio-check"><input type="checkbox" checked={pilotAck} onChange={e => setPilotAck(e.target.checked)}/>I approve this exact script, settings and one cloud pilot attempt. No retry or resume.</label><button type="button" className="button" disabled={busy || !pilotAck || !pilotReview.ready || !scriptReady} onClick={() => void pilot(true)}>Approve one pilot · start separately</button></>}
         </div>}
+        </section>
       </form>}
     </>}
     {data && <div className="studio-videos"><h3>{calendarOnly ? "Videos planned for manual posting · Dubai" : "Video runs"}</h3>

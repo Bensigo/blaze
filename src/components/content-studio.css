@@ -17,3 +17,18 @@
 @media(max-width:700px){.studio-approval{padding:24px 0}.score-dimensions{grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px}.studio-step-list{gap:18px;font-size:12px}.content-engine .button{min-height:44px}}
 .game-more-actions{width:100%;font-size:13px}.game-more-actions>summary{padding:10px 0;text-align:right;color:var(--muted);cursor:pointer}.game-more-actions>div{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;padding:8px 0}.game-more-actions .button{min-height:38px}@media(max-width:1050px){.game-more-actions>summary{text-align:left}.game-more-actions>div{justify-content:flex-start}}@media(max-width:700px){.game-more-actions .button{min-height:44px}}
 .studio-tools{display:flex;gap:12px 28px;flex-wrap:wrap;align-items:start;padding:14px 0;margin-bottom:12px;border-block:1px solid var(--line)}.studio-tools>details{border:0;padding:0;margin:0;font-size:13px}.studio-tools>details[open]{flex-basis:100%;order:2;padding:12px 0}.studio-tools summary{font-weight:500;font-size:13px}.post-drafts-disclosure{border-top:1px solid var(--line);padding:20px 0;color:var(--ink)}.post-drafts-disclosure>summary{font-size:14px;font-weight:500;cursor:pointer}.post-drafts-disclosure .section-head{margin-top:24px}
+
+/* One task per editor step; hidden panels stay mounted to retain drafts. */
+.studio-editor-section[hidden]{display:none}
+.studio-editor-steps{display:flex;gap:8px;padding:20px 0;border-bottom:1px solid var(--line);margin-bottom:24px}
+.studio-editor-steps button{display:flex;align-items:center;gap:9px;border:0;border-radius:6px;background:transparent;color:var(--muted);font:inherit;font-size:14px;min-height:40px;padding:8px 14px;cursor:pointer}
+.studio-editor-steps button span{display:grid;place-items:center;width:22px;height:22px;border:1px solid var(--line);border-radius:50%;font-size:12px}
+.studio-editor-steps button[aria-current=step]{background:var(--soft);color:var(--ink);font-weight:600}
+.studio-editor-steps button[aria-current=step] span{background:var(--accent);color:white;border-color:var(--accent)}
+.studio-editor-steps button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.studio-step-actions{display:flex;justify-content:flex-end;padding-top:20px;border-top:1px solid var(--line)}
+.studio-idea-action{display:flex;flex-direction:column;align-items:flex-end;gap:14px}
+.studio-score-summary{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.studio-score-summary strong{font-size:18px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.studio-editor-section>p{font-size:14px;line-height:1.6;max-width:76ch;color:var(--muted)}
+@media(max-width:700px){.studio-idea-action{align-items:flex-start;width:100%}.studio-editor-steps{gap:2px}.studio-editor-steps button{padding:8px;min-height:44px;gap:6px}.studio-step-actions .button{width:100%}}
