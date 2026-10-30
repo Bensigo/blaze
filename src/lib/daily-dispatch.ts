@@ -58,6 +58,7 @@ async function clearFailure(day:string) {
   await query(`UPDATE records SET body=(body - 'error') || jsonb_build_object('updatedAt',$2::text),updated_at=now() WHERE kind='daily_dispatch' AND id='latest' AND body->>'day'=$1`,[day,new Date().toISOString()]);
 }
 export async function dispatchDailyRequest() {
+  if (process.env.BLAZE_LEGACY_DAILY_ENABLED !== "true") return { paused: true };
   const day=new Date().toISOString().slice(0,10);
   await enqueueDailyDispatch(day);
   try {
@@ -84,6 +85,7 @@ async function dailyMaintenance() {
   await Promise.all([drainProfile(),drainContentAutomation()]);
 }
 export async function consumeDailyDispatch() {
+  if (process.env.BLAZE_LEGACY_DAILY_ENABLED !== "true") return { paused: true };
   const day=new Date().toISOString().slice(0,10), leaseId=`daily-consumer:${day}`;
   const lease=await query(`INSERT INTO jobs(id,workspace_id,kind,state,body,lease_until) VALUES($1,'system','daily_consumer','claimed','{}',now()+interval '14 minutes') ON CONFLICT(id) DO UPDATE SET state='claimed',lease_until=excluded.lease_until,updated_at=now() WHERE jobs.lease_until<now() OR jobs.state='failed' RETURNING id`,[leaseId]);
   if (!lease.length) return;
