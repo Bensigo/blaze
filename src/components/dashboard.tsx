@@ -363,6 +363,21 @@ export default function Dashboard() {
     [mobileNav, setMobileNav] = useState(false),
     [modal, setModal] = useState<Modal>(null);
   const [chosenGame, setChosenGame] = useState<Game | null>(null);
+  const navigationPanel=useRef<HTMLElement>(null);
+  const navigationTrigger=useRef<HTMLButtonElement>(null);
+  useEffect(()=>{
+    if(!mobileNav)return;
+    const previousOverflow=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    const controls=()=>Array.from(navigationPanel.current?.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],[tabindex="0"]')||[]).filter(el=>el.offsetParent!==null);
+    controls()[0]?.focus();
+    const keyboard=(event:KeyboardEvent)=>{
+      if(event.key==="Escape"){event.preventDefault();setMobileNav(false);}
+      if(event.key==="Tab"){const items=controls();const first=items[0],last=items.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}
+    };
+    document.addEventListener("keydown",keyboard);
+    return()=>{document.body.style.overflow=previousOverflow;document.removeEventListener("keydown",keyboard);navigationTrigger.current?.focus();};
+  },[mobileNav]);
   const [investigation, setInvestigation] = useState<InvestigationState | null>(null);
   const investigationRequest = useRef(0);
   const [eventFilter, setEventFilter] = useState("all");
@@ -1245,7 +1260,7 @@ export default function Dashboard() {
     );
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
+      <aside id="workspace-navigation" ref={navigationPanel} role={mobileNav?"dialog":undefined} aria-modal={mobileNav?true:undefined} aria-label={mobileNav?"Workspace navigation":undefined} className={`sidebar ${mobileNav ? "open" : ""}`}>
         <div className="side-top">
           <Brand />
           <button
@@ -1275,6 +1290,7 @@ export default function Dashboard() {
                   key={n.id}
                   onClick={() => changePage(n.id)}
                   className={`nav-item ${page === n.id ? "active" : ""}`}
+                  aria-current={page===n.id?"page":undefined}
                 >
                   <n.icon size={17} />
                   <span>{n.label}</span>
@@ -1334,6 +1350,9 @@ export default function Dashboard() {
           <div className="topbar-left">
             <button
               className="icon-button mobile-menu"
+              ref={navigationTrigger}
+              aria-controls="workspace-navigation"
+              aria-expanded={mobileNav}
               onClick={() => setMobileNav(true)}
               aria-label="Open navigation"
             >
@@ -1405,8 +1424,7 @@ export default function Dashboard() {
         <main className="main-content">
           {page !== "account" && <div className="page-heading">
             <div>
-              <h1>{title}</h1>
-              <p>{pageDescriptions[page]}</p>
+              <div className="page-title-line"><h1>{title}</h1><InfoHint label={`About ${title}`}>{pageDescriptions[page]}</InfoHint></div>
             </div>
             {page !== "connections" && page !== "help" && page !== "research" && (
               <div className="filters">
@@ -1426,7 +1444,7 @@ export default function Dashboard() {
                   </select>
                   <ChevronDown size={14} />
                 </label>
-                {page !== "discovery" && <label>
+                {["overview","analytics","sessions"].includes(page) && <label>
                   <span className="sr-only">Filter by date</span>
                   <CalendarDays size={15} />
                   <select
@@ -1446,7 +1464,7 @@ export default function Dashboard() {
           {(page === "overview" || page === "analytics") && (sessionScopeReady ? <PlayerAnalytics
             analytics={analytics} games={games} gameId={selectedGame} days={period} demo={snapshot.demo} detailed={page === "analytics"}
             onChooseGame={setSelectedGame} onAddGame={() => openModal("game")} onSetup={() => changePage("help")}
-            onSessions={() => changePage("sessions")} onOpenSession={openSession}
+            onAnalytics={() => changePage("analytics")} onSessions={() => changePage("sessions")} onOpenSession={openSession}
             onDropoff={name => void investigate("dropoff", name, { dropoff: name })}
             onClearEvidence={() => { investigationRequest.current++; setInvestigation(null); }}
             onBin={(context, bx, by, sessionId) => {
@@ -1463,11 +1481,6 @@ export default function Dashboard() {
               <SectionHead
                 title="Your games"
                 detail="Add a public web game URL to begin setup."
-                action={
-                  <Button variant="primary" onClick={() => openModal("game")}>
-                    <Plus size={16} /> Add game
-                  </Button>
-                }
               />
               {filteredGames.length ? (
                 <div className="games-list">
@@ -1492,9 +1505,7 @@ export default function Dashboard() {
                         </span>
                       </div>
                       <div className="game-actions">
-                        <Button onClick={() => editGame(g)}>Edit</Button>
                         <Button onClick={() => { setSelectedGame(g.id); changePage("content"); }}>Scripts &amp; video studio</Button>
-                        <Button onClick={() => setSelectedGame(g.id)}>Game profile</Button>
                         <Button onClick={() => { setSelectedGame(g.id); changePage("discovery"); }}>Search &amp; answers</Button>
                         <Button
                           onClick={() => {
@@ -1504,14 +1515,14 @@ export default function Dashboard() {
                         >
                           Analytics <ArrowRight size={14} />
                         </Button>
-                        <Button
+                        <details className="game-more-actions"><summary>More actions</summary><div><Button onClick={() => editGame(g)}>Edit</Button><Button onClick={() => setSelectedGame(g.id)}>Game profile</Button><Button
                           onClick={() => {
                             setSelectedGame(g.id);
                             changePage("help");
                           }}
                         >
                           SDK setup
-                        </Button>
+                        </Button></div></details>
                       </div>
                     </div>
                   ))}
@@ -1774,13 +1785,14 @@ export default function Dashboard() {
           {page === "content" && (
             <>
               <ContentStudio key={selectedGame} games={games} gameId={selectedGame} demo={snapshot.demo}/>
+              <details className="post-drafts-disclosure"><summary>Post drafts · {posts.length}</summary>
               <SectionHead
                 title="Post drafts"
                 detail="Prepare text for the videos you will post manually."
-                action={
+                action={posts.length>0?
                   <Button variant="primary" onClick={() => openModal("post")}>
                     <Plus size={16} /> New post
-                  </Button>
+                  </Button>:undefined
                 }
               />
               {posts.length ? (
@@ -1806,6 +1818,7 @@ export default function Dashboard() {
                   }
                 />
               )}
+              </details>
             </>
           )}
           {page === "calendar" && (
@@ -1813,8 +1826,8 @@ export default function Dashboard() {
               <ContentStudio key={selectedGame} games={games} gameId={selectedGame} demo={snapshot.demo} calendarOnly/>
               <div className="calendar-toolbar">
                 <div>
-                  <h2>Publishing calendar</h2>
-                  <p>Planned times and publishing status</p>
+                  <h2>Post calendar</h2>
+                  <p>Planning only · download and post manually.</p>
                 </div>
                 <div className="calendar-controls">
                   <div className="segmented">

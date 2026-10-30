@@ -1,21 +1,21 @@
-.game-connections { color: var(--ink, #1d2922); margin-bottom: 32px; }
+.game-connections { color: var(--ink); margin-bottom: 32px; }
 .game-connections-heading { margin-bottom: 22px; }
 .game-connections-heading h2 { margin: 0; font-size: 18px; }
 .game-connections-heading p, .game-connections-empty p { margin: 6px 0 0; color: var(--muted, #707a73); font-size: 13px; line-height: 1.5; }
 .game-connections-selector { display: grid; gap: 7px; max-width: 360px; font-size: 13px; font-weight: 600; }
-.game-connections-selector select { height: 40px; width: 100%; padding: 0 11px; border: 1px solid #d9e1da; border-radius: 7px; background: #fff; color: inherit; font: inherit; font-weight: 400; }
-.game-connections-detail { margin-top: 24px; border-top: 1px solid var(--line, #e2e7e1); }
+.game-connections-selector select { height: 40px; width: 100%; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: inherit; font: inherit; font-weight: 400; }
+.game-connections-detail { margin-top: 24px; border-top: 1px solid var(--line); }
 .game-connections-intro { padding: 22px 0; }
 .game-connections-intro h3 { margin: 0 0 8px; font-size: 16px; }
 .game-connections-intro p { margin: 0; max-width: 620px; color: var(--muted, #707a73); font-size: 13px; line-height: 1.6; }
 .game-connections-status { color: #805418; font-weight: 600; }
 .game-connections-list { margin: 0; font-size: 13px; }
-.game-connections-list > div { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr); gap: 20px; padding: 14px 0; border-top: 1px solid var(--line, #e2e7e1); }
+.game-connections-list > div { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr); gap: 20px; padding: 14px 0; border-top: 1px solid var(--line); }
 .game-connections-list dt { color: var(--muted, #707a73); }.game-connections-list dd { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; margin: 0; overflow-wrap: anywhere; line-height: 1.5; }
-.game-connections-list a { color: var(--accent-dark, #2e6147); }.game-connections-list code { font-size: 12px; overflow-wrap: anywhere; }.game-connections-hash { color: var(--muted, #707a73); font-size: 12px; }
-.game-connections-actions { display: flex; flex-wrap: wrap; gap: 9px; padding-top: 22px; border-top: 1px solid var(--line, #e2e7e1); }
+.game-connections-list a { color: var(--accent-dark); }.game-connections-list code { font-size: 12px; overflow-wrap: anywhere; }.game-connections-hash { color: var(--muted, #707a73); font-size: 12px; }
+.game-connections-actions { display: flex; flex-wrap: wrap; gap: 9px; padding-top: 22px; border-top: 1px solid var(--line); }
 .game-connections button { min-height: 38px; padding: 0 15px; border-radius: 7px; font-size: 13px; font-weight: 600; }
-.game-connections-primary { border: 1px solid var(--accent, #397455); background: var(--accent, #397455); color: #fff; }.game-connections-primary:hover { background: var(--accent-dark, #2e6147); }
-.game-connections-secondary { border: 1px solid #d9e1da; background: #fff; color: inherit; }.game-connections-secondary:hover { background: #f1f4ef; }
+.game-connections-primary { border: 1px solid var(--accent); background: var(--accent); color: #fff; }.game-connections-primary:hover { background: var(--accent-dark); }
+.game-connections-secondary { border: 1px solid var(--line); background: #fff; color: inherit; }.game-connections-secondary:hover { background: var(--side); }
 .game-connections-empty { padding: 4px 0 22px; }.game-connections-empty button { margin-top: 14px; }
 @media (max-width: 600px) { .game-connections-list > div { grid-template-columns: 1fr; gap: 5px; }.game-connections-selector { max-width: none; } }

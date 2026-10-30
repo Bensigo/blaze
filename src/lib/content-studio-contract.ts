@@ -37,6 +37,7 @@ export type IdeaSchedule = {
   localTime: string | null; enabled: boolean; maxOutputTokensPerGame: number;
 };
 export type StudioSnapshot = {
+  sourceFacts?: { gameId:string; sourceRevision:string; facts:{key:string;value:string}[] }[];
   references?:{setId:string;revision:string;rubricRevision:string;selected:{id:string;relevance:string}[]};
   scripts?: { ideaId: string; text: string; sourceStale: boolean; contextStale?:boolean;scoreReferenceSetRevision?:string;referenceIds?:string[];referenceSetRevision?:string;rubricRevision?:string; reviewState?: string; staleScore?: import("./content-scripts").ScriptScore; score?: { overall: number; hook: {score:number;explanation:string}; pacing: {score:number;explanation:string}; clarity: {score:number;explanation:string}; shareability: {score:number;explanation:string}; improvements:string[] } }[];
   ideas: ContentIdea[]; productions: VideoProduction[]; schedule: IdeaSchedule;

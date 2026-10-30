@@ -1,4 +1,12 @@
-# Dog Chase first cloud pilot — not authorized or executed
+# Dog Chase first cloud pilot — video not authorized or executed
+
+## Current status — 30 October2026
+
+The earlier Stage A approval was consumed by one completed Dog Chase Jev review:79/100, reported cost$0.00007455. It predates the reference library and remains historical; it cannot approve a current-reference production. The separate tweet review approval was also consumed. Neither grant may be reused. The proposal text below is historical preparation, not fresh execution authority.
+
+Agent definition agent_01BmpBeh1nD4WkrmJqPNSXMy v1 and restricted environment env_01BRNKr4Vsk5ofoMeKBeanKU were created under explicit approval, with no session/credentials attached. The environment allows only forever.africa and forever.138-68-247-33.sslip.io. No cloud video session has run.
+
+Remaining gates: verify the existing key's organization and link the reviewed provider configuration; verify current game/resource network policy; approve/provision and prove the independent watchdog admission; approve a fresh review of the current saved script, then separately approve the exact cloud pilot/settings/cost exposure. Daily ideas, normal generation, pilot dispatch and watchdog activation remain off. No new key, billing change, top-up or paid retry is authorized. A request budget can overshoot and is not an enforceable total-dollar ceiling.
 
 WHOT is superseded. User-selected target is **DOG CHASE**, game `game_daf42f7a85dd4d4e804b832f39d75056`. Required flow is script draft/user edits → Jev score → owner approves exact script/settings → one cloud gameplay video → private Blaze storage/dashboard preview/download → optional Dubai planning date/manual posting.
 
@@ -54,4 +62,4 @@ No live setup, recurring activation, billing change, release or paid execution h
 - https://docs.typesafe.ai/api/system-one — usage.input_tokens counts billable input; output free.
 - https://openrouter.ai/api/v1/providers — public metadata confirmed TypeSafe slug typesafe. Routing only=[typesafe], allow_fallbacks=false, max_price prompt=.042/completion=0.
 
-Parent approval is still pending. Before execution verify sufficient existing OpenRouter balance without new funds; no paid call, top-up, environment, schedule or release was performed for this cost-preparation step. Anthropic video remains separately unapproved and retains its overshoot caveat.
+This section records the earlier cost-preparation state. Its subsequently approved one-shot review is consumed as recorded above. Any new review needs a fresh approval. Anthropic video remains separately unapproved and retains its overshoot caveat.

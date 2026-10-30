@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Game } from "@/lib/types";
-import "./game-connections.css";
+
 
 function externalUrl(value: string) {
   try {

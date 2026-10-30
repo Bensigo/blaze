@@ -1,39 +1,39 @@
-.developer-site { background: #fbfcfa; min-height: 100vh; color: #263e2e; font-family: inherit; }
+.developer-site { background: var(--bg); min-height: 100vh; color: var(--ink); font-family: inherit; }
 .dev-header { height: 76px; max-width: 1320px; padding: 0 42px; margin: auto; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e0e7df; }
 .dev-brand { display: inline-flex; align-items: center; gap: 11px; text-decoration: none; color: #233e2c; }
 .dev-brand strong { font-size: 26px; font-weight: 750; letter-spacing: -.07em; }
 .dev-brand .blaze-mark { width: 28px; height: 28px; gap: 3px; }
-.dev-brand-label { padding-left: 15px; margin-left: 8px; border-left: 1px solid #dce5db; color: #7c8c80; font-size: 12px; }
+.dev-brand-label { padding-left: 15px; margin-left: 8px; border-left: 1px solid #dce5db; color: var(--muted); font-size: 12px; }
 .dev-header nav { display: flex; gap: 27px; font-size: 12px; font-weight: 550; }
 .dev-header nav a, .dev-source, .dev-mobile-guides a, .dev-document-footer a, .dev-footer a { display: inline-flex; align-items: center; gap: 6px; color: #456f50; text-decoration: none; }
 .dev-header a:hover, .dev-source:hover, .dev-prose a:hover, .dev-document-footer a:hover { color: #203c29; }
 .dev-intro { max-width: 1236px; margin: auto; padding: 58px 42px 38px; display: flex; justify-content: space-between; align-items: center; gap: 30px; }
-.dev-eyebrow { font-size: 10px; font-weight: 650; letter-spacing: .09em; color: #6c8b70; margin: 0 0 14px; }
+.dev-eyebrow { font-size: 12px; font-weight: 650; letter-spacing: .09em; color: var(--muted); margin: 0 0 14px; }
 .dev-intro h1 { font-size: clamp(30px,3.6vw,43px); letter-spacing: -.055em; line-height: 1.16; font-weight: 620; margin: 0 0 13px; }
-.dev-intro > div > p:last-child { font-size: 14px; line-height: 1.7; color: #78887b; margin: 0; }
+.dev-intro > div > p:last-child { font-size: 14px; line-height: 1.7; color: var(--muted); margin: 0; }
 .dev-agent-action { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex-shrink: 0; }
-.dev-agent-action > span { font-size: 10px; color: #88948a; }
-.dev-copy { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 32px; border: 0; border-radius: 5px; background: transparent; color: #66816d; font: inherit; font-size: 10px; cursor: pointer; padding: 7px 9px; transition: background-color .12s; }
+.dev-agent-action > span { font-size: 12px; color: var(--muted); }
+.dev-copy { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 32px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; padding: 7px 9px; transition: background-color .12s; }
 .dev-copy:hover { background: #e7eee5; }
 .dev-copy-primary { min-height: 44px; padding: 12px 19px; font-size: 12px; font-weight: 600; color: #fff; background: #3c7252; }
 .dev-copy-primary:hover { background: #2c5f40; }
-.dev-copy-fallback { display: block; flex-basis: 100%; width: 100%; max-width: 550px; color: #526c58; font-size: 11px; }
+.dev-copy-fallback { display: block; flex-basis: 100%; width: 100%; max-width: 550px; color: #526c58; font-size: 12px; }
 .dev-copy-fallback textarea { display: block; width: 100%; min-width: 0; margin-top: 8px; padding: 10px; border: 1px solid #a9c1aa; border-radius: 4px; color: #304e39; background: #fff; font: 11px/1.6 monospace; }
 .developer-site a:focus-visible, .developer-site button:focus-visible, .developer-site select:focus-visible, .dev-agent-brief summary:focus-visible, .dev-code pre:focus-visible { outline: 2px solid #629776; outline-offset: 4px; }
 .dev-reader { max-width: 1236px; padding: 0 42px 70px; display: grid; grid-template-columns: 226px minmax(0,1fr); gap: 58px; margin: auto; align-items: start; }
 .dev-index { position: sticky; top: 24px; max-height: calc(100dvh - 48px); overflow-y: auto; padding: 6px 3px 14px 0; }
 .dev-index > nav { display: flex; flex-direction: column; gap: 5px; }
-.dev-index > nav > a { border-left: 2px solid transparent; padding: 12px 15px; text-decoration: none; color: #7a8a7e; }
+.dev-index > nav > a { border-left: 2px solid transparent; padding: 12px 15px; text-decoration: none; color: var(--muted); }
 .dev-index > nav > a strong { font-size: 12px; font-weight: 550; display: block; }
-.dev-index > nav > a > span { display: block; color: #93a094; font-size: 10px; line-height: 1.65; margin-top: 5px; max-width: 170px; }
+.dev-index > nav > a > span { display: block; color: var(--muted); font-size: 12px; line-height: 1.65; margin-top: 5px; max-width: 170px; }
 .dev-index > nav > a[aria-current] { background: #edf3eb; border-left-color: #578466; color: #33573d; }
 .dev-on-this-page { border-top: 1px solid #e0e7df; margin: 24px 12px 18px; padding-top: 23px; }
-.dev-on-this-page > span { font-size: 9px; letter-spacing: .07em; color: #9ba69b; font-weight: 600; }
+.dev-on-this-page > span { font-size: 12px; letter-spacing: .07em; color: var(--muted); font-weight: 600; }
 .dev-on-this-page nav { display: flex; flex-direction: column; gap: 13px; margin-top: 17px; }
-.dev-on-this-page a { font-size: 11px; line-height: 1.6; text-decoration: none; color: #7a8a7e; }
+.dev-on-this-page a { font-size: 12px; line-height: 1.6; text-decoration: none; color: var(--muted); }
 .dev-on-this-page a:hover { color: #31583c; }
 .dev-on-this-page .dev-index-nested { padding-left: 12px; }
-.dev-source { font-size: 10px; margin: 4px 12px; }
+.dev-source { font-size: 12px; margin: 4px 12px; }
 .dev-article { min-width: 0; border-top: 1px solid #dfe7dd; padding-top: 30px; }
 .dev-document { scroll-margin-top: 24px; }
 .dev-document[hidden] { display: none; }
@@ -47,21 +47,21 @@
 .dev-prose a { color: #41754f; text-decoration-color: #bacbbb; text-underline-offset: 3px; }
 .dev-prose ul, .dev-prose ol { padding-left: 20px; margin: 18px 0; }
 .dev-prose li { margin: 11px 0; padding-left: 4px; }
-.dev-prose li::marker { color: #7fa286; }
+.dev-prose li::marker { color: var(--muted); }
 .dev-prose :not(pre) > code { font-size: .87em; background: #edf2e9; color: #40624a; padding: 2px 5px; border-radius: 3px; white-space: normal; overflow-wrap: anywhere; }
 .dev-prose blockquote { padding: 0 0 0 18px; border-left: 2px solid #a9c1aa; margin: 22px 0; color: #526c58; }
 .dev-code { border: 1px solid #dfe7dc; border-radius: 7px; overflow: hidden; margin: 24px 0; background: #f3f6f0; max-width: 100%; min-width: 0; }
 .dev-code-toolbar { min-height: 37px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid #e0e7dc; padding: 4px 12px 4px 17px; }
-.dev-code-toolbar > span { font-size: 9px; color: #97a491; text-transform: uppercase; letter-spacing: .06em; }
+.dev-code-toolbar > span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .dev-code pre { margin: 0; padding: 19px 20px; background: none; border: 0; border-radius: 0; overflow: auto; color: #3b5742; font-size: 11.5px; line-height: 1.85; max-width: 100%; white-space: pre; }
 .dev-code pre code { padding: 0; background: transparent; color: inherit; font: inherit; border: 0; white-space: pre; }
 .dev-agent-brief { border-block: 1px solid #e1e8de; padding: 13px 0; margin: 20px 0 30px; }
 .dev-agent-brief summary { cursor: pointer; color: #577e60; font-size: 12px; }
 .dev-agent-brief .dev-code pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .dev-agent-brief .dev-code code { white-space: pre-wrap; }
-.dev-document-footer { padding-top: 25px; margin-top: 38px; border-top: 1px solid #e0e7df; font-size: 11px; color: #8c998d; line-height: 1.8; }
+.dev-document-footer { padding-top: 25px; margin-top: 38px; border-top: 1px solid #e0e7df; font-size: 12px; color: var(--muted); line-height: 1.8; }
 .dev-document-footer p { margin: 0 0 12px; }
-.dev-footer { max-width: 1236px; padding: 24px 42px 32px; border-top: 1px solid #e1e7de; margin: auto; display: flex; justify-content: space-between; font-size: 10px; color: #94a092; gap: 18px; }
+.dev-footer { max-width: 1236px; padding: 24px 42px 32px; border-top: 1px solid #e1e7de; margin: auto; display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); gap: 18px; }
 .dev-mobile-guides { display: none; }
 .dev-skip { position: fixed; left: 20px; top: -100px; padding: 12px 18px; background: #2f5b3c; color: white; z-index: 100; border-radius: 5px; }
 .dev-skip:focus { top: 12px; }
@@ -72,7 +72,7 @@
 @media (max-width: 760px) {
   .dev-header { height: 65px; padding: 0 22px; }
   .dev-brand-label { display: none; }
-  .dev-header nav { font-size: 11px; gap: 18px; }
+  .dev-header nav { font-size: 12px; gap: 18px; }
   .dev-brand strong { font-size: 23px; }
   .dev-brand .blaze-mark { width: 25px; height: 25px; }
   .dev-intro { display: block; padding: 33px 23px 28px; }
@@ -84,9 +84,9 @@
   .dev-index { display: none; }
   .dev-article { padding-top: 0; }
   .dev-mobile-guides { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 15px 0; margin-bottom: 23px; border-bottom: 1px solid #e1e8de; }
-  .dev-mobile-guides label { font-size: 10px; color: #81917f; }
+  .dev-mobile-guides label { font-size: 12px; color: var(--muted); }
   .dev-mobile-guides select { flex: 1; min-width: 0; color: #365b3f; font: inherit; font-size: 12px; background: #f4f7f0; border: 1px solid #dfe7db; border-radius: 4px; padding: 9px 5px; }
-  .dev-mobile-guides a { font-size: 10px; }
+  .dev-mobile-guides a { font-size: 12px; }
   .dev-prose { font-size: 14px; line-height: 1.85; }
   .dev-prose h2 { font-size: 24px; }
   .dev-prose h3 { font-size: 18px; margin-top: 29px; }
