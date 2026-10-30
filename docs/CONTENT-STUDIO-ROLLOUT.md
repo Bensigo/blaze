@@ -1,28 +1,31 @@
-# Concrete readiness and rollout bundle — pending approval
+# Dog Chase rollout bundle — pending approval
 
-Verified 30 October2026. No provider request, cloud environment, scheduler activation, production write or release was performed in this preparation.
+The user-selected live test is DOG CHASE. WHOT is superseded. No production writes, paid provider calls, environment/schedule activation or release occurred in this preparation.
 
-## Public WHOT inspection
+## Fixed identities and source
 
-Production Blaze has WHOT `game_c4d3ce8486ed4de1af3f54d087074fac`, registered at `https://forever.138-68-247-33.sslip.io/games/whot`. The public browser redirected to `https://forever.africa/games/whot`. Play now opened `https://forever.africa/whot.html` inside its iframe. The visible page explicitly said **Guest round**, **One free round against the computer**, and results/rewards are not saved. The actual rendered 3D table, cards and computer appeared; console identified Babylon.js9.31/WebGL2. This proves local guest entry/rendering, not cloud performance or recording. One attempted market click failed because its turn-dependent reference expired; no successful deliberate game action is claimed.
+- Workspace: `ws_a0b06c25f7f140f3ae91bc3bdefea6b6`
+- Operator authenticated ID: `neon:3402f542-521f-4e7f-9667-14bbd6da6b9f`
+- DOG CHASE: `game_daf42f7a85dd4d4e804b832f39d75056`
+- Registered URL: `https://forever.138-68-247-33.sslip.io/games/dog-chase`
+- Observed canonical redirect: `https://forever.africa/games/dog-chase`
+- Observed iframe: `https://forever.africa/dog-chase.html`
+- Anthropic connection: `conn_44103cb09fb44569963f9df7126da8c2`
+- Anthropic organization: `37d434cc-361f-45b7-84a7-725c0d45484c`
+- Producer: `agent_01BmpBeh1nD4WkrmJqPNSXMy`, version1, `claude-opus-5-5`, low effort
+- Jev/OpenRouter connection: `conn_cfb35c6e75a94f86b07c9193cd517dcb`, model `typesafe/jev-1.14`, settings revision `rev_2ca3bad7af38493a9dbfc80aae9a0265`
 
-All observed HTTP resources in the parent and game iframe used `https://forever.africa`; the original redirect also used `https://forever.138-68-247-33.sslip.io`. No WebSocket requests were observed during this guest inspection. The three console errors were blocked favicon requests under the game's own CSP; the table still rendered. No login, real-player interaction, consent bypass, game source change or provider call occurred. The isolated browser was closed. Evidence: `output/playwright/whot-guest-round.png` and `whot-guest-snapshot.txt`.
+A targeted READ ONLY query confirmed these owner/game/selection IDs, without key decryption, provider calls or writes. Revision/credential/source hashes are recalculated in the app at the exact review/approval and rechecked at dispatch; stale hashes cannot be reused.
 
-## Proposed environment (create only after separate approval)
+Public isolated-browser inspection rejected optional consent, then opened the offered solo guest entry: Agege, Free guest run, arrow/swipe controls, jump/slide/road selection and no saved guest results. Parent and iframe resources observed were on forever.africa, with the original sslip host only for redirect. No WebSockets were observed in this inspection. No purchase, login, guest-limit bypass, real-user interaction, Forever change or real cloud capture occurred. Browser closed. Evidence: output/playwright/dog-chase-guest.png and dog-chase-guest.txt.
 
-Name: **Blaze WHOT guest capture**. Anthropic cloud environment, no credentials, MCP, package downloads or extra packages. Limited networking with exact bare hosts:
+## Proposed restricted environment
 
-- `forever.138-68-247-33.sslip.io`
-- `forever.africa`
-
-No wildcards, Neon storage host, social service or provider API host in the sandbox allowlist. The documented host allowlist permits writes as well as reads and does not provide a separate WebSocket-protocol prohibition; do not call it a read-only firewall. The agent is limited to the approved public guest workflow. The game already sends guest/engagement requests. Stop on any new required destination rather than broadening the list automatically.
-
-Proposed create body, to validate against the current API before submission:
+Create **Blaze Dog Chase guest capture** only after explicit setup approval. Standard Anthropic cloud environment; exact two-host limited networking:
 
 ```json
 {
-  "name": "Blaze WHOT guest capture",
-  "description": "One approved WHOT guest-versus-computer capture; no credentials or third-party uploads.",
+  "name": "Blaze Dog Chase guest capture",
   "config": {
     "type": "cloud",
     "networking": {
@@ -35,13 +38,13 @@ Proposed create body, to validate against the current API before submission:
 }
 ```
 
-Use the standard documented Ubuntu24.04 x86_64 sandbox with installed Chromium/Playwright/ffmpeg. Documentation describes up to8GB RAM/10GB disk; no custom allocation or GPU/audio/FPS guarantee is selected. No environment exists yet, so its future ID is necessarily unavailable. Creating it is separate from starting a billable session. Reference: https://platform.claude.com/docs/en/api/beta/environments/create .
+No extra packages, credentials, wildcards, provider API, storage or social hosts. Use installed Chromium/Playwright/ffmpeg. Documented standard sandbox is Ubuntu24.04 x86_64, up to8GB RAM/10GB disk; no custom resources/GPU/audio guarantee. Host allowlisting permits writes and cannot separately prohibit same-host WebSockets. Stop on any required new origin instead of auto-expanding access. No environment exists yet; use its returned ID only after approved creation. Source: https://platform.claude.com/docs/en/api/beta/environments/create .
 
-The saved game currently has empty resource/WebSocket origin arrays. The specific proposed reviewed game policy adds `https://forever.africa` to resource origins, retains the registered redirect target, and keeps WebSocket origins empty because none were observed. This policy update changes the source revision and requires fresh ideas/approval. Host policy alone cannot prohibit same-host WebSockets. Do not silently mark this or any other game as verified.
+Existing Dog Chase game network arrays are empty. Proposed reviewed metadata adds resource origin https://forever.africa and exact frame URL https://forever.africa/dog-chase.html, leaving WebSocket origins empty. This changes source revision; prepare fresh idea/script approvals afterward. No production game metadata was changed.
 
-## Exact provider configuration schema
+## Exact provider record
 
-Workspace **`ws_a0b06c25f7f140f3ae91bc3bdefea6b6`**, record kind **`content_provider`**, record ID **`default`**. No such provider record currently exists. Exact TypeScript fields:
+Kind `content_provider`, ID `default`, in the owner workspace. No current record exists.
 
 ```typescript
 {
@@ -55,6 +58,7 @@ Workspace **`ws_a0b06c25f7f140f3ae91bc3bdefea6b6`**, record kind **`content_prov
   networkPolicyVerified: boolean;
   organizationVerified: boolean;
   watchdogVerified: boolean;
+  watchdogAdmissionVerified?: boolean;
   reviewedGames?: Record<string, {
     sourceRevision: string;
     gameAudioVerified: boolean;
@@ -62,58 +66,55 @@ Workspace **`ws_a0b06c25f7f140f3ae91bc3bdefea6b6`**, record kind **`content_prov
 }
 ```
 
-Known values: connectionId **`conn_44103cb09fb44569963f9df7126da8c2`**, agentId **`agent_01BmpBeh1nD4WkrmJqPNSXMy`**, agentVersion **1**. Organization identity was separately verified as `37d434cc-361f-45b7-84a7-725c0d45484c`. Use a fresh config revision when binding the approved environment. Bind reviewedGames only to the freshly calculated sourceRevision of WHOT after its policy review; gameAudioVerified remains false. Set verification flags only from actual evidence. No stored credential is created, copied or reconfigured by this proposal.
+Bind the exact existing connection, created agent/version and separately approved environment. Use a fresh revision. Organization/network flags require actual reviewed evidence. `watchdogAdmissionVerified` is only the no-spend independent heartbeat/stale/restart validation; it is not evidence of a real cloud stop. Set it after that validation. `pilotVerified`, `watchdogVerified` and reviewed game/audio evidence stay false/unset until actually proven. The first-pilot path works without falsifying those flags; ordinary production remains gated.
 
-**First-pilot admission gap:** normal `approveVideo` and `startApprovedVideo` require studio readiness, including pilotVerified and this game's reviewed sourceRevision. Therefore the current ordinary UI cannot admit the first pilot. No dedicated bootstrap-pilot admission path is implemented. Do not set pilotVerified=true prematurely or bypass these checks. A separately reviewed operator pilot path with durable one-attempt approval, watchdog tracking and result import is needed before an end-to-end first pilot can run through Blaze. A Console-only capture test would not by itself prove Blaze approval/import/calendar integration.
+## Script and single-use pilot admission
 
-## Exact storage destination
+`/api/content-studio/scripts`: draft/edit saved script, inspect Jev request, approve one critique and start it once. No-spend source drafts are labelled; owner text is supported. Script edits immediately stale the displayed score, invalidate unstarted video approval, and consume only unstarted outdated critique grants. In-flight/uncertain reviews remain unretryable. Latest review attempt is authoritative in both client/backend. Malformed/out-of-range results never receive a default score.
 
-Allowlisted read-only local configuration inspection found the existing AWS-compatible settings:
+Actual Jev integration uses https://openrouter.ai/api/alpha/decisions, five typed questions, one64KB-bounded request and128KB-bounded response. Four0–4 ratings become0–25 rubric dimensions summed to0–100. Rubric explanation/suggestion text is labelled; Jev does not generate prose or predict virality. Published input price is $0.042/M and output free; request routing sets those unit-price maxima and disables fallbacks. No total dollar cap is claimed. Existing Jev gameplay grants are never reused. Anthropic credits do not cover this separate OpenRouter request. Source: https://openrouter.ai/docs/guides/community/jev and https://openrouter.ai/typesafe/jev-1.14 .
 
-- Endpoint: **`https://br-ancient-mud-b9rxvc5t.storage.c-7.eu-central-1.aws.neon.tech`**
-- Region: **`eu-central-1`**
-- Bucket: **`blaze-media`**
+`/api/content-studio/pilot`: same-origin authenticated operator review → explicit single-use grant → separate start. Grant binds game/source/idea, exact script text/revision and successful latest Jev score, video settings, cost threshold, agent/version/environment, provider/config and credential revisions, owner/workspace, request ID and15min expiry. The configured game is checked at both review and dispatch. Grant consumption and starting record are one transaction, before one provider create. No resume/retry; uncertain create blocks new production. Repeated requests never renew/reset a grant. Normal generation/verification is not enabled. Existing scoped import/media/download/calendar paths accept the pilot output and expose it in the dashboard.
 
-These are existing local deployment configuration values, not a fresh remote-storage/production-env validation. No object was uploaded, fetched or deleted. Existing server-side credentials remain undisclosed and are never sent to the sandbox. Anthropic Files downloads and storage writes happen only in Blaze's backend. Preview/download remains authenticated through Blaze.
+Server settings, only after the corresponding approvals:
 
-## Native Netlify watchdog adapter
+```text
+BLAZE_CLOUD_PILOT_OPERATOR_ID=neon:3402f542-521f-4e7f-9667-14bbd6da6b9f
+BLAZE_CLOUD_PILOT_WORKSPACE_ID=ws_a0b06c25f7f140f3ae91bc3bdefea6b6
+BLAZE_CLOUD_PILOT_GAME_ID=game_daf42f7a85dd4d4e804b832f39d75056
+BLAZE_CLOUD_PILOT_MAX_LIST_COST_CENTS=100
+BLAZE_JEV_SCRIPT_REVIEW_ENABLED=true   # only for the approved critique
+BLAZE_CLOUD_PILOT_ENABLED=true        # only for the approved pilot
+BLAZE_CLOUD_PRODUCTION_ENABLED=false
+BLAZE_DAILY_IDEAS_ENABLED=false
+```
 
-Existing production setup is `netlify.toml`, `npm run build`, `.next`, `@netlify/plugin-nextjs`; existing scheduled `blaze-daily.mts` runs `0 6 * * *` UTC and delegates to its background consumer. It is not the new content-idea agent and was not changed or activated here.
+All new metered flags default false. Enabling a flag does not create a session or grant. Jev cost acknowledgement and the exact later script/settings pilot approval remain separate deliberate steps. Display the actual score before approving video; edits require a fresh critique grant, not an included automatic retry.
 
-Prepared new function: **`netlify/paused-functions/blaze-content-watchdog.mts`**, deliberately **outside** Netlify's deployed `netlify/functions` directory. Its native cron is `* * * * *`. Its dispatch library is `src/lib/content-watchdog-dispatch.ts`. A normal feature release cannot register this new minute schedule while it remains in the paused directory.
+## Native independent monitor
 
-After separate schedule approval, move the prepared file to `netlify/functions/blaze-content-watchdog.mts`, deploy, and set these server Functions-scope values using existing secret configuration:
+Prepared minute adapter is `netlify/paused-functions/blaze-content-watchdog.mts`, outside Netlify's deployed function directory. A feature-only release cannot register it. Existing native daily research function was not changed/activated and is not the new idea agent; do not restart old workers/recurrence during rollout.
+
+After separate scheduler approval: move adapter into netlify/functions, deploy, configure Functions-scope existing CRON_SECRET without exposing/replacing it, and set:
 
 ```text
 BLAZE_CLOUD_WATCHDOG_SCHEDULE_ENABLED=true
 BLAZE_CLOUD_WATCHDOG_ENABLED=true
 BLAZE_CLOUD_WATCHDOG_WORKSPACE_ID=ws_a0b06c25f7f140f3ae91bc3bdefea6b6
-CONTEXT=production                      # Netlify supplies this
-URL=https://blaze-bensigo.netlify.app    # Netlify production site URL
-CRON_SECRET=<existing server-side value; do not reveal or replace>
 ```
 
-The adapter rejects non-production contexts, absent settings, altered origins/path/query/credentials and redirects. It ignores DEPLOY_PRIME_URL. Exactly one authenticated POST goes to `https://blaze-bensigo.netlify.app/api/cron/content-production-watchdog` with body `{"workspaceId":"ws_a0b06c25f7f140f3ae91bc3bdefea6b6"}`. No request retry. Fetch timeout25s stays below Netlify's documented30s scheduled-function limit; the target route has its own60s limit. A timed-out caller is not evidence that the target stopped. Durable reservations and stale heartbeat guards handle uncertainty; no exact stop timing is promised.
+Netlify supplies production CONTEXT/URL. Adapter requires production, pins https://blaze-bensigo.netlify.app, rejects preview/redirection destinations, and sends one POST to /api/cron/content-production-watchdog with that exact workspace and existing bearer.25s request timeout; no retry. Native cron * * * * *; Netlify documents all-plan availability, production-only schedules and30s function limit. Route's independent60s limit is not proof that work completes after a caller timeout. Durable start/stop reservations and90s heartbeat guard handle uncertainty. Source: https://docs.netlify.com/build/functions/scheduled-functions/ .
 
-Before a paid attempt, test production heartbeat, duplicate tick, stale-monitor blocking and restart behavior without sessions. Keep the watchdog running independently for the entire active/uncertain session lifetime. Do not auto-disable after a browser closes or a target time elapses. Disable the schedule only after provider idle/terminated is confirmed and no unresolved work remains. Disabling a handler flag still leaves native cron invocations if the function is registered; remove/pause the native schedule as a separate controlled action to end those costs. There is no automatic native-schedule teardown feature.
+Prove no-spend heartbeat/stale/restart/duplicate behavior before any paid pilot. Watchdog admits bounded pilots via watchdogAdmissionVerified without claiming previous gameplay/stop proof. Monitor must outlive browser/client and remain active until confirmed idle/terminated with no unresolved work. Immutable30min interrupt threshold includes polling/tool delays; ten minutes is only a target. Netlify outage/account pause can halt monitoring; a stale heartbeat prevents new starts but cannot guarantee stopping an already running cloud session.
 
-Netlify Scheduled Functions support all plans and run on published production deployments. They do not run automatically on deploy previews. No new scheduler account or credential is needed. Reference: https://docs.netlify.com/build/functions/scheduled-functions/ .
+Disable only after confirmed stop/reconciliation; false handler flag does not remove registered cron invocation costs. Native schedule removal/pause requires a controlled action. No automatic schedule teardown exists.
 
-## Cost and availability limits
+## Destinations, costs and remaining approvals
 
-The actual Netlify plan/current allowance is **unverified**. The attempted existing Dia accessibility read was denied by automatic review because unknown private tabs could expose credentials. It was not retried or bypassed. No billing change or upgrade was attempted. A non-secret Netlify plan/usage page still needs scoped authorized inspection before activation.
+Existing private storage endpoint: https://br-ancient-mud-b9rxvc5t.storage.c-7.eu-central-1.aws.neon.tech ; region eu-central-1; bucket blaze-media. These are non-secret local deployment values, not new remote validation. Agent never gets storage credentials. Script/facts go to OpenRouter for approved review, then approved task to Anthropic; public game origins to cloud browser; scoped Files to Blaze backend/private storage; authenticated dashboard preview/download to owner. No social service.
 
-Parent-verified current credit-plan pricing is10credits/GB-hour compute,2credits/10k requests and15credits/production deploy, with300/month on Free; legacy plans can differ. A30-day minute schedule yields43,200 ticks plus up to43,200 route requests. At those request rates,43,200 HTTP route requests alone correspond to8.64credits; counting ticks as requests as well would make17.28credits. Actual billing treatment, memory, duration, existing consumption and applicable plan must be verified. No claim of zero scheduler/deployment/storage cost is made. Reference: https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/how-credits-work/ .
+Actual Netlify plan/allowance remains unverified. Broad Dia read was automatically denied and not retried/bypassed. No installed Netlify CLI, expected CLI auth configuration or NETLIFY_AUTH_TOKEN was found in existing local deployment configuration; no account API credential was invented or copied. Scoped non-secret Usage page remains the existing pending access step, with no repeated nudge.
 
-Netlify outage, function failure, account pause or exhausted allowance can halt monitoring. A stale heartbeat blocks new starts but cannot guarantee stopping a cloud session already running. The pilot still needs operator observation and confirmed interruption; the provider budget remains the independent monetary threshold, with overshoot limitations.
+Parent-verified credit-plan rates:10credits/GB-hour,2credits/10k requests,15credits/deploy,300/month on Free; legacy plans may differ.30-day minute schedule is43,200 ticks plus up to43,200 route requests; request component8.64–17.28credits depending on tick treatment, before compute/deploy/other usage. No zero-cost claim. Existing Anthropic promo observations do not guarantee promo-only spending after exhaustion. No plan/billing change or purchased-credit expansion is approved.
 
-Previously observed Anthropic billing had promotional credits, purchased balance0 and no payment methods. This is a historical observation, not a newly verified promo-only spending guarantee. Credit exhaustion must not be assumed to stop service automatically; purchased/auto-reload/invoiced funding, if applicable, needs non-secret billing verification before execution. No billing changes are approved.
-
-## Remaining decisions, in order
-
-1. Release the tested Content Studio slice with all new generation/daily/watchdog flags OFF and native minute function still outside deployed functions. No paid pilot is implied. Publication approval remains pending unless parent provides new evidence.
-2. Approve the exact two-host restricted environment and WHOT game-network metadata update, with no new credentials or session.
-3. Review/implement the bounded initial-pilot admission path; no flag falsification. This is implementation work, not permission to spend.
-4. Inspect actual non-secret Netlify allowance/billing, then approve the native minute schedule and existing-server-secret use only for this workspace; validate its no-spend operation.
-5. Approve the separately specified single gameplay pilot only after admission/monitoring are ready. Proposed $1 is a list-cost threshold, **not a hard spending cap**. No enforceable upper total cost has been established. No retries or purchased-credit/billing expansion.
-6. Activate daily metered ideas later only with the selected Dubai time, account/budget and fresh recurring authorization. Defaults remain off.
+Required approvals remain release, restricted environment/game metadata, monitor activation and exact paid attempts. Proposed video:20s9:16, minimal captions, motion graphics, generated music, native audio off, one$1 list-cost-threshold session, no retry/resume. Anthropic $4/M input/$20/M output plus$0.08/hour last verified; budget can overshoot. No enforceable upper total cost established. Show Jev's real score before the owner approves the exact script/settings. Live acceptance requires actual cloud play/capture/edit and the real MP4 appearing/playable/downloadable in this owner's Blaze dashboard—not a Console-only or mocked result.

@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     const user = await requireIdentity();
     const gameId = new URL(request.url).searchParams.get("gameId") || undefined;
     if (gameId) recordId.parse(gameId);
-    return Response.json(await studioSnapshot(user.workspace_id, gameId), { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json(await studioSnapshot(user.workspace_id, gameId, user.id), { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return apiError(error); }
 }
 export async function POST(request: Request) {
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     if (body.action === "prepare_outlines") result = await prepareSourceIdeas(workspace, body.gameId);
     if (body.action === "save_schedule") result = await saveIdeaSchedule(workspace, body.schedule);
     if (body.action === "approve") result = await approveVideo(workspace, user.id, body);
-    if (body.action === "start") result = await startApprovedVideo(workspace, body.productionId);
+    if (body.action === "start") result = await startApprovedVideo(workspace, body.productionId, user.id);
     if (body.action === "refresh") result = await refreshVideo(workspace, body.productionId);
     if (body.action === "cancel") result = await cancelVideo(workspace, body.productionId);
     if (body.action === "plan") result = await planVideo(workspace, body.productionId, body.date);

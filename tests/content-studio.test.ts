@@ -32,7 +32,13 @@ async function setup() {
   process.env.BLAZE_CLOUD_PRODUCTION_ENABLED = "true";
   process.env.BLAZE_CLOUD_WATCHDOG_ENABLED = "true";
   await db.put("ws", "content_watchdog", { id: "default", configRevision: "v1", checkedAt: new Date().toISOString(), healthy: true, scanned: 0, unresolved: 0 });
-  return (await studio.prepareSourceIdeas("ws", "g"))[0];
+  const ideas = await studio.prepareSourceIdeas("ws", "g");
+  const scripts = await import("../src/lib/content-scripts");
+  for (const idea of ideas) {
+    const script = await scripts.saveContentScript("ws", idea.id);
+    await db.put("ws", "script_review", { id: `review_${script.id}`, scriptId: script.id, scriptRevision: script.revision, sourceRevision: source.revision, state: "complete", score: { overall: 80, hook: { score: 20, explanation: "Mocked rubric result" }, pacing: { score: 20, explanation: "Mocked rubric result" }, clarity: { score: 20, explanation: "Mocked rubric result" }, shareability: { score: 20, explanation: "Mocked rubric result" }, improvements: ["Synthetic fixture; no paid review."] } });
+  }
+  return ideas[0];
 }
 const approve = (ideaId: string, requestId = randomUUID(), settings = DEFAULT_VIDEO_SETTINGS) => studio.approveVideo("ws", "owner", { ideaId, settings, maxListCostCents: 100, requestId });
 describe("content studio approvals and recovery", () => {

@@ -16,7 +16,7 @@ export async function archiveGame(workspace: string, gameId: string, confirmatio
     // claimJob locks these same rows with SKIP LOCKED. Existing queued work cannot
     // become claimed between our check and cancellation, including post-linked jobs.
     await sql(`SELECT id FROM jobs WHERE workspace_id=$1 AND (body->>'gameId'=$2 OR body->>'postId' IN (SELECT id FROM records WHERE workspace_id=$1 AND kind='post' AND body->>'gameId'=$2)) FOR UPDATE`, [workspace, gameId]);
-    const active = await sql(`SELECT id FROM records WHERE workspace_id=$1 AND body->>'gameId'=$2 AND ((kind='video_production' AND body->>'state' IN ('starting','running','importing','cancel_requested','needs_reconciliation')) OR (kind='recording' AND body->>'status'='recording') OR (kind='idea_batch' AND body->>'state'='starting') OR (kind='post' AND body->>'status' IN ('uploading','processing'))) LIMIT 1`, [workspace, gameId]);
+    const active = await sql(`SELECT id FROM records WHERE workspace_id=$1 AND body->>'gameId'=$2 AND ((kind='video_production' AND body->>'state' IN ('starting','running','importing','cancel_requested','needs_reconciliation')) OR (kind='recording' AND body->>'status'='recording') OR (kind='idea_batch' AND body->>'state'='starting') OR (kind='script_review' AND body->>'state' IN ('starting','needs_reconciliation')) OR (kind='post' AND body->>'status' IN ('uploading','processing'))) LIMIT 1`, [workspace, gameId]);
     const claimed = await sql(`SELECT id FROM jobs WHERE workspace_id=$1 AND state='claimed' AND (body->>'gameId'=$2 OR body->>'postId' IN (SELECT id FROM records WHERE workspace_id=$1 AND kind='post' AND body->>'gameId'=$2)) LIMIT 1`, [workspace, gameId]);
     if (active.length || claimed.length) throw new HttpError(409, "This game has active or uncertain work. Stop or reconcile its runs before deleting it. No data was removed.");
     const archived: ArchivedGame = { id: game.id, game, deletedAt: new Date().toISOString(), deletedBy: actor };
@@ -27,6 +27,7 @@ export async function archiveGame(workspace: string, gameId: string, confirmatio
     await sql(`UPDATE records SET body=body-'active',updated_at=now() WHERE workspace_id=$1 AND kind='recording_gate' AND id=$2`, [workspace, gameId]);
     await sql(`UPDATE records SET body=body || '{"state":"cancelled","error":"Game removed from active dashboard; approval consumed."}'::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='video_production' AND body->>'gameId'=$2 AND body->>'state'='approved'`, [workspace, gameId]);
     await sql(`UPDATE records SET body=body || '{"status":"failed","error":"Game removed from active dashboard."}'::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind IN ('recording','clip') AND body->>'gameId'=$2 AND body->>'status'='queued'`, [workspace, gameId]);
+    await sql(`UPDATE records SET body=body || '{"state":"failed","error":"Game removed; script review approval consumed."}'::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='script_review' AND body->>'gameId'=$2 AND body->>'state'='approved'`, [workspace, gameId]);
     // Retain events, content, media, profiles and identifiers. Restore never requeues cancelled paid work.
     await sql(`DELETE FROM records WHERE workspace_id=$1 AND kind='game' AND id=$2`, [workspace, gameId]);
     return archived;

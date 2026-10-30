@@ -8,7 +8,7 @@ import type { VideoProduction } from "./content-studio-contract";
 export const PRODUCTION_RUNTIME_MS = 30 * 60 * 1000;
 export const WATCHDOG_FRESHNESS_MS = 90 * 1000;
 const WATCHDOG_BATCH = 4;
-type WatchdogProvider = { id: string; revision: string; connectionId: string; watchdogVerified: boolean };
+type WatchdogProvider = { id: string; revision: string; connectionId: string; watchdogVerified: boolean; watchdogAdmissionVerified?: boolean };
 export type WatchdogHeartbeat = { id: "default"; configRevision: string; checkedAt: string; healthy: boolean; scanned: number; unresolved: number; error?: string };
 
 /** Immediate dispatch guard: a previous healthy poll cannot mask newer uncertain work. */
@@ -75,7 +75,7 @@ export async function requestProductionStop(workspace: string, productionId: str
 /** One bounded poll, invoked by an independently configured authenticated scheduler. No timer is installed here. */
 export async function tickProductionWatchdog(workspace: string, now = Date.now()) {
   const config = await get<WatchdogProvider>(workspace, "content_provider", "default");
-  if (process.env.BLAZE_CLOUD_WATCHDOG_ENABLED !== "true" || !config?.watchdogVerified) return { paused: true };
+  if (process.env.BLAZE_CLOUD_WATCHDOG_ENABLED !== "true" || (!config?.watchdogVerified && !config?.watchdogAdmissionVerified)) return { paused: true };
   const leaseId = `content_watchdog_${hash(workspace).slice(0, 32)}`;
   const token = new Date(now).toISOString();
   const claimed = await query(`INSERT INTO jobs(id,workspace_id,kind,state,body,lease_until) VALUES($1,$2,'content_watchdog','claimed',jsonb_build_object('token',$3::text),now()+interval '55 seconds')

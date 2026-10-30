@@ -23,6 +23,8 @@ export type VideoProduction = {
   approvalHash: string; sourceRevision: string; maxListCostCents: number;
   providerRevision: string; createdAt: string; updatedAt: string;
   credentialRevision: string;
+  scriptId?: string; scriptRevision?: string; scriptReviewId?: string; scriptText?: string;
+  pilotGrantId?: string;
   sessionId?: string; error?: string; videoUrl?: string; clipId?: string;
   startedAt?: string; watchdogDeadlineAt?: string; stoppedAt?: string; lastWatchdogAt?: string;
   stopRequest?: { id: string; reason: "owner_cancel" | "runtime_limit"; requestedAt: string; state: "pending_session" | "dispatching" | "requested" | "uncertain" | "confirmed" };
@@ -35,5 +37,21 @@ export type IdeaSchedule = {
 };
 export type StudioSnapshot = {
   ideas: ContentIdea[]; productions: VideoProduction[]; schedule: IdeaSchedule;
+  pilot?: { operator: boolean; ready: boolean; reasons: string[] };
   readiness: { ready: boolean; reasons: string[]; provider: "anthropic_managed_agents"; connectionLabel?: string };
+};
+
+export type PilotGrant = {
+  id: string; workspaceId: string; productionId: string; approvedBy: string;
+  approvedAt: string; expiresAt: string; reviewHash: string;
+  gameId: string; ideaId: string; sourceRevision: string; providerRevision: string;
+  credentialRevision: string; connectionId: string; agentId: string;
+  agentVersion: number; environmentId: string; settings: VideoSettings;
+  maxListCostCents: number; state: "approved" | "consumed" | "revoked";
+  consumedAt?: string;
+};
+export type PilotReview = {
+  reviewHash: string; gameId: string; ideaId: string; sourceRevision: string;
+  provider: { connectionId: string; agentId: string; agentVersion: number; environmentId: string; revision: string };
+  settings: VideoSettings; maxListCostCents: number; ready: boolean; reasons: string[];
 };
