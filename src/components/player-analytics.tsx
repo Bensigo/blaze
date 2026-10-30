@@ -6,6 +6,7 @@ import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip,
 import type { Analytics, Game, SessionSummary } from "@/lib/types";
 import LaunchLinks from "./launch-links";
 import InfoHint from "./info-hint";
+import { browserRead } from "@/lib/browser-read";
 import type { HeatmapContext, HeatmapResponse } from "@/lib/heatmap";
 
 const count = (n: number | undefined) => n === undefined ? "—" : n.toLocaleString();
@@ -16,7 +17,7 @@ const contextKey = (c: HeatmapContext) => `${c.surface}:${c.screen}:${c.device}`
 type Props = {
   analytics?: Analytics; games: Game[]; gameId: string; days: string; demo?: boolean; detailed?: boolean;
   onChooseGame: (id: string) => void; onAddGame: () => void; onSetup: () => void;
-  onSessions: () => void; onOpenSession: (session: SessionSummary) => void;
+  onAnalytics?: () => void; onSessions: () => void; onOpenSession: (session: SessionSummary) => void;
   onDropoff: (name: string) => void;
   onClearEvidence: () => void;
   onBin: (context: HeatmapContext, bx: number, by: number, sessionId?: string) => void;
@@ -39,7 +40,7 @@ export default function PlayerAnalytics(props: Props) {
     <div className="onboarding-foot">Your workspace contains no player activity. Controlled tests and the example workspace are separate.</div>
   </div>;
   return <div className="player-workspace">
-    <div className="player-scope"><span className="scope-dot" />{demo ? "Illustrative example data" : "Human player activity"}<span>{a?.lastEventAt ? `Latest event ${when(a.lastEventAt)}` : "No events received"}</span><a href="#pointer-heatmap">Heatmap ↓</a></div>
+    <div className="player-scope"><span className="scope-dot" />{demo ? "Illustrative example data" : "Human player activity"}<span>{a?.lastEventAt ? `Latest event ${when(a.lastEventAt)}` : "No events received"}</span>{detailed?<a href="#pointer-heatmap">Heatmap ↓</a>:<button className="text-action" onClick={props.onAnalytics}>Player analytics <ArrowRight size={14}/></button>}</div>
     <div className="player-kpis">
       <Metric label={gameId === "all" ? "Per-game browser IDs" : "Browser IDs"} value={count(a?.players)} detail="Browser-scoped IDs, not people" />
       <Metric label="Visits" value={count(a?.launch?.visits)} detail="Sessions with a visit event" />
@@ -49,7 +50,7 @@ export default function PlayerAnalytics(props: Props) {
       <Metric label="Active play" value={duration(a?.activePlay?.totalSeconds)} detail={a?.activePlay ? `${a.activePlay.measuredSessions} / ${a.activePlay.eligibleSessions} play sessions measured` : "Measurement unavailable"} />
     </div>
     {!a?.sessions && <div className="instrumentation-note"><div><strong>Waiting for consented player events</strong><p>{a?.lastEventAt ? "No human sessions fall in this date range. Change the game or dates to inspect other activity." : "Connect the SDK, opt in during a test visit, and start a round. Missing data stays empty."}</p></div><button className="text-action" onClick={props.onSetup}>SDK setup <ArrowRight size={14}/></button></div>}
-    <div className="player-visuals">
+    <div className={`player-visuals${detailed?"":" overview-visuals"}`}>
       <div className="activity-column">
         <section className="activity-panel"><div className="analytics-section-title"><div><h2>Sessions over time</h2><p>Daily UTC counts · last {days} days</p></div><span className="chart-unit">Sessions</span></div>
           {a?.sessions ? <><div className="activity-chart"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={a.trend} margin={{top:12,right:10,left:-25,bottom:0}}>
@@ -61,26 +62,28 @@ export default function PlayerAnalytics(props: Props) {
             <Line type="linear" dataKey="completions" name="With a completion" stroke="#9c7840" strokeWidth={2} dot={false} isAnimationActive={false}/>
           </ComposedChart></ResponsiveContainer></div><div className="activity-legend"><span>Sessions</span><span>With a start</span><span>With a completion</span></div></> : <div className="data-empty chart-data-empty"><strong>No sessions to chart</strong><p>The first consented visit starts this timeline.</p></div>}
         </section>
-        <section className="funnel-panel"><div className="analytics-section-title"><div><h2>Visit to completion</h2><p>Sessions that reached each step in order</p></div></div>
+        {detailed&&<section className="funnel-panel"><div className="analytics-section-title"><div><h2>Visit to completion</h2><p>Sessions that reached each step in order</p></div></div>
           <div className="ordered-funnel">{(a?.funnel || []).map((step,i)=>{const base=a?.funnel[0]?.count || 0;const percent=base ? Math.round(step.count/base*100) : null;return <div key={step.name}><span>{step.name}</span><div className="ordered-track"><i style={{width:`${percent || 0}%`}}/></div><strong>{count(step.count)}</strong><small>{i===0 ? "" : percent===null ? "—" : `${percent}%`}</small></div>;})}</div>
           {!a?.sessions && <p className="quiet-help">Requires <code>visit → loaded → round_start → first_action → round_complete</code>. The first action may occur before or after the round starts.</p>}
           <div className="progression-observation"><span>Sessions reporting progression</span><strong>{count(a?.progressionSessions)}</strong></div>
-        </section>
+        </section>}
       </div>
-      <PointerHeatmap games={games} gameId={gameId} days={days} end={a?.windowEnd} demo={demo} onChooseGame={props.onChooseGame} onSetup={props.onSetup} onBin={props.onBin} onClearEvidence={props.onClearEvidence}/>
+      {detailed&&<PointerHeatmap games={games} gameId={gameId} days={days} end={a?.windowEnd} demo={demo} onChooseGame={props.onChooseGame} onSetup={props.onSetup} onBin={props.onBin} onClearEvidence={props.onClearEvidence}/>}
     </div>
-    <section className="play-measurement"><div><h2>Measured play time <InfoHint label="About measured play time">Foreground time with recent input after a round starts. Idle tabs and agent sessions are excluded. Only sessions supplying active_play measurements contribute to these statistics.</InfoHint></h2><p>Active foreground play · idle time excluded</p></div><dl><div><dt>Average active play</dt><dd>{duration(a?.activePlay?.averageSeconds)}</dd></div><div><dt>Median active play</dt><dd>{duration(a?.activePlay?.medianSeconds)}</dd></div><div><dt>Coverage</dt><dd>{a?.activePlay ? `${a.activePlay.measuredSessions} / ${a.activePlay.eligibleSessions}` : "—"}</dd></div></dl><p className="quiet-help">{a?.activePlay?.measuredSessions ? "Statistics include measured sessions only; elapsed time is not active play." : "No active_play measurements yet. Elapsed session time is not a play-time measurement."}</p></section>
+    {detailed&&<section className="play-measurement"><div><h2>Measured play time <InfoHint label="About measured play time">Foreground time with recent input after a round starts. Idle tabs and agent sessions are excluded. Only sessions supplying active_play measurements contribute to these statistics.</InfoHint></h2><p>Active foreground play · idle time excluded</p></div><dl><div><dt>Average active play</dt><dd>{duration(a?.activePlay?.averageSeconds)}</dd></div><div><dt>Median active play</dt><dd>{duration(a?.activePlay?.medianSeconds)}</dd></div><div><dt>Coverage</dt><dd>{a?.activePlay ? `${a.activePlay.measuredSessions} / ${a.activePlay.eligibleSessions}` : "—"}</dd></div></dl><p className="quiet-help">{a?.activePlay?.measuredSessions ? "Statistics include measured sessions only; elapsed time is not active play." : "No active_play measurements yet. Elapsed session time is not a play-time measurement."}</p></section>}
     <div className="player-detail-grid"><section><div className="analytics-section-title"><div><h2>Recent sessions</h2><p>Open a session to inspect its events and consented capture</p></div><button className="text-action" onClick={props.onSessions}>All sessions <ArrowRight size={14}/></button></div>
       {a?.sessionsList.length ? <div className="table-wrap player-session-table"><table><thead><tr><th>Session</th><th>Device</th><th>Active play</th><th>Elapsed</th><th>Last step</th><th>Result</th></tr></thead><tbody>{a.sessionsList.slice(0,6).map(s=><tr key={`${s.gameId}:${s.id}`} onClick={()=>props.onOpenSession(s)}><td><button className="session-link" onClick={e=>{e.stopPropagation();props.onOpenSession(s);}}>{when(s.startedAt)}<small>{s.id.slice(0,10)}</small></button></td><td>{s.device}<small>{s.country}</small></td><td>{duration(s.activePlaySeconds)}</td><td>{duration(s.duration)}</td><td>{s.lastStep.replaceAll("_", " ")}</td><td>{s.completed ? "Completed" : "No completion"}</td></tr>)}</tbody></table></div> : <div className="data-empty compact-empty"><strong>No sessions in this range</strong><p>Consented human sessions will appear here.</p></div>}
     </section><section><div className="analytics-section-title"><div><h2>Sessions without completion</h2><p>Last recorded steps; these do not explain player intent</p></div></div>{a?.dropoffs.length ? <div className="dropoff-rows">{a.dropoffs.map(row=><button key={row.name} disabled={gameId==="all"||demo} onClick={()=>props.onDropoff(row.name)}><span>{row.name}</span><strong>{count(row.count)}</strong><ChevronRight size={14}/></button>)}{gameId==="all"&&<p className="quiet-help">Select one game to open supporting sessions.</p>}</div> : <div className="data-empty compact-empty"><strong>No unfinished sessions recorded</strong><p>Drop-off evidence appears as visits and rounds are measured.</p></div>}</section></div>
-    <section className="cohort-section"><div className="analytics-section-title"><div><h2>Instrumentation coverage</h2><p>Event presence across human sessions in the selected game and date range. Missing events do not prove an action never happened.</p></div></div>{a?.launch?.coverage ? <div className="table-wrap"><table><thead><tr><th>Event</th><th>Sessions reporting event / human sessions</th></tr></thead><tbody>{([['Visit',a.launch.coverage.visit],['Loaded',a.launch.coverage.loaded],['Round start',a.launch.coverage.roundStart],['First action',a.launch.coverage.firstAction],['Round complete',a.launch.coverage.roundComplete],['Exit',a.launch.coverage.exit]] as const).map(([name,n])=><tr key={name}><td>{name}</td><td>{count(n)} / {count(a.launch!.coverage!.sessions)}</td></tr>)}</tbody></table></div> : <p className="quiet-help">Event coverage unavailable.</p>}</section>
+    {detailed&&<>
+<section className="cohort-section"><div className="analytics-section-title"><div><h2>Instrumentation coverage</h2><p>Event presence across human sessions in the selected game and date range. Missing events do not prove an action never happened.</p></div></div>{a?.launch?.coverage ? <div className="table-wrap"><table><thead><tr><th>Event</th><th>Sessions reporting event / human sessions</th></tr></thead><tbody>{([['Visit',a.launch.coverage.visit],['Loaded',a.launch.coverage.loaded],['Round start',a.launch.coverage.roundStart],['First action',a.launch.coverage.firstAction],['Round complete',a.launch.coverage.roundComplete],['Exit',a.launch.coverage.exit]] as const).map(([name,n])=><tr key={name}><td>{name}</td><td>{count(n)} / {count(a.launch!.coverage!.sessions)}</td></tr>)}</tbody></table></div> : <p className="quiet-help">Event coverage unavailable.</p>}</section>
     <section className="cohort-section"><div className="analytics-section-title"><div><h2>Launch conversion <InfoHint label="About launch conversion">Meaningful play is a start followed by a completion, or a start with at least 30 seconds of measured active play. Source combines tags and referrer hostnames. Direct means no usable referrer or tag, not proof of direct traffic; Unknown means no stored source. Attribution does not establish causation.</InfoHint></h2><p>Visit sessions by first recorded source and campaign.</p></div></div>
       <p className="quiet-help">Starts and meaningful play use visits as the denominator. Missing active measurement is unknown; meaningful play is an observed lower bound. Attribution is incomplete.</p>
       {a?.launch?.conversion.length ? <div className="table-wrap"><table><thead><tr><th>Source</th><th>Campaign</th><th>Visits</th><th>Starts</th><th>Meaningful play</th><th>Starts with active measurement</th></tr></thead><tbody>{a.launch.conversion.map(r=><tr key={JSON.stringify([r.source,r.campaign])}><td>{r.source}</td><td>{r.campaign}</td><td>{count(r.visits)}</td><td>{count(r.starts)}</td><td>{count(r.meaningful)}</td><td>{count(r.activeMeasured)}</td></tr>)}</tbody></table></div> : <p className="quiet-help">No visit events in this selection.</p>}
       {!!a?.launch && a.launch.conversionTotal > a.launch.conversion.length && <p className="quiet-help">Showing {a.launch.conversion.length} of {a.launch.conversionTotal} source and campaign groups.</p>}
     </section>
+</>}
     {props.supporting}
-    <LaunchLinks games={games} gameId={gameId}/>
+    {detailed&&<LaunchLinks games={games} gameId={gameId}/>}
     {detailed && <>
       <div className="player-breakdowns"><Breakdown title="Traffic sources" rows={a?.sources || []}/><Breakdown title="Countries" rows={a?.countries || []}/><Breakdown title="Devices" rows={a?.devices || []}/></div>
       <section className="cohort-section"><div className="analytics-section-title"><div><h2>Next-day return <InfoHint label="About next-day return">A visit in a different session at least 24 hours and less than 48 hours after the first observed human event. Cohorts mature after 48 hours.</InfoHint></h2><p>Cohorts mature after 48 hours.</p></div></div>{cohorts.length ? <div className="table-wrap"><table><thead><tr><th>First observed event cohort</th><th>Browser IDs</th><th>Eligible</th><th>Returned</th><th>Return rate</th></tr></thead><tbody>{cohorts.map(r=><tr key={r.date}><td>{r.date}</td><td>{count(r.players)}</td><td>{count(r.eligible)}</td><td>{count(r.returned)}</td><td>{r.rate===null ? "Not mature" : `${Math.round(r.rate*100)}%`}</td></tr>)}</tbody></table></div> : <p className="quiet-help">No browser ID cohorts yet. Return measurement begins with the first observed human event.</p>}</section>
@@ -90,7 +93,7 @@ export default function PlayerAnalytics(props: Props) {
   </div>;
 }
 
-function Metric({label,value,detail}:{label:string;value:string;detail:string}) { return <div><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>; }
+function Metric({label,value,detail}:{label:string;value:string;detail:string}) { return <div><span>{label}<InfoHint label={`About ${label}`}>{detail}</InfoHint></span><strong>{value}</strong>{label==="Active play"&&<small>{detail}</small>}</div>; }
 function Breakdown({title,rows}:{title:string;rows:{name:string;count:number}[]}) {const max=Math.max(1,...rows.map(r=>r.count));return <section><h2>{title}</h2>{rows.length ? rows.slice(0,6).map(r=><div className="player-breakdown-row" key={r.name}><span>{r.name||"Unknown"}</span><i><b style={{width:`${r.count/max*100}%`}}/></i><strong>{count(r.count)}</strong></div>) : <p className="quiet-help">No observations in this range.</p>}</section>;}
 
 function PointerHeatmap({games,gameId,days,end,demo,onChooseGame,onSetup,onBin,onClearEvidence}:Pick<Props,"games"|"gameId"|"days"|"demo"|"onChooseGame"|"onSetup"|"onBin"|"onClearEvidence">&{end?:string}) {
@@ -106,7 +109,7 @@ function PointerHeatmap({games,gameId,days,end,demo,onChooseGame,onSetup,onBin,o
     if(gameId==="all"||demo) return;
     const current=++request.current,controller=new AbortController();setLoading(true);setError("");setFocused(undefined);
     const p=new URLSearchParams({gameId,days});if(end)p.set("end",end);if(sessionId)p.set("sessionId",sessionId);if(context){p.set("surface",context.surface);p.set("screen",context.screen);p.set("device",context.device);}
-    void fetch(`/api/analytics/heatmap?${p}`,{cache:"no-store",signal:controller.signal}).then(async r=>{const result=await r.json();if(!r.ok)throw Error(result.error||"Could not load coordinates");if(current===request.current)setData(result);}).catch(e=>{if(!controller.signal.aborted&&current===request.current)setError(e instanceof Error ? e.message : "Could not load coordinates");}).finally(()=>{if(current===request.current)setLoading(false);});
+    void browserRead<HeatmapResponse>(`/api/analytics/heatmap?${p}`,controller.signal).then(result=>{if(current===request.current)setData(result);}).catch(e=>{if(!controller.signal.aborted&&current===request.current)setError(e instanceof Error ? e.message : "Could not load coordinates");}).finally(()=>{if(current===request.current)setLoading(false);});
     return()=>{controller.abort();};
   // The context key represents all three required dimensions.
   // eslint-disable-next-line react-hooks/exhaustive-deps

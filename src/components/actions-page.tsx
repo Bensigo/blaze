@@ -13,7 +13,7 @@ import InfoHint from "./info-hint";
 import ActionBoard from "./action-board";
 import JevBudgetControls from "./jev-budget-controls";
 import XFeedbackPanel from "./x-feedback-panel";
-import "./actions-page.css";
+
 
 const when = (value?: string | null) =>
   value ? new Date(value).toLocaleString() : "None recorded";
@@ -82,7 +82,7 @@ export default function ActionsPage({
       try {
         const response = await fetch(
           `/api/execution${gameId ? `?gameId=${encodeURIComponent(gameId)}` : ""}`,
-          { cache: "no-store", signal },
+          { cache: "no-store", signal: signal?AbortSignal.any([signal,AbortSignal.timeout(20000)]):AbortSignal.timeout(20000) },
         );
         if (!response.ok)
           throw new Error(
@@ -205,9 +205,9 @@ export default function ActionsPage({
               Example findings only. Live execution and provider access are not
               verified here.
             </p>
-          ) : !status ? (
+          ) : !status && !statusError ? (
             <p role="status">Loading saved configuration and run history…</p>
-          ) : (
+          ) : status ? (
             <>
               <div className="actions-status-summary">
                 <p>
@@ -358,7 +358,7 @@ export default function ActionsPage({
                 </div>
               </details>
             </>
-          )}
+          ) : null}
         </section>
         <section className="actions-run">
           <h2>Review this game</h2>

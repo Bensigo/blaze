@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import "./account-settings.css";
+
+
+import { browserRead } from "@/lib/browser-read";
 
 type Provider = "anthropic" | "openrouter";
 type Credential = { id: string; provider: Provider; label: string; model?: string; checkedAt?: string };
@@ -12,6 +14,7 @@ type AccountData = { settings: Settings | null; credentials: Credential[]; jev: 
 const NEW = "__new__";
 
 async function request<T>(url: string, body?: object): Promise<T> {
+  if(!body)return browserRead<T>(url);
   const response = await fetch(url, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
   const data = await response.json();
   if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "Something went wrong. Please try again.");

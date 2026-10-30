@@ -5,7 +5,7 @@ import { GripVertical, MessageSquare, Paperclip, X } from "lucide-react";
 import { ACTION_COLUMNS, columnForAction } from "@/lib/action-board";
 import type { ActionItem } from "@/lib/action-items";
 import type { Finding } from "@/lib/types";
-import "./action-board.css";
+
 
 type Props = {
   items: ActionItem[];

@@ -7,3 +7,4 @@
 @media (max-width: 600px) { .content { position: fixed; inset: auto 16px 16px; width: auto; max-width: none; } }
 
 .trigger svg { width:15px; height:15px; flex-shrink:0; stroke:currentColor; }
+@media(max-width:600px){.trigger{width:44px;height:44px}.content{z-index:90}}

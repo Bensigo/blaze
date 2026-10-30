@@ -1,0 +1,25 @@
+:root {
+  --ink: #202126;
+  --muted: #62656e;
+  --line: #e5e6ea;
+  --border: var(--line);
+  --accent: #32684f;
+  --accent-dark: #25543e;
+  --bg: #ffffff;
+  --side: #f7f7f8;
+  --surface: #ffffff;
+  --surface-soft: #f5f6f8;
+  --soft: #edf4ef;
+  --hover: #efeff2;
+  --selected: #e9ebee;
+  --error: #9e382c;
+  --warning: #775713;
+  --radius: 6px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+}

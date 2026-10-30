@@ -96,7 +96,7 @@
 }
 .kanban-column > header > span {
   font-size: 12px;
-  color: #69776d;
+  color: var(--muted);
 }
 .kanban-dot {
   display: inline-block;
@@ -144,9 +144,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
-  color: #728076;
+  color: var(--muted);
 }
 .kanban-card-meta > span:first-child {
   overflow: hidden;
@@ -155,7 +155,7 @@
 }
 .kanban-grip {
   display: flex;
-  color: #a0aba1;
+  color: var(--muted);
   flex-shrink: 0;
 }
 .kanban-card h4 {
@@ -197,9 +197,9 @@
   gap: 8px;
   flex-wrap: wrap;
   margin: 14px 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
-  color: #768078;
+  color: var(--muted);
 }
 .kanban-priority {
   display: flex;
@@ -235,12 +235,12 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #8b958c;
-  font-size: 11px;
+  color: var(--muted);
+  font-size: 12px;
 }
 .actions-workspace .kanban-move {
-  font-size: 10px;
-  color: #78847a;
+  font-size: 12px;
+  color: var(--muted);
   gap: 3px;
 }
 .actions-workspace .kanban-move select {
@@ -259,13 +259,13 @@
   color: #356145;
 }
 .kanban-empty {
-  color: #879187;
+  color: var(--muted);
   font-size: 13px;
   padding: 24px 8px;
   text-align: center;
 }
 .kanban-shelf > p {
-  color: #68746a;
+  color: var(--muted);
   font-size: 14px;
   margin-bottom: 16px;
 }
@@ -297,7 +297,7 @@
   width: min(740px, calc(100vw - 40px));
   max-height: calc(100dvh - 48px);
   padding: 0;
-  border: 1px solid #d9e1d9;
+  border: 1px solid var(--line);
   border-radius: 12px;
   color: #203126;
   background: #fff;
@@ -316,7 +316,7 @@
   border-bottom: 1px solid #e6ebe4;
 }
 .action-detail-head p {
-  color: #6e7d71;
+  color: var(--muted);
   font-size: 12px;
 }
 .actions-workspace .action-detail-head h2 {
@@ -345,7 +345,7 @@
 }
 .action-detail h4 {
   font-size: 12px;
-  color: #6e7a70;
+  color: var(--muted);
   font-weight: 600;
   margin: 20px 0 4px;
 }
@@ -358,7 +358,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  color: #7a857c;
+  color: var(--muted);
   font-size: 12px;
 }
 .action-detail-state .kanban-move {
@@ -371,7 +371,7 @@
   min-width: 150px;
 }
 .action-detail-muted {
-  color: #7a847b;
+  color: var(--muted);
   font-size: 12px !important;
 }
 .action-detail .action-evidence {
@@ -401,8 +401,8 @@
   align-items: center;
   gap: 12px;
   margin-top: 10px;
-  font-size: 11px;
-  color: #768178;
+  font-size: 12px;
+  color: var(--muted);
 }
 .actions-workspace .action-note-footer button {
   font-size: 13px;
@@ -417,7 +417,7 @@
   font-size: 12px;
 }
 .action-decision-history dt {
-  color: #7a847b;
+  color: var(--muted);
 }
 .action-decision-history dd {
   margin: 0;
@@ -455,11 +455,11 @@
 }
 .actions-review-tools > summary {
   font-size: 14px;
-  color: #617066;
+  color: var(--muted);
 }
 .actions-tools-hint {
   font-size: 13px;
-  color: #738075;
+  color: var(--muted);
 }
 .actions-review-tools > .actions-execution {
   margin-top: 24px;
@@ -583,7 +583,7 @@
   gap: 12px;
 }
 .kanban-controls label {
-  font-size: 11px;
+  font-size: 12px;
   gap: 4px;
 }
 .kanban-controls select {
@@ -600,8 +600,8 @@
   padding-bottom: 10px;
 }
 .kanban-instructions {
-  font-size: 11px !important;
-  color: #819084;
+  font-size: 12px !important;
+  color: var(--muted);
   margin: 10px 0 18px !important;
 }
 .kanban-announcements:empty {
@@ -627,7 +627,7 @@
 .action-source-record code,
 .action-source-record li > span {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
 }
 @media (max-width: 700px) {
   .kanban-heading {

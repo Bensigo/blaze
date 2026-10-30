@@ -48,6 +48,11 @@ describe("content studio approvals and recovery", () => {
     expect(first).toHaveLength(3); expect(await db.list("ws", "content_idea")).toHaveLength(3);
     expect(JSON.stringify(await studio.gameSources("ws", "g"))).not.toContain("PRIVATE_TELEMETRY");
     expect((await studio.studioSnapshot("other")).ideas).toEqual([]);
+    const snapshot=await studio.studioSnapshot("ws");
+    expect(snapshot.sourceFacts?.[0]).toMatchObject({gameId:"g",sourceRevision:first[0].sourceRevision});
+    expect(snapshot.sourceFacts?.[0].facts.map(f=>f.value)).toContain("Arrow keys move the token.");
+    expect(JSON.stringify(snapshot.sourceFacts)).not.toContain("PRIVATE_TELEMETRY");
+    expect((await studio.studioSnapshot("other")).sourceFacts).toEqual([]);
     await expect(studio.prepareSourceIdeas("other", "g")).rejects.toThrow("Game not found");
     expect(fetch).not.toHaveBeenCalled();
   });

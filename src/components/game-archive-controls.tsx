@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Game } from "@/lib/types";
-import "./content-studio.css";
+
 type Archive = { id: string; game: Game; deletedAt: string };
 export default function GameArchiveControls({ games, demo, onUpdated }: { games: Game[]; demo: boolean; onUpdated: () => Promise<unknown> }) {
   const [archives, setArchives] = useState<Archive[]>([]); const [chosen, setChosen] = useState<Game | null>(null);
