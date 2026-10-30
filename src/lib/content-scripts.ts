@@ -60,9 +60,14 @@ export async function reviewedScript(workspace: string, ideaId: string, sourceRe
   scriptScoreSchema.parse(review.score);
   return { script, review };
 }
+export async function scriptReviewAvailability(workspace: string) {
+  if(process.env.BLAZE_JEV_SCRIPT_REVIEW_ENABLED!=="true") return {enabled:false,reason:"Jev reviews are paused pending execution approval. No new review request has been sent."};
+  const held = (await query(`SELECT id FROM records WHERE workspace_id=$1 AND kind='script_review' AND (body->>'costAdmissionViolation'='true' OR body->>'state' IN ('starting','needs_reconciliation')) LIMIT 1`,[workspace])).length > 0;
+  return held ? {enabled:false,reason:"An earlier Jev request is active, uncertain or exceeded its cost bound. Reconcile billing for that request before another review."} : {enabled:true};
+}
 const reviewEnabled = async (workspace: string) => {
-  if(process.env.BLAZE_JEV_SCRIPT_REVIEW_ENABLED!=="true")throw new HttpError(409,"Paid Jev script review is paused pending explicit approval. Anthropic credits do not pay for OpenRouter.");
-  if((await query(`SELECT id FROM records WHERE workspace_id=$1 AND kind='script_review' AND (body->>'costAdmissionViolation'='true' OR body->>'state' IN ('starting','needs_reconciliation')) LIMIT 1`,[workspace])).length)throw new HttpError(409,"An earlier Jev request is active, uncertain or violated the documented one-cent admission bound. Reconcile billing before any further script review.");
+  const availability = await scriptReviewAvailability(workspace);
+  if (!availability.enabled) throw new HttpError(409, availability.reason!);
 };
 async function jevSelection(workspace:string) {
   const secret=await secretFor(workspace,"jev");
