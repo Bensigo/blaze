@@ -42,4 +42,24 @@ describe("recoverable game deletion", () => {
     await db.query("INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES('job','ws','recording','claimed',$1::jsonb)", [JSON.stringify({ gameId: "g" })]);
     await expect(archive.archiveGame("ws", "g", game.title, "owner")).rejects.toThrow("active or uncertain"); expect(fetch).not.toHaveBeenCalled(); vi.unstubAllGlobals();
   });
+  it("includes post-linked claimed jobs in deletion's locked work set", async () => {
+    await db.put("ws", "post", { id: "post", gameId: "g", status: "draft" });
+    await db.query("INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES('publish','ws','publish','claimed',$1::jsonb)", [JSON.stringify({ postId: "post" })]);
+    await expect(archive.archiveGame("ws", "g", game.title, "owner")).rejects.toThrow("active or uncertain");
+    expect(await db.get("ws", "game", "g")).toBeTruthy(); expect(await archive.archivedGames("ws")).toEqual([]);
+  });
+  it("rejects new and requeued jobs after archive, while restore permits fresh work", async () => {
+    const profile = await import("../src/lib/game-profile");
+    const { enqueue } = await import("../src/lib/jobs");
+    await profile.queueProfile("ws", "g", "https://app.example");
+    await archive.archiveGame("ws", "g", game.title, "owner");
+    await expect(profile.queueProfile("ws", "g", "https://app.example")).rejects.toThrow("Active game not found");
+    await expect(profile.queueHumanProfileRefresh("ws", "g", "https://app.example")).rejects.toThrow("Active game not found");
+    await expect(enqueue("ws", "clip", { id: "new-clip", gameId: "g" } as import("../src/lib/types").Clip)).rejects.toThrow("Active game not found");
+    expect(await db.query("SELECT id FROM jobs WHERE workspace_id='ws' AND state='queued'")).toEqual([]);
+    await archive.restoreGame("ws", "g");
+    await profile.queueProfile("ws", "g", "https://app.example");
+    expect(await db.query("SELECT id FROM jobs WHERE workspace_id='ws' AND state='queued'")).toHaveLength(1);
+  });
+
 });

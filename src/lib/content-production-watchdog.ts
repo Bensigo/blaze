@@ -1,4 +1,4 @@
-import { comparePut, get, query } from "./db";
+import { comparePut, get, query, type TransactionQuery } from "./db";
 import { hash } from "./security";
 import { secretForConnection } from "./credentials";
 import { interruptManagedSession, readManagedSession } from "./managed-gameplay-agent";
@@ -10,6 +10,17 @@ export const WATCHDOG_FRESHNESS_MS = 90 * 1000;
 const WATCHDOG_BATCH = 4;
 type WatchdogProvider = { id: string; revision: string; connectionId: string; watchdogVerified: boolean };
 export type WatchdogHeartbeat = { id: "default"; configRevision: string; checkedAt: string; healthy: boolean; scanned: number; unresolved: number; error?: string };
+
+/** Immediate dispatch guard: a previous healthy poll cannot mask newer uncertain work. */
+export async function unresolvedProduction(workspace: string, excludeId?: string, now = Date.now(), sql: TransactionQuery = query) {
+  const rows = await sql<{ body: VideoProduction }>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='video_production' AND ($2::text IS NULL OR id<>$2)
+    AND body->>'state' IN ('starting','running','cancel_requested','needs_reconciliation','importing')`, [workspace, excludeId || null]);
+  return rows.some(({ body }) => {
+    if (["starting", "cancel_requested", "needs_reconciliation"].includes(body.state) || !body.sessionId) return true;
+    const deadline = Date.parse(body.watchdogDeadlineAt || "");
+    return !body.stoppedAt && (!Number.isFinite(deadline) || deadline <= now);
+  });
+}
 
 export async function watchdogReady(workspace: string, configRevision: string, now = Date.now()) {
   if (process.env.BLAZE_CLOUD_WATCHDOG_ENABLED !== "true") return false;
@@ -81,9 +92,11 @@ export async function tickProductionWatchdog(workspace: string, now = Date.now()
     const due = candidates.map(row => row.body).filter(production => {
       const deadline = Date.parse(production.watchdogDeadlineAt || "");
       // Legacy unbounded records are unsafe to assume fresh; require immediate observation/reconciliation.
-      return production.state === "cancel_requested" || production.state === "needs_reconciliation" || !Number.isFinite(deadline) || deadline <= now;
+      const orphanedStart = production.state === "starting" && !production.sessionId && now - Date.parse(production.startedAt || production.updatedAt) >= 60000;
+      return orphanedStart || production.state === "cancel_requested" || production.state === "needs_reconciliation" || !Number.isFinite(deadline) || deadline <= now;
     }).sort((a, b) => Number(!!b.sessionId) - Number(!!a.sessionId));
     unresolved += Math.max(0, due.length - WATCHDOG_BATCH);
+    unresolved += candidates.filter(({ body }) => body.state === "starting" && !due.includes(body)).length;
     for (const production of due.slice(0, WATCHDOG_BATCH)) {
       scanned++;
       if (!production.sessionId) {

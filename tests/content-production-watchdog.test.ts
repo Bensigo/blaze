@@ -67,6 +67,13 @@ describe("durable production runtime watchdog", () => {
     await (await import("../src/lib/credentials")).saveSecret("ws", "anth", { token: "changed-fixture-secret" });
     expect(await watchdog.tickProductionWatchdog("ws", now + 1000)).toMatchObject({ healthy: false }); expect(fetch).not.toHaveBeenCalled();
   });
+  it("finds an orphaned start after one minute rather than waiting thirty minutes", async () => {
+    process.env.BLAZE_CLOUD_WATCHDOG_ENABLED = "true";
+    await production("orphan", now - 61000, { sessionId: undefined, state: "starting" });
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    expect(await watchdog.tickProductionWatchdog("ws", now)).toMatchObject({ healthy: false, scanned: 1, unresolved: 1 });
+    expect(await db.get("ws", "video_production", "orphan")).toMatchObject({ state: "needs_reconciliation" }); expect(fetch).not.toHaveBeenCalled();
+  });
   it("leases overlapping polls and retains a consumed dispatch marker across a crash", async () => {
     process.env.BLAZE_CLOUD_WATCHDOG_ENABLED = "true";
     await production("p", undefined, { state: "cancel_requested", stopRequest: { id: "stop_existing", requestedAt: new Date(now - 1000).toISOString(), reason: "owner_cancel", state: "dispatching" } });

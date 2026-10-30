@@ -1,3 +1,4 @@
+import { withActiveGameWork } from "./active-game-work";
 import {consumeJevValidation,assertJevDispatch} from './jev-budget';
 import { query, get, put, id } from "./db";
 import type { Game, Recording, Clip } from "./types";
@@ -21,10 +22,11 @@ export async function enqueue(
     if (!await enqueueRecording(workspace, body as Recording)) throw new HttpError(409, "A recording is already active for this game.");
     return;
   }
-  await query(
+  if (!("gameId" in body) || typeof body.gameId !== "string") throw new HttpError(400, "Game is required.");
+  await withActiveGameWork(workspace, body.gameId, sql => sql(
     `WITH created AS (INSERT INTO records(workspace_id,kind,id,body) VALUES($1,$2,$3,$4::jsonb) RETURNING id) INSERT INTO jobs(id,workspace_id,kind,state,body) SELECT id,$1,$2,'queued',$4::jsonb FROM created`,
     [workspace, kind, body.id, JSON.stringify(body)],
-  );
+  ));
 }
 export async function activeJob(jobId: string) {
   const row = (

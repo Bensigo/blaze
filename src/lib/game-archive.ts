@@ -13,8 +13,11 @@ export async function archiveGame(workspace: string, gameId: string, confirmatio
     }
     if (confirmation !== game.title) throw new HttpError(400, "Type the game's exact name to confirm deletion.");
     await sql(`SELECT id FROM records WHERE workspace_id=$1 AND kind='post' AND body->>'gameId'=$2 FOR UPDATE`, [workspace, gameId]);
+    // claimJob locks these same rows with SKIP LOCKED. Existing queued work cannot
+    // become claimed between our check and cancellation, including post-linked jobs.
+    await sql(`SELECT id FROM jobs WHERE workspace_id=$1 AND (body->>'gameId'=$2 OR body->>'postId' IN (SELECT id FROM records WHERE workspace_id=$1 AND kind='post' AND body->>'gameId'=$2)) FOR UPDATE`, [workspace, gameId]);
     const active = await sql(`SELECT id FROM records WHERE workspace_id=$1 AND body->>'gameId'=$2 AND ((kind='video_production' AND body->>'state' IN ('starting','running','importing','cancel_requested','needs_reconciliation')) OR (kind='recording' AND body->>'status'='recording') OR (kind='idea_batch' AND body->>'state'='starting') OR (kind='post' AND body->>'status' IN ('uploading','processing'))) LIMIT 1`, [workspace, gameId]);
-    const claimed = await sql(`SELECT id FROM jobs WHERE workspace_id=$1 AND body->>'gameId'=$2 AND state='claimed' LIMIT 1`, [workspace, gameId]);
+    const claimed = await sql(`SELECT id FROM jobs WHERE workspace_id=$1 AND state='claimed' AND (body->>'gameId'=$2 OR body->>'postId' IN (SELECT id FROM records WHERE workspace_id=$1 AND kind='post' AND body->>'gameId'=$2)) LIMIT 1`, [workspace, gameId]);
     if (active.length || claimed.length) throw new HttpError(409, "This game has active or uncertain work. Stop or reconcile its runs before deleting it. No data was removed.");
     const archived: ArchivedGame = { id: game.id, game, deletedAt: new Date().toISOString(), deletedBy: actor };
     await sql(`INSERT INTO records(workspace_id,kind,id,body) VALUES($1,'archived_game',$2,$3::jsonb) ON CONFLICT(workspace_id,kind,id) DO UPDATE SET body=excluded.body,updated_at=now()`, [workspace, gameId, JSON.stringify(archived)]);

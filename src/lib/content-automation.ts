@@ -1,3 +1,4 @@
+import { withActiveGameWork } from "./active-game-work";
 import { get, query } from "./db";
 import { hash } from "./security";
 import { resolveAISecret } from "./ai-settings";
@@ -21,7 +22,7 @@ export async function queueClipDraft(workspace: string, clip: Clip) {
   const secret = await resolveAISecret(workspace, false).catch(() => undefined);
   if (!secret?.token || typeof secret.model !== "string" || typeof secret.aiConnectionId !== "string" || typeof secret.aiSettingsRevision !== "string" || typeof secret.aiCredentialVersion !== "string" || (secret.aiProvider !== "anthropic" && secret.aiProvider !== "openrouter")) return false;
   const ai = { provider: secret.aiProvider, model: secret.model, connectionId: secret.aiConnectionId, settingsRevision: secret.aiSettingsRevision, credentialVersion: secret.aiCredentialVersion };
-  return (await query(`INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES($1,$2,'content_draft','queued',$3::jsonb) ON CONFLICT DO NOTHING RETURNING id`, [jobId(workspace, clip.id), workspace, JSON.stringify({ gameId: clip.gameId, clipId: clip.id, ai })])).length > 0;
+  return (await withActiveGameWork(workspace, clip.gameId, sql => sql(`INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES($1,$2,'content_draft','queued',$3::jsonb) ON CONFLICT DO NOTHING RETURNING id`, [jobId(workspace, clip.id), workspace, JSON.stringify({ gameId: clip.gameId, clipId: clip.id, ai })]))).length > 0;
 }
 
 export async function drainContentAutomation() {

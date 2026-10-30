@@ -10,7 +10,7 @@ import { managedFileBytes, managedOutputFiles, readManagedSession, startManagedS
 import type { Connection, Game } from "./types";
 import type { ContentIdea, IdeaSchedule, StudioSnapshot, VideoProduction } from "./content-studio-contract";
 import { Input, BufferSource, MP4 } from "mediabunny";
-import { PRODUCTION_RUNTIME_MS, requestProductionStop, watchdogReady } from "./content-production-watchdog";
+import { PRODUCTION_RUNTIME_MS, requestProductionStop, unresolvedProduction, watchdogReady } from "./content-production-watchdog";
 
 export const videoSettingsSchema = z.object({
   aspectRatio: z.enum(["16:9", "9:16", "1:1"]), durationSeconds: z.number().int().min(10).max(60),
@@ -55,6 +55,7 @@ export async function studioReadiness(workspace: string) {
   if (!config?.pilotVerified) reasons.push("Approve one bounded cloud gameplay pilot to verify controls, WebGL, recording and any required audio.");
   if (!config?.watchdogVerified) reasons.push("Verify a monitored 30-minute cloud-session stop before enabling production.");
   if (!config || !await watchdogReady(workspace, config.revision)) reasons.push("A fresh, healthy cloud-runtime watchdog heartbeat is required.");
+  if (await unresolvedProduction(workspace)) reasons.push("An earlier cloud start, stop or runtime deadline needs reconciliation before another attempt.");
   if (process.env.BLAZE_CLOUD_PRODUCTION_ENABLED !== "true") reasons.push("Cloud production is disabled pending setup and pilot approval.");
   if (!mediaStorageConfigured()) reasons.push("Configure Blaze private video storage.");
   return { ready: reasons.length === 0, reasons, provider: "anthropic_managed_agents" as const, connectionLabel: connection?.label };
@@ -163,6 +164,10 @@ export async function startApprovedVideo(workspace: string, productionId: string
   const dispatchAt = Date.now();
   const starting: VideoProduction = { ...production, state: "starting", updatedAt: new Date(dispatchAt).toISOString(), startedAt: new Date(dispatchAt).toISOString(), watchdogDeadlineAt: new Date(dispatchAt + PRODUCTION_RUNTIME_MS).toISOString(), usage: { status: "unavailable" } };
   const reserved = await transaction(async sql => {
+    // Serialize starts across all games, independently of the last watchdog heartbeat.
+    const provider = await sql(`SELECT id FROM records WHERE workspace_id=$1 AND kind='content_provider' AND id='default' FOR UPDATE`, [workspace]);
+    if (!provider.length) return false;
+    if (await unresolvedProduction(workspace, production.id, dispatchAt, sql)) throw new HttpError(409, "An earlier cloud start, stop or runtime deadline needs reconciliation before another attempt.");
     const game = await sql(`SELECT id FROM records WHERE workspace_id=$1 AND kind='game' AND id=$2 FOR UPDATE`, [workspace, production.gameId]);
     if (!game.length) return false;
     return (await sql(`UPDATE records SET body=$4::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='video_production' AND id=$2 AND body=$3::jsonb RETURNING id`, [workspace, productionId, JSON.stringify(production), JSON.stringify(starting)])).length > 0;

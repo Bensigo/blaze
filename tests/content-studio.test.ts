@@ -68,7 +68,26 @@ describe("content studio approvals and recovery", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(await db.get("ws", "video_production", production.id)).toMatchObject({ state: "needs_reconciliation" });
     await studio.startApprovedVideo("ws", production.id); expect(fetch).toHaveBeenCalledTimes(1);
-    await expect(approve(idea.id, randomUUID(), { ...DEFAULT_VIDEO_SETTINGS, durationSeconds: 15 })).rejects.toThrow("active run");
+    await expect(approve(idea.id, randomUUID(), { ...DEFAULT_VIDEO_SETTINGS, durationSeconds: 15 })).rejects.toThrow("reconciliation");
+  });
+  it("blocks another idea immediately after an uncertain start, even with a fresh healthy heartbeat", async () => {
+    const first = await setup(); const ideas = await studio.prepareSourceIdeas("ws", "g");
+    const a = await approve(first.id); const b = await approve(ideas[1].id);
+    const fetch = vi.fn(async () => { throw new Error("Uncertain create result"); }); vi.stubGlobal("fetch", fetch);
+    await studio.startApprovedVideo("ws", a.id);
+    await expect(studio.startApprovedVideo("ws", b.id)).rejects.toThrow("paused");
+    expect((await studio.studioReadiness("ws")).reasons.join(" ")).toContain("earlier cloud start");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it("serializes starts across different ideas before the next watchdog tick", async () => {
+    const first = await setup(); const ideas = await studio.prepareSourceIdeas("ws", "g");
+    const a = await approve(first.id); const b = await approve(ideas[1].id);
+    let release!: () => void; let entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; }); const dispatched = new Promise<void>(resolve => { entered = resolve; });
+    const fetch = vi.fn(async () => { entered(); await gate; return Response.json({ id: "sesn_first", status: "running" }); }); vi.stubGlobal("fetch", fetch);
+    const started = studio.startApprovedVideo("ws", a.id); await dispatched;
+    await expect(studio.startApprovedVideo("ws", b.id)).rejects.toThrow("paused"); release(); await started;
+    expect(fetch).toHaveBeenCalledOnce();
   });
   it("rejects expired approvals, changed keys, unverified game audio and cross-workspace IDs before dispatch", async () => {
     const idea = await setup();
