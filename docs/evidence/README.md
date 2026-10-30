@@ -20,3 +20,11 @@ Browser checks passed for saved script/score, exact script loading, disabled gen
 Successful source mutation, ownership, concurrency, history retention and stale approval behavior passed local mocked integration tests. The live public Dog Chase manifest returned HTTP502 during browser acceptance, so the real-source save was correctly refused; the owner's actual registered URL was never changed. Live Dia showed the current Connections screen, then remained on Loading workspace after reload. Changed UI is not deployed.
 
 Full suite:530tests/90files passed. Typecheck and production build passed after the readability changes. No new paid request, cloud session, schedule activation or release action.
+
+## Reference versioning and SEO/AEO navigation
+
+The reference library now contains24 validated unique observed-post records (14 AI,10 gameplay,4 lower-reach comparisons). `reference-library-desktop-local.png` and `reference-library-mobile-local.png` show the bounded selected examples, provenance/metrics labels and limitations in a local fixture. The legacy recorded79 is historical and explicitly not reference-informed. Browser checks14/14 passed, including no-spend context save, historical-score gating, lane counts, comparison labels, read failure/retry and mobile width.
+
+`seo-navigation-local.png` shows the new direct SEO & AEO navigation with an explicitly controlled local cached-response fixture. Four browser checks passed: direct navigation to selected game, all four groups, unmeasured claims and mobile width. No public-audit POST was made by this test. The existing production Dog Chase Search & answers view was separately opened read-only in local Dia: dated October29 cached baseline and unmeasured search/AI-citation sections were present. Production health still reportedc8f7d40 at inspection; new UI is not claimed deployed by these screenshots.
+
+Full suite535tests/91files passed after updating current-context synthetic review fixtures. Focused reference/SEO8tests passed after the relevance/navigation refinements. No new real Jev review, cloud video, scheduled run or game-source URL mutation occurred.

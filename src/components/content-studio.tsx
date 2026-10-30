@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { DEFAULT_VIDEO_SETTINGS, type ContentIdea, type StudioSnapshot, type VideoProduction, type VideoSettings, type PilotReview } from "@/lib/content-studio-contract";
+import ContentReferenceLibrary from "./content-reference-library";
 import ScriptReviewScore from "./script-review-score";
 import ContentScriptEditor from "./content-script-editor";
 import type { Game } from "@/lib/types";
@@ -94,10 +95,11 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
           <button className="button" disabled={busy}>Save preferences</button>
         </form><p>Source outlines are free preparation. Daily AI ideas stay paused until the account, budget and schedule are approved.</p>
       </details>
+      <ContentReferenceLibrary selected={data.references?.selected} revision={data.references?.revision}/>
       <div className="studio-ideas">{ideas.map(idea => { const saved = data.scripts?.find(s=>s.ideaId===idea.id); const shownScore = saved?.score || saved?.staleScore; return <article className="studio-idea" key={idea.id}>
         <div><small>{title(idea.gameId)} · {idea.origin === "daily_agent" ? "Daily AI proposal" : "Source outline · no AI run"}</small><h3>{idea.title}</h3><p>{idea.hook}</p><p className="studio-secondary">{idea.treatment}</p>
           <details><summary>Shots and source facts</summary><ol>{idea.shots.map(shot => <li key={shot}>{shot}</li>)}</ol><p>Facts: {idea.factKeys.join(", ")}</p></details></div>
-        {saved && <div className="studio-saved-script"><details><summary>Saved script</summary><p style={{whiteSpace:"pre-wrap"}}>{saved.text}</p></details>{shownScore ? <ScriptReviewScore score={shownScore} stale={saved.sourceStale}/> : <p role="status">{saved.sourceStale ? "Source changed · earlier script and score are stale. Prepare fresh source outlines." : `Jev review: ${saved.reviewState || "not requested"}`}</p>}</div>}
+        {saved && <div className="studio-saved-script"><details><summary>Saved script</summary><p style={{whiteSpace:"pre-wrap"}}>{saved.text}</p></details>{shownScore ? <><ScriptReviewScore score={shownScore} stale={!!saved.staleScore}/>{saved.staleScore&&!saved.scoreReferenceSetRevision&&<p className="studio-secondary">Historical review · no reference examples were supplied. Save with current references before requesting a new score.</p>}</> : <p role="status">{saved.sourceStale ? "Source changed · earlier script and score are stale. Prepare fresh source outlines." : `Jev review: ${saved.reviewState || "not requested"}`}</p>}</div>}
         <button className="button" disabled={busy} onClick={() => { setChosen(idea); setScriptReady(false); setSettings(DEFAULT_VIDEO_SETTINGS); setAcknowledge(false); requestId.current = null; }}>Review script &amp; video settings</button>
       </article>; })}</div>
       {!data.ideas.length && <p className="studio-empty">No ideas yet. Select a game and prepare source outlines while the daily agent is being connected.</p>}

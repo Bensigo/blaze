@@ -2485,3 +2485,5 @@ td { font-size: 12px; }
   .player-scope, .player-kpis small, .activity-legend, .analytics-section-title p { font-size: 13px; }
   .pointer-filters select, .heatmap-choose select { font-size: 16px; }
 }
+
+.workspace-unavailable{max-width:640px;margin:12vh auto;padding:28px;font-size:16px;line-height:1.65}.workspace-unavailable h1{font-size:28px;margin:32px 0 16px}.workspace-unavailable p{margin-bottom:24px;color:#526157}

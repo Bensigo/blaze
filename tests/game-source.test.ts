@@ -27,7 +27,7 @@ it('blocks claimed legacy work, deleted games and uncertain reviews',async()=>{
 it('freshens facts and revisions, consumes approvals, retains videos/history, pauses automation and makes old scores stale',async()=>{
  const idea=(await studio.prepareSourceIdeas('ws','g'))[0];const script=await scripts.saveContentScript('ws',idea.id,'Can you outrun the dogs? Show a real jump and its result.');
  const score={overall:79,hook:{score:21,explanation:'Fixture'},pacing:{score:23,explanation:'Fixture'},clarity:{score:22,explanation:'Fixture'},shareability:{score:13,explanation:'Fixture'},improvements:['Fixture suggestion']};
- await db.put('ws','script_review',{id:'review',scriptId:script.id,gameId:'g',scriptRevision:script.revision,sourceRevision:script.sourceRevision,approvedAt:'2026-10-30',state:'complete',score});
+ await db.put('ws','script_review',{id:'review',scriptId:script.id,gameId:'g',scriptRevision:script.revision,sourceRevision:script.sourceRevision,reviewContextRevision:script.reviewContextRevision,referenceSetRevision:script.referenceSetRevision,referenceIds:script.referenceIds,rubricRevision:script.rubricRevision,approvedAt:'2026-10-30',state:'complete',score});
  expect((await studio.studioSnapshot('ws','g')).scripts?.[0].score?.overall).toBe(79);
  for(const [kind,id] of [['video_production','pending'],['script_review','unused'],['pilot_grant','grant']])await db.put('ws',kind,{id,gameId:'g',state:'approved'});
  await db.put('ws','video_production',{id:'finished',gameId:'g',state:'ready',videoUrl:'/owned/video'});await db.put('ws','game_automation',{id:'g',enabled:true});await db.query("INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES('j','ws','recording','queued','{\"gameId\":\"g\"}')");

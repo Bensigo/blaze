@@ -1,3 +1,4 @@
+import {referenceContext,referenceLibrary,referenceSetRevision,rubricRevision,referenceStructure,selectContentReferences} from "./content-references";
 import { approvalJson } from "./approval-json";
 import { reviewedScript, type ContentScript, type ScriptReview } from "./content-scripts";
 import { z } from "zod";
@@ -62,13 +63,19 @@ export async function studioSnapshot(workspace: string, gameId?: string, actor?:
   const activeGames = new Set((await list<Game>(workspace, "game")).map(game => game.id));
   const visibleIdeas = ideas.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId));
   const [savedScripts, reviews] = await Promise.all([list<ContentScript>(workspace, "content_script"), list<ScriptReview>(workspace, "script_review")]);
-  const revisions = new Map(await Promise.all([...new Set(visibleIdeas.map(i=>i.gameId))].map(async id => [id, (await gameSources(workspace,id).catch(()=>null))?.revision] as const)));
+  const sources = new Map(await Promise.all([...new Set(visibleIdeas.map(i=>i.gameId))].map(async id => [id, await gameSources(workspace,id).catch(()=>null)] as const)));
   const scripts = savedScripts.filter(s=>visibleIdeas.some(i=>i.id===s.ideaId)).map(s=>{
-    const sourceStale = s.sourceRevision !== revisions.get(s.gameId);
-    const review = reviews.filter(r=>r.scriptId===s.id&&r.scriptRevision===s.revision&&r.sourceRevision===s.sourceRevision).sort((a,b)=>b.approvedAt.localeCompare(a.approvedAt)||b.id.localeCompare(a.id))[0];
-    return {ideaId:s.ideaId,text:s.text,sourceStale,reviewState:sourceStale?"stale":review?.state,...(review?.state==="complete"&&review.score?(sourceStale?{staleScore:review.score}:{score:review.score}):{})};
+    const source = sources.get(s.gameId);
+    const sourceStale = s.sourceRevision !== source?.revision;
+    const currentContext=source?referenceContext(source):null;const contextStale=s.reviewContextRevision!==currentContext?.reviewContextRevision;
+    const history=reviews.filter(r=>r.scriptId===s.id).sort((a,b)=>b.approvedAt.localeCompare(a.approvedAt)||b.id.localeCompare(a.id));
+    const review=history.find(r=>r.scriptRevision===s.revision&&r.sourceRevision===s.sourceRevision);
+    const accepted=!sourceStale&&!contextStale&&review?.state==="complete"&&review.reviewContextRevision===currentContext?.reviewContextRevision&&!!review.score;
+    const historical=history.find(r=>r.state==="complete"&&r.score);
+    return {ideaId:s.ideaId,text:s.text,sourceStale,contextStale,referenceIds:s.referenceIds||[],referenceSetRevision:s.referenceSetRevision,rubricRevision:s.rubricRevision,scoreReferenceSetRevision:(accepted?review:historical)?.referenceSetRevision,reviewState:sourceStale||contextStale?"stale":review?.state,...(accepted?{score:review!.score}:historical?.score?{staleScore:historical.score}:{})};
   });
-  return { scripts, ideas: ideas.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), productions: productions.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), schedule: schedule || defaultSchedule, readiness, ...(pilotOperator(workspace, actor) ? { pilot: { operator: true, ...await studioReadiness(workspace, "pilot") } } : {}) };
+  const referenceSource=gameId?(sources.get(gameId)||await gameSources(workspace,gameId).catch(()=>null)):null;
+  return { references:{setId:referenceLibrary.set_id,revision:referenceSetRevision,rubricRevision,selected:referenceSource?selectContentReferences(referenceSource).map(x=>({id:x.reference.id,relevance:x.relevance})):[]}, scripts, ideas: ideas.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), productions: productions.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), schedule: schedule || defaultSchedule, readiness, ...(pilotOperator(workspace, actor) ? { pilot: { operator: true, ...await studioReadiness(workspace, "pilot") } } : {}) };
 }
 export async function saveIdeaSchedule(workspace: string, input: z.infer<typeof scheduleSchema>) {
   // Saving preferences never activates a metered recurring task or preserves an old spend approval.
@@ -80,6 +87,7 @@ export async function saveIdeaSchedule(workspace: string, input: z.infer<typeof 
 export async function prepareSourceIdeas(workspace: string, gameId: string) {
   const source = await gameSources(workspace, gameId);
   const schedule = await get<IdeaSchedule>(workspace, "idea_schedule", "default") || defaultSchedule;
+  const context=referenceContext(source);
   const candidates = [
     { angle: "first_play", title: `First play: ${source.title}`, hook: `What happens when you play ${source.title}?`, treatment: "Show the real entry into play, one readable action and its observed outcome.", shots: ["Open the actual game", "Show a supported action", "Hold on its real result"] },
     { angle: "how_to_play", title: `How to play ${source.title}`, hook: "See the controls in action.", treatment: "Demonstrate only controls documented by the game. Tie each caption to the action on screen.", shots: ["Show documented controls", "Perform the corresponding action", "Show what changed"] },
@@ -87,9 +95,9 @@ export async function prepareSourceIdeas(workspace: string, gameId: string) {
   ].filter(c => c.angle !== "how_to_play" || source.facts.some(f => f.key === "manifest_controls"));
   const ideas: ContentIdea[] = [];
   for (const candidate of candidates.slice(0, schedule.countPerGame)) {
-    const fingerprint = hash(`${source.revision}:${candidate.angle}`);
+    const fingerprint = hash(`${source.revision}:${context.reviewContextRevision}:${candidate.angle}`);
     const idea: ContentIdea = { id: `idea_${hash(`${workspace}:${gameId}:${fingerprint}`).slice(0, 32)}`, gameId,
-      title: candidate.title, hook: candidate.hook, treatment: candidate.treatment, shots: candidate.shots,
+      title: candidate.title, hook: candidate.hook, treatment: `${candidate.treatment} ${referenceStructure}`, referenceSetRevision:context.referenceSetRevision,referenceIds:context.referenceIds,rubricRevision:context.rubricRevision, shots: candidate.shots,
       factKeys: source.facts.map(f => f.key), sourceRevision: source.revision, createdAt: new Date().toISOString(), origin: "source_outline", fingerprint };
     await query(`INSERT INTO records(workspace_id,kind,id,body) VALUES($1,'content_idea',$2,$3::jsonb) ON CONFLICT DO NOTHING`, [workspace, idea.id, JSON.stringify(idea)]);
     ideas.push(idea);

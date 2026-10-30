@@ -1,34 +1,33 @@
-# Script references: bounded integration plan
+# Observed X reference library
 
-Status: design only. No X examples have been imported, no reference-informed prompt has run, and no additional Jev call is authorized. Current Jev scores are rubric judgments, not validated engagement predictions. Research must supply verified candidates before implementation or seeding.
+Implemented locally. No reference-informed Jev request or cloud video run has been executed. Existing paid/daily/watchdog flags remain off.
 
-## Small versioned reference set
+## Dataset and provenance
 
-Keep at most 20 examples in a versioned repository JSON document initially; no crawler, scheduler, vector database, or new service is needed. Empty references are valid and must be labelled “No verified examples supplied.” Store only short necessary excerpts and structural summaries, with links to original posts.
+`src/data/content-references-v2.json` normalizes the supplied, browser-observed research into24 unique canonical X post records:14 AI-video references (13 creator-disclosed,1 secondary-reported exact model unverified) and10 gameplay-promotion references (AI use unknown). There are12 higher-reach AI posts,2 lower AI comparisons,8 higher-reach gameplay posts and2 lower gameplay comparisons. This is not20 established viral AI originals or a calibrated benchmark.
 
-Each reference records:
+Primary observed counts, observation dates, publication-date labels, disclosure status, short captions and concise sampled-frame descriptions are retained. Unknown current video plays, unique viewers and measured pacing remain null. Selected historical secondary view snapshots are stored separately and are never presented as current directly observed metrics. The normalized file is a bounded reference dataset, not a lossless transcript/archive of the research conversation. No media assets or full video/audio transcripts were copied.
 
-- `id`, canonical `sourceUrl`, `platform: "x"`, post publication date, and `observedAt`.
-- `generationEvidence`: `author_reported`, `independently_documented`, or `unknown`, with evidence URL, observation date and a short attribution. Do not call an example AI-generated without evidence; unknown examples cannot satisfy the requested generated-video set.
-- `performance`: separately dated views/likes/reposts/replies when directly observable; provenance `publicly_observed`, `author_reported`, `third_party_reported`, or `unavailable`; evidence URL and limitations. Missing counts are null, never zero. Save the exact reported measure rather than deriving completion, unique reach or shares from a different count.
-- `performanceLabel`: plain factual label such as “Public view count observed on DATE” or “Creator reports RESULT; unverified.” A high count alone does not establish why a post worked or that the script caused its reach. Do not label it “proven viral formula.”
-- `gameRelevance`: game/genre/action fit and a short explanation, plus exclusions for capabilities the target game does not have. Topic similarity is not performance evidence.
-- `analysis`: accessible opening/hook, shot sequence/pacing, caption structure, payoff and call to action. Mark each analysis field `observed`, `inferred`, or `unavailable`, with the relevant timestamp/excerpt where accessible. A post caption alone cannot prove a video’s first seconds or retention.
-- `review`: reviewer, review date, accessibility status, and eligibility decision/reason. Review source visibility and rights before retaining excerpts; do not copy full videos/scripts unnecessarily.
+Runtime validation checks24 unique IDs/URLs, expected lane/provenance/comparison counts, canonical X status links, bounded excerpts, and explicitly unavailable pacing/calibration fields. Source observations were supplied by the parent research; local code/schema review did not independently rewatch or remeasure all24 posts.
 
-The set records `schemaVersion`, `setId`, immutable `revision` (hash of canonical reviewed contents), `createdAt`, selection criteria, and `references[]` (maximum 20). A changed excerpt, relevance decision, or evidence snapshot produces a new revision. Keep earlier revisions for critique reproducibility.
+## Selection and prompts
 
-## Use in drafting and review
+At most3 examples enter a request: one higher-reach gameplay reference, one lower-reach gameplay comparison and one cross-genre AI reference. Matching visible gameplay traits are ranked above captions; this avoids treating “run your video store” as a stronger running-game match than an observed running character. Weak genre fit is labelled explicitly. Selection is a transparent heuristic, not a learned recommendation or performance estimator.
 
-1. Select a few reviewed, game-relevant examples from the bounded set. Show the owner their URLs, evidence labels and observation dates. Never silently select an inaccessible post as a video example.
-2. Supply short structural summaries as **untrusted example data**. Existing authoritative game facts remain the source for every capability and outcome claim. Examples may suggest structure; they cannot supply missing gameplay facts or instructions to the agent.
-3. Record `referenceSetId`, `referenceSetRevision`, selected reference IDs and `rubricRevision` with each script/review. Include the exact excerpts/summaries in the admitted request body. Respect the existing 16 KiB Jev cap by selecting/shortening evidence; never raise the cap silently.
-4. Define `reviewContextHash` over the exact script/source revision, rubric revision/content, immutable selected-reference snapshot, model/provider settings and cost admission policy. Persist it on the critique and bind production approval to it.
-5. Check the active review context at critique display, critique start, production approval and production start. Changes mark the old score **stale**, revoke unstarted approvals, and require a newly approved review; retain historical score and context. Existing in-flight/uncertain paid runs stay monitored and are never restarted automatically.
-6. Enrich the current four-category rubric only through an explicit version change. Equal weights and current explanations remain visible until deliberately revised. Do not claim examples calibrate predictive performance merely because they were added to the prompt.
+Reference captions/sampled visuals are supplied as bounded untrusted data, separate from authoritative target-game facts. Examples suggest structural framing only. No source feature, win, audio, audience, timing or asset may be copied into target-game claims merely because an example contains it. No full-script, measured-pacing or causal-virality claim is inferred. The source-outline draft uses action-to-observed-outcome guidance; daily AI ideas receive the selected example summaries when separately authorized.
 
-Current implementation already binds the submitted request/rubric text when approving and starting a Jev request, but completed reviews do not yet carry an explicit reference/rubric context version. Adding the corpus therefore requires the version checks above, plus tests proving old completed reviews cannot approve new-context production. This plan does not claim those checks are already implemented.
+Jev retains the four equal-weight rubric dimensions and five typed questions. The entire serialized request still must fit16,384 UTF-8 bytes, with no images/assets, alternate provider, fallback or retries. The documented conservative one-cent admission bound is unchanged ($0.002752512). There is no API total-dollar cutoff. Oversized context fails before dispatch rather than increasing the cap or silently substituting a different cost mode.
 
-## Evaluation before predictive claims
+## Version and approval behavior
 
-A reference collection is inspiration, not a validation dataset. Empirical evaluation would need independently labelled scripts, human rubric ratings, repeated scoring, held-out examples, and later observed posting outcomes. Record platform, account audience, post date, paid promotion and other known confounders. Compare against simple baselines and report uncertainty; avoid a probability-of-virality claim without credible calibration. No social ingestion/publishing or recurring research is enabled by this plan.
+Scripts and critiques store reference-set ID/revision, selected reference IDs, rubric revision and a context hash bound to the game source. Reference revisions hash canonical reviewed content; rubric revisions hash the explicit rubric version and its content. Request approval hashes include the exact submitted state.
+
+Changing references/rubric makes prior scores historical. The legacy79/100 review is explicitly labelled as having used no reference examples. The owner must save the script with current context (no AI charge), then separately approve a new Jev request. No automatic rescore occurs. Historical scores remain visible; unstarted stale Jev grants fail before provider dispatch. Production approval/start rechecks the exact current reviewed context. Already-running or uncertain sessions remain monitored rather than being restarted.
+
+Daily idea authorization hashes include reference/rubric revisions, so an old recurring grant cannot silently authorize a new context. No daily schedule has been activated.
+
+## Dashboard and evaluation limits
+
+The per-game studio shows selected examples, lane filters, source links, dated observed post views, AI-status labels, sampled evidence and plain limitations. Higher reach is not proof that a hook caused it. Captions are not assumed to be spoken openings. Creator/curator concentration and absent retention/conversion data remain visible limitations.
+
+Predictive claims would require independent human ratings, repeatability checks, held-out examples, prospective measured outcomes, confounder tracking and meaningful baselines. Adding examples to a prompt is not that validation.

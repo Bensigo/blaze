@@ -36,7 +36,7 @@ async function setup() {
   const scripts = await import("../src/lib/content-scripts");
   for (const idea of ideas) {
     const script = await scripts.saveContentScript("ws", idea.id);
-    await db.put("ws", "script_review", { id: `review_${script.id}`, scriptId: script.id, scriptRevision: script.revision, sourceRevision: source.revision, state: "complete", score: { overall: 80, hook: { score: 20, explanation: "Mocked rubric result" }, pacing: { score: 20, explanation: "Mocked rubric result" }, clarity: { score: 20, explanation: "Mocked rubric result" }, shareability: { score: 20, explanation: "Mocked rubric result" }, improvements: ["Synthetic fixture; no paid review."] } });
+    await db.put("ws", "script_review", { id: `review_${script.id}`, scriptId: script.id, scriptRevision: script.revision, sourceRevision: source.revision, approvedAt:"2026-10-30T00:00:00Z", referenceSetRevision:script.referenceSetRevision,referenceIds:script.referenceIds,rubricRevision:script.rubricRevision,reviewContextRevision:script.reviewContextRevision,state: "complete", score: { overall: 80, hook: { score: 20, explanation: "Mocked rubric result" }, pacing: { score: 20, explanation: "Mocked rubric result" }, clarity: { score: 20, explanation: "Mocked rubric result" }, shareability: { score: 20, explanation: "Mocked rubric result" }, improvements: ["Synthetic fixture; no paid review."] } });
   }
   return ideas[0];
 }

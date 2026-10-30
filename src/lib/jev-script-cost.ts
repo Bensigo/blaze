@@ -21,7 +21,7 @@ export const JEV_SCRIPT_COST_POLICY = {
 const scoreQuestion = z.object({ type: z.literal("score"), instructions: z.string(), criteria: z.array(z.string()).length(5) }).strict();
 const requestSchema = z.object({
   model: z.literal("typesafe/jev-1.14"),
-  state: z.object({ script: z.string(), sourceFacts: z.array(z.string()).max(30), instruction: z.string() }).strict(),
+  state: z.object({ script: z.string(), sourceFacts: z.array(z.string()).max(30), referenceSummaries:z.array(z.string().max(1400)).max(3).optional(), instruction: z.string() }).strict(),
   questions: z.object({ hook: scoreQuestion, pacing: scoreQuestion, clarity: scoreQuestion, shareability: scoreQuestion,
     unsupported_claim: z.object({ type: z.literal("noul"), instructions: z.string(), criteria: z.object({ false: z.string(), true: z.string() }).strict() }).strict(),
   }).strict(),
