@@ -1,3 +1,5 @@
+import { productionObservationsSchema, persistProductionFindings } from "./production-findings";
+import { contentRejections } from "./content-preferences";
 import {referenceContext,referenceLibrary,referenceSetRevision,rubricRevision,referenceStructure,selectContentReferences} from "./content-references";
 import { approvalJson } from "./approval-json";
 import { reviewedScript, type ContentScript, type ScriptReview } from "./content-scripts";
@@ -22,9 +24,9 @@ export const videoSettingsSchema = z.object({
 }).strict();
 export const scheduleSchema = z.object({
   countPerGame: z.union([z.literal(2), z.literal(3)]), localTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
-  maxOutputTokensPerGame: z.number().int().min(500).max(2500),
+  maxOutputTokensPerGame: z.number().int().min(500).max(4000),
 }).strict();
-const defaultSchedule: IdeaSchedule = { id: "default", countPerGame: 3, localTime: null, enabled: false, timeZone: "Asia/Dubai", maxOutputTokensPerGame: 1800 };
+const defaultSchedule: IdeaSchedule = { id: "default", countPerGame: 2, localTime: "08:00", enabled: false, timeZone: "Asia/Dubai", maxOutputTokensPerGame: 4000 };
 type ProviderConfig = { id: "default"; connectionId: string; agentId: string; agentVersion: number; environmentId: string; revision: string; pilotVerified: boolean; networkPolicyVerified: boolean; organizationVerified: boolean; watchdogVerified: boolean; watchdogAdmissionVerified?: boolean;
   reviewedGames?: Record<string, { sourceRevision: string; gameAudioVerified: boolean }> };
 export const dubaiDate = (date = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
@@ -34,7 +36,7 @@ const getGame = async (workspace: string, gameId: string) => {
   return game;
 };
 export { gameSources } from "./content-studio-sources";
-export async function studioReadiness(workspace: string, mode: "production" | "pilot" = "production") {
+export async function studioReadiness(workspace: string, mode: "production" | "pilot" = "production", gameId?: string) {
   const [config, selected, connections] = await Promise.all([
     get<ProviderConfig>(workspace, "content_provider", "default"), readAISettings(workspace).catch(() => null), list<Connection>(workspace, "connection"),
   ]);
@@ -49,17 +51,26 @@ export async function studioReadiness(workspace: string, mode: "production" | "p
   if (mode === "pilot" && !config?.watchdogAdmissionVerified) reasons.push("Verify the independent pilot watchdog's no-spend heartbeat, stale-monitor and recovery checks.");
   if (!config || !await watchdogReady(workspace, config.revision)) reasons.push("A fresh, healthy cloud-runtime watchdog heartbeat is required.");
   if (await unresolvedProduction(workspace)) reasons.push("An earlier cloud start, stop or runtime deadline needs reconciliation before another attempt.");
-  if (mode === "production" && process.env.BLAZE_CLOUD_PRODUCTION_ENABLED !== "true") reasons.push("Cloud production is disabled pending setup and pilot approval.");
+  if (mode === "production" && process.env.BLAZE_CLOUD_PRODUCTION_ENABLED !== "true") reasons.push("Video service awaits one-time commissioning.");
   if (mode === "pilot" && process.env.BLAZE_CLOUD_PILOT_ENABLED !== "true") reasons.push("Single-use operator pilots are disabled pending explicit approval.");
+  if (mode === "production" && gameId && config?.pilotVerified) {
+    const source = await gameSources(workspace, gameId);
+    if (config.reviewedGames?.[gameId]?.sourceRevision !== source.revision) reasons.push("This game's current source needs cloud capture verification before generation.");
+  }
   if (!mediaStorageConfigured()) reasons.push("Configure Blaze private video storage.");
-  return { ready: reasons.length === 0, reasons, provider: "anthropic_managed_agents" as const, connectionLabel: connection?.label };
+  return { providerRevision: config?.revision, ready: reasons.length === 0, reasons, provider: "anthropic_managed_agents" as const, connectionLabel: connection?.label };
 }
 export async function studioSnapshot(workspace: string, gameId?: string, actor?: string): Promise<StudioSnapshot> {
   if (gameId) await getGame(workspace, gameId);
   const [ideas, productions, schedule, readiness] = await Promise.all([
     list<ContentIdea>(workspace, "content_idea"), list<VideoProduction>(workspace, "video_production"),
-    get<IdeaSchedule>(workspace, "idea_schedule", "default"), studioReadiness(workspace),
+    get<IdeaSchedule>(workspace, "idea_schedule", "default"), studioReadiness(workspace, "production", gameId),
   ]);
+  const rejections=await contentRejections(workspace,gameId);
+  const rejectedIds=new Set(rejections.map(r=>r.ideaId));
+  const dailyGrant=await get<{expiresAt:string;scheduleHash:string}>(workspace,"daily_idea_authorization","default");
+  const persistedSchedule=schedule||defaultSchedule;
+  const dailyPlanExpired=persistedSchedule.enabled&&(!dailyGrant||!Number.isFinite(Date.parse(dailyGrant.expiresAt))||Date.parse(dailyGrant.expiresAt)<=Date.now()||dailyGrant.scheduleHash!==(await import("./daily-content-ideas")).ideaScheduleHash(persistedSchedule));
   const activeGames = new Set((await list<Game>(workspace, "game")).map(game => game.id));
   const visibleIdeas = ideas.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId));
   const [savedScripts, reviews] = await Promise.all([list<ContentScript>(workspace, "content_script"), list<ScriptReview>(workspace, "script_review")]);
@@ -72,10 +83,10 @@ export async function studioSnapshot(workspace: string, gameId?: string, actor?:
     const review=history.find(r=>r.scriptRevision===s.revision&&r.sourceRevision===s.sourceRevision);
     const accepted=!sourceStale&&!contextStale&&review?.state==="complete"&&review.reviewContextRevision===currentContext?.reviewContextRevision&&!!review.score;
     const historical=history.find(r=>r.state==="complete"&&r.score);
-    return {ideaId:s.ideaId,text:s.text,sourceStale,contextStale,referenceIds:s.referenceIds||[],referenceSetRevision:s.referenceSetRevision,rubricRevision:s.rubricRevision,scoreReferenceSetRevision:(accepted?review:historical)?.referenceSetRevision,reviewState:sourceStale||contextStale?"stale":review?.state,...(accepted?{score:review!.score}:historical?.score?{staleScore:historical.score}:{})};
+    return {ideaId:s.ideaId,revision:s.revision,reviewId:accepted?review?.id:undefined,text:s.text,sourceStale,contextStale,referenceIds:s.referenceIds||[],referenceSetRevision:s.referenceSetRevision,rubricRevision:s.rubricRevision,scoreReferenceSetRevision:(accepted?review:historical)?.referenceSetRevision,reviewState:sourceStale||contextStale?"stale":review?.state,...(accepted?{score:review!.score}:historical?.score?{staleScore:historical.score}:{})};
   });
   const referenceSource=gameId?(sources.get(gameId)||await gameSources(workspace,gameId).catch(()=>null)):null;
-  return { sourceFacts:[...sources.values()].flatMap(source=>source?[{gameId:source.gameId,sourceRevision:source.revision,facts:source.facts.map(({key,value})=>({key,value}))}]:[]), references:{setId:referenceLibrary.set_id,revision:referenceSetRevision,rubricRevision,selected:referenceSource?selectContentReferences(referenceSource).map(x=>({id:x.reference.id,relevance:x.relevance})):[]}, scripts, ideas: ideas.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), productions: productions.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), schedule: schedule || defaultSchedule, readiness, ...(pilotOperator(workspace, actor) ? { pilot: { operator: true, ...await studioReadiness(workspace, "pilot") } } : {}) };
+  return { rejections, sourceFacts:[...sources.values()].flatMap(source=>source?[{gameId:source.gameId,sourceRevision:source.revision,facts:source.facts.map(({key,value})=>({key,value}))}]:[]), references:{setId:referenceLibrary.set_id,revision:referenceSetRevision,rubricRevision,selected:referenceSource?selectContentReferences(referenceSource).map(x=>({id:x.reference.id,relevance:x.relevance})):[]}, scripts, ideas: ideas.filter(v => !rejectedIds.has(v.id) && activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), productions: productions.filter(v => (activeGames.has(v.gameId) || v.state === "ready") && (!gameId || v.gameId === gameId)), schedule: {...persistedSchedule,enabled:persistedSchedule.enabled&&!dailyPlanExpired}, dailyPlan:{expiresAt:dailyGrant?.expiresAt,needsReview:!!dailyPlanExpired}, readiness, ...(pilotOperator(workspace, actor) ? { pilot: { operator: true, ...await studioReadiness(workspace, "pilot") } } : {}) };
 }
 export async function saveIdeaSchedule(workspace: string, input: z.infer<typeof scheduleSchema>) {
   // Saving preferences never activates a metered recurring task or preserves an old spend approval.
@@ -163,7 +174,7 @@ export async function approvePilotVideo(workspace: string, actor: string, input:
     if (active.length) throw new HttpError(409, "A pilot already has an approved or active attempt. Inspect it before granting another.");
     const credentialRevision = hash(encrypted);
     const production: VideoProduction = { id: productionId, gameId: idea.gameId, ideaId: idea.id, idea, settings: reviewed.settings,
-      state: "approved", scriptId: script.script.id, scriptRevision: script.script.revision, scriptReviewId: script.review.id, scriptText: script.script.text, pilotGrantId: grantId, approvedBy: actor, approvedAt: stamp, createdAt: stamp, updatedAt: stamp, expiresAt,
+      state: "approved", sourceUrl: source.url, scriptId: script.script.id, scriptRevision: script.script.revision, scriptReviewId: script.review.id, scriptText: script.script.text, pilotGrantId: grantId, approvedBy: actor, approvedAt: stamp, createdAt: stamp, updatedAt: stamp, expiresAt,
       approvalHash: input.reviewHash, sourceRevision: source.revision, providerRevision: config.revision, credentialRevision, maxListCostCents: input.maxListCostCents };
     const grant: PilotGrant = { id: grantId, workspaceId: workspace, productionId, approvedBy: actor, approvedAt: stamp, expiresAt,
       reviewHash: input.reviewHash, gameId: idea.gameId, ideaId: idea.id, sourceRevision: source.revision, providerRevision: config.revision,
@@ -173,29 +184,41 @@ export async function approvePilotVideo(workspace: string, actor: string, input:
   });
 }
 
-export async function approveVideo(workspace: string, actor: string, input: { ideaId: string; settings: unknown; maxListCostCents: number; requestId: string }) {
+export async function approveVideo(workspace: string, actor: string, input: { ideaId: string; settings: unknown; maxListCostCents: number; requestId: string; scriptRevision?: string; scriptReviewId?: string; providerRevision?: string }) {
   const settings = videoSettingsSchema.parse(input.settings);
   z.number().int().min(1).max(5000).parse(input.maxListCostCents);
   z.string().uuid().parse(input.requestId);
+  // A lost response must recover the original receipt before current readiness
+  // changes (for example an active session) are evaluated. Never renew its grant.
+  const requestRecord = await get<VideoProduction>(workspace, "video_production", `production_${hash(`${workspace}:${input.requestId}`).slice(0, 32)}`);
+  if (requestRecord) {
+    if ((input.providerRevision && requestRecord.providerRevision !== input.providerRevision) || (input.scriptRevision && requestRecord.scriptRevision !== input.scriptRevision) || (input.scriptReviewId && requestRecord.scriptReviewId !== input.scriptReviewId) || requestRecord.approvedBy !== actor || requestRecord.ideaId !== input.ideaId || requestRecord.maxListCostCents !== input.maxListCostCents || approvalJson(requestRecord.settings) !== approvalJson(settings)) throw new HttpError(409, "This request already approved different settings or a different script.");
+    return requestRecord;
+  }
   const idea = await get<ContentIdea>(workspace, "content_idea", input.ideaId);
   if (!idea) throw new HttpError(404, "Idea not found.");
+  if(await get(workspace,"content_rejection",idea.id)) throw new HttpError(409,"This suggestion was rejected. Choose another idea.");
   const source = await gameSources(workspace, idea.gameId);
   if (source.revision !== idea.sourceRevision) throw new HttpError(409, "The game evidence changed. Refresh the ideas and review them again.");
   const readiness = await studioReadiness(workspace);
   if (!readiness.ready) throw new HttpError(409, readiness.reasons.join(" "));
   const config = (await get<ProviderConfig>(workspace, "content_provider", "default"))!;
+  if (input.providerRevision && input.providerRevision !== config.revision) throw new HttpError(409, "The video service changed. Refresh settings before approving generation.");
   if (config.reviewedGames?.[idea.gameId]?.sourceRevision !== source.revision || (settings.gameAudio && !config.reviewedGames[idea.gameId].gameAudioVerified))
     throw new HttpError(409, "This game's current cloud play, network policy and requested audio need a verified pilot before generation.");
   const script = await reviewedScript(workspace, idea.id, source.revision);
+  if ((input.scriptRevision && script.script.revision !== input.scriptRevision) || (input.scriptReviewId && script.review.id !== input.scriptReviewId)) throw new HttpError(409, "The script or Jev score changed. Inspect the current version before approving video.");
   const credentialRevision = await credentialFingerprint(workspace, config.connectionId);
   const now = new Date().toISOString();
   const production: VideoProduction = { id: `production_${hash(`${workspace}:${input.requestId}`).slice(0, 32)}`, gameId: idea.gameId, ideaId: idea.id, idea,
     settings, scriptId: script.script.id, scriptRevision: script.script.revision, scriptReviewId: script.review.id, scriptText: script.script.text, state: "approved", approvedBy: actor, approvedAt: now, createdAt: now, updatedAt: now, expiresAt: new Date(Date.now() + 15 * 60000).toISOString(),
-    sourceRevision: source.revision, providerRevision: config.revision, credentialRevision, maxListCostCents: input.maxListCostCents,
+    sourceUrl: source.url, sourceRevision: source.revision, providerRevision: config.revision, credentialRevision, maxListCostCents: input.maxListCostCents,
     approvalHash: hash(JSON.stringify({ idea, settings, maxListCostCents: input.maxListCostCents, sourceRevision: source.revision, providerRevision: config.revision, credentialRevision, script: { id: script.script.id, revision: script.script.revision, reviewId: script.review.id } })) };
   return transaction(async sql => {
     const lockedSource = await gameSources(workspace, idea.gameId, sql);
+    await sql("SELECT id FROM records WHERE workspace_id=$1 AND kind='content_script' AND id=$2 FOR UPDATE",[workspace,script.script.id]);
     const lockedScript = await reviewedScript(workspace, idea.id, lockedSource.revision, sql);
+    if((await sql("SELECT id FROM records WHERE workspace_id=$1 AND kind='content_rejection' AND id=$2",[workspace,idea.id])).length) throw new HttpError(409,"This suggestion was rejected.");
     if (lockedSource.revision !== source.revision || lockedScript.script.revision !== script.script.revision || lockedScript.review.id !== script.review.id) throw new HttpError(409, "Script or source changed before video approval.");
     // Serialize approvals per idea, including different tabs with different request IDs.
     await sql(`SELECT id FROM records WHERE workspace_id=$1 AND kind='content_idea' AND id=$2 FOR UPDATE`, [workspace, idea.id]);
@@ -234,6 +257,7 @@ async function credentialFingerprint(workspace: string, connectionId: string) {
 }
 export async function startApprovedVideo(workspace: string, productionId: string, actor?: string) {
   const production = await productionRecord(workspace, productionId);
+  if (actor && production.approvedBy !== actor) throw new HttpError(403, "Only the owner who approved this attempt can start it.");
   if (production.pilotGrantId) {
     requirePilotOperator(workspace, actor);
     if (!process.env.BLAZE_CLOUD_PILOT_GAME_ID || production.gameId !== process.env.BLAZE_CLOUD_PILOT_GAME_ID) throw new HttpError(403, "The configured pilot target changed. No request was sent.");
@@ -262,7 +286,9 @@ export async function startApprovedVideo(workspace: string, productionId: string
     if (!currentProduction || JSON.stringify(currentProduction) !== JSON.stringify(production)) return false;
     const encrypted = (await sql<{ encrypted: string }>(`SELECT encrypted FROM credentials WHERE workspace_id=$1 AND provider=$2 FOR UPDATE`, [workspace, config.connectionId]))[0]?.encrypted;
     if (!encrypted || hash(encrypted) !== production.credentialRevision) throw new HttpError(409, "Producer key changed before dispatch.");
+    await sql("SELECT id FROM records WHERE workspace_id=$1 AND kind='content_script' AND id=$2 FOR UPDATE",[workspace,production.scriptId]);
     const script = await reviewedScript(workspace, production.ideaId, production.sourceRevision, sql);
+    if((await sql("SELECT id FROM records WHERE workspace_id=$1 AND kind='content_rejection' AND id=$2",[workspace,production.ideaId])).length) throw new HttpError(409,"This suggestion was rejected before generation.");
     if (script.script.id !== production.scriptId || script.script.revision !== production.scriptRevision || script.review.id !== production.scriptReviewId) throw new HttpError(409, "Script or Jev review changed before dispatch.");
     if (production.pilotGrantId) {
       const grant = (await sql<{ body: PilotGrant }>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='pilot_grant' AND id=$2 FOR UPDATE`, [workspace, production.pilotGrantId]))[0]?.body;
@@ -277,7 +303,7 @@ export async function startApprovedVideo(workspace: string, productionId: string
   try {
     const session = await startManagedSession(secret, { agentId: config.agentId, agentVersion: config.agentVersion, environmentId: config.environmentId,
       budgetCents: production.maxListCostCents, prompt: JSON.stringify({ productionId, source, idea: production.idea, script: { text: production.scriptText, revision: production.scriptRevision, jevReview: scriptSnapshot.review.score }, settings: production.settings,
-        requiredOutputs: ["video.mp4", "evidence.json", "raw capture"], instructions: "Actively play the real game in the cloud, capture footage and edit this exact approved script. Never publish. In evidence.json gameUrl must equal the initially requested source.url; record the actual final browser URL and any approved redirects in limitations. Stop if navigation requires an unapproved origin." }) });
+        requiredOutputs: ["video.mp4", "evidence.json", "raw capture"], outputLimits:{maxVideoBytes:25*1024*1024,maxEvidenceBytes:128*1024}, captureObservations:"In evidence.json include observations only for moments actually visible in the final video: at (final video seconds), kind (observed_error|performance_measurement|ux_suggestion), title, detail, capturedInVideo, optional measurement {metric:fps|frame_time_ms,value}. Separate measured values from subjective suggestions. Never invent errors or performance results; use an empty array when nothing was observed. Do not put URLs in observation text.", instructions: "Actively play the real game in the cloud, capture footage and edit this exact approved script. Never publish. In evidence.json gameUrl must equal the initially requested source.url; record the actual final browser URL and any approved redirects in limitations. Stop if navigation requires an unapproved origin." }) });
     // If cancellation raced the request, retain its marker and attach the session for operator reconciliation.
     await query(`UPDATE records SET body=body || $4::jsonb || jsonb_build_object('state',CASE WHEN body->>'state'='cancel_requested' THEN 'cancel_requested' ELSE 'running' END),updated_at=now() WHERE workspace_id=$1 AND kind='video_production' AND id=$2 AND body->>'approvalHash'=$3`,
       [workspace, productionId, production.approvalHash, JSON.stringify({ sessionId: session.id, updatedAt: new Date().toISOString() })]);
@@ -309,6 +335,7 @@ const evidenceSchema = z.object({
   playedActions: z.array(z.object({ at: z.number().nonnegative(), action: z.string().min(1).max(300) })).min(1).max(500),
   rawCaptureFilename: z.string().regex(/^raw[-_A-Za-z0-9]*\.(webm|mp4)$/), audioCaptured: z.boolean(),
   limitations: z.array(z.string().max(500)).max(20),
+  observations: productionObservationsSchema.optional(),
 });
 export async function inspectProducedVideo(bytes: Uint8Array, production: Pick<VideoProduction, "settings">) {
   const input = new Input({ source: new BufferSource(bytes), formats: [MP4] });
@@ -325,11 +352,12 @@ export async function inspectProducedVideo(bytes: Uint8Array, production: Pick<V
   } finally { input.dispose(); }
 }
 // GET-only provider reconciliation: never sends a new prompt, resumes a session, or retries paid work.
-export async function refreshVideo(workspace: string, productionId: string) {
+export async function refreshVideo(workspace: string, productionId: string, options: { signal?: AbortSignal; maxVideoBytes?: number } = {}) {
+  options.signal?.throwIfAborted();
   let production = await productionRecord(workspace, productionId);
   if (production.state === "ready" || production.state === "cancelled" || production.state === "failed") return production;
-  if (production.state === "importing") {
-    if (Date.now() - Date.parse(production.updatedAt) > 120000) {
+  if (production.state === "importing" || (production.state === "needs_reconciliation" && production.importStartedAt)) {
+    if (Date.now() - Date.parse(production.importStartedAt || production.updatedAt) > 120000) {
       const evidence = await get(workspace, "production_evidence", production.id);
       const media = (await list<import("./media").MediaRecord>(workspace, "media")).find(m => m.recordingId === production.id && m.kind === "clip" && m.contentType === "video/mp4" && !m.deletedAt);
       const next: VideoProduction = evidence && media ? { ...production, state: "ready", videoUrl: `/api/media/${media.id}`, error: undefined, updatedAt: new Date().toISOString() }
@@ -346,7 +374,7 @@ export async function refreshVideo(workspace: string, productionId: string) {
   }
   const sessionId = production.sessionId;
   const { secret } = await providerSecret(workspace, production.providerRevision);
-  const session = await readManagedSession(secret, sessionId);
+  const session = await readManagedSession(secret, sessionId, 20000, options.signal);
   if (session.usage) {
     const usage: VideoProduction["usage"] = { inputTokens: session.usage.input_tokens, outputTokens: session.usage.output_tokens, listCostCents: session.usage.list_cost?.amount, status: "reported_unsettled" };
     const withUsage = { ...production, usage };
@@ -366,25 +394,39 @@ export async function refreshVideo(workspace: string, productionId: string) {
     const next = { ...production, state: "failed" as const, error: "Cloud session ended without an accepted video. A retry requires fresh approval.", updatedAt: new Date().toISOString() };
     await comparePut(workspace, "video_production", production, next); return next;
   }
-  const files = await managedOutputFiles(secret, sessionId);
+  if (!production.idleObservedAt) {
+    const observed={...production,idleObservedAt:new Date().toISOString(),stoppedAt:new Date().toISOString()};
+    if (!await comparePut(workspace,"video_production",production,observed)) return productionRecord(workspace,productionId);
+    production=observed;
+  }
+  const files = await managedOutputFiles(secret, sessionId, options.signal);
   const video = files.find(f => f.filename === "video.mp4");
   const evidence = files.find(f => f.filename === "evidence.json");
   // Outputs can arrive after idle. Missing files are pending, not completed or automatically resumed.
-  if (!video || !evidence) return production;
-  if (video.size_bytes > 150 * 1024 * 1024 || evidence.size_bytes > 128 * 1024) throw new HttpError(409, "Cloud output exceeds the media limits.");
-  const source = await gameSources(workspace, production.gameId);
-  const report = evidenceSchema.parse(JSON.parse((await managedFileBytes(secret, evidence.id, 128 * 1024)).toString("utf8")));
+  if (!video || !evidence) {
+    if (files.some(file=>file.filename === "failed.json") || Date.now()-Date.parse(production.idleObservedAt!)>120000) {
+      const explicitlyFailed=files.some(file=>file.filename === "failed.json");
+      const next:VideoProduction={...production,state:explicitlyFailed?"failed":"needs_reconciliation",error:explicitlyFailed?"The cloud producer reported failure. No retry was started.":"The cloud session stopped, but complete output files have not arrived. Refresh status to recover late files; do not generate again.",updatedAt:new Date().toISOString()};
+      await comparePut(workspace,"video_production",production,next);return productionRecord(workspace,productionId);
+    }
+    return production;
+  }
+  if (video.size_bytes > (options.maxVideoBytes ?? 150 * 1024 * 1024) || evidence.size_bytes > 128 * 1024) throw new HttpError(409, "Cloud output exceeds the media limits.");
+  const approvedUrl = production.sourceUrl || (await gameSources(workspace, production.gameId)).url;
+  const report = evidenceSchema.parse(JSON.parse((await managedFileBytes(secret, evidence.id, 128 * 1024, options.signal)).toString("utf8")));
   const raw = files.find(f => f.filename === report.rawCaptureFilename);
-  if (report.gameUrl !== source.url || !raw || raw.size_bytes < 1000 || (production.settings.gameAudio && !report.audioCaptured) || Math.abs(report.durationSeconds - production.settings.durationSeconds) > 1)
+  if (report.gameUrl !== approvedUrl || !raw || raw.size_bytes < 1000 || (production.settings.gameAudio && !report.audioCaptured) || Math.abs(report.durationSeconds - production.settings.durationSeconds) > 1)
     throw new HttpError(409, "Gameplay evidence or requested audio is missing. The video needs review.");
-  const bytes = await managedFileBytes(secret, video.id, 150 * 1024 * 1024);
+  const bytes = await managedFileBytes(secret, video.id, options.maxVideoBytes ?? 150 * 1024 * 1024, options.signal);
   const inspection = await inspectProducedVideo(bytes, production);
   // Serialize artifact import independently of paid session creation. A crashed importer is reconcilable, never a paid retry.
-  const importing: VideoProduction = { ...production, state: "importing", updatedAt: new Date().toISOString(), error: "Validating and importing the cloud output." };
+  options.signal?.throwIfAborted();
+  const importing: VideoProduction = { ...production, importStartedAt: new Date().toISOString(), state: "importing", updatedAt: new Date().toISOString(), error: "Validating and importing the cloud output." };
   if (!await comparePut(workspace, "video_production", production, importing)) return productionRecord(workspace, productionId);
   const videoUrl = await saveAsset(workspace, production.id, "clip", new File([new Uint8Array(bytes)], "video.mp4", { type: "video/mp4" }));
   await put(workspace, "production_evidence", { id: production.id, sessionId: production.sessionId, report, inspection, rawFileId: raw.id, providerFileId: video.id, observedAt: new Date().toISOString(), verification: "Media structure validated; gameplay actions are agent-reported and require human review." });
   const next: VideoProduction = { ...importing, videoUrl, state: "ready", error: undefined, updatedAt: new Date().toISOString() };
   if (!await comparePut(workspace, "video_production", importing, next)) return productionRecord(workspace, productionId);
+  if(report.observations?.length) await persistProductionFindings(workspace,productionId,report.observations);
   return next;
 }

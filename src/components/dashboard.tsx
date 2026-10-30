@@ -1,4 +1,5 @@
 "use client";
+import GeneratedContentBank from "./generated-content-bank";
 import GameSourceEditor from "./game-source-editor";
 
 import {
@@ -1605,6 +1606,7 @@ export default function Dashboard() {
           )}
           {page === "recordings" && (
             <>
+              <GeneratedContentBank gameId={selectedGame} games={games} demo={snapshot.demo}/>
               <SectionHead
                 title="Recordings"
                 detail="Recorded browser gameplay and timestamped observations."
@@ -1650,7 +1652,7 @@ export default function Dashboard() {
               ) : (
                 <Empty
                   title="No recordings yet"
-                  detail="Queue a fixture run to test the recording workflow, or configure Jev and a game adapter."
+                  detail="Connect a gameplay worker to record a game. Fixture recordings are for testing only."
                   action={
                     <Button onClick={() => openModal("recording")}>
                       Queue recording

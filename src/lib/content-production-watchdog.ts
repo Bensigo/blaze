@@ -73,7 +73,8 @@ export async function requestProductionStop(workspace: string, productionId: str
 }
 
 /** One bounded poll, invoked by an independently configured authenticated scheduler. No timer is installed here. */
-export async function tickProductionWatchdog(workspace: string, now = Date.now()) {
+export async function tickProductionWatchdog(workspace: string, now = Date.now(), options: { maxBatch?: number } = {}) {
+  const batch = Math.max(1, Math.min(WATCHDOG_BATCH, Math.floor(options.maxBatch || WATCHDOG_BATCH)));
   const config = await get<WatchdogProvider>(workspace, "content_provider", "default");
   if (process.env.BLAZE_CLOUD_WATCHDOG_ENABLED !== "true" || (!config?.watchdogVerified && !config?.watchdogAdmissionVerified)) return { paused: true };
   const leaseId = `content_watchdog_${hash(workspace).slice(0, 32)}`;
@@ -95,9 +96,9 @@ export async function tickProductionWatchdog(workspace: string, now = Date.now()
       const orphanedStart = production.state === "starting" && !production.sessionId && now - Date.parse(production.startedAt || production.updatedAt) >= 60000;
       return orphanedStart || production.state === "cancel_requested" || production.state === "needs_reconciliation" || !Number.isFinite(deadline) || deadline <= now;
     }).sort((a, b) => Number(!!b.sessionId) - Number(!!a.sessionId));
-    unresolved += Math.max(0, due.length - WATCHDOG_BATCH);
+    unresolved += Math.max(0, due.length - batch);
     unresolved += candidates.filter(({ body }) => body.state === "starting" && !due.includes(body)).length;
-    for (const production of due.slice(0, WATCHDOG_BATCH)) {
+    for (const production of due.slice(0, batch)) {
       scanned++;
       if (!production.sessionId) {
         const marked: VideoProduction = { ...production, state: "needs_reconciliation", error: "The runtime watchdog cannot identify this cloud session. Reconcile in Claude before any new production attempt.", updatedAt: new Date(now).toISOString(), lastWatchdogAt: new Date(now).toISOString() };

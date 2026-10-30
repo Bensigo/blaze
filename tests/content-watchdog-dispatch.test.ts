@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatchContentWatchdog } from "../src/lib/content-watchdog-dispatch";
 // @ts-expect-error Explicit .mts import is compiled by Vitest and Netlify.
-import scheduled, { config } from "../netlify/paused-functions/blaze-content-watchdog.mts";
+import scheduled, { config } from "../netlify/functions/blaze-content-watchdog.mts";
 beforeEach(() => {
   vi.stubEnv("BLAZE_CLOUD_WATCHDOG_SCHEDULE_ENABLED", "false"); vi.stubEnv("BLAZE_CLOUD_WATCHDOG_ENABLED", "true");
   vi.stubEnv("BLAZE_CLOUD_WATCHDOG_WORKSPACE_ID", "owner-workspace"); vi.stubEnv("CRON_SECRET", "fixture-cron");
@@ -10,7 +10,7 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 describe("independent native watchdog dispatch", () => {
-  it("is inert by default and prepares a minute cadence without registering it", async () => {
+  it("is inert by default and uses the approved minute cadence", async () => {
     expect(config.schedule).toBe("* * * * *"); expect((await scheduled()).status).toBe(204); expect(fetch).not.toHaveBeenCalled();
   });
   it("sends only the pinned workspace to the fixed production route with server bearer", async () => {

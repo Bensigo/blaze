@@ -14,7 +14,7 @@ export type ContentIdea = {
   id: string; gameId: string; title: string; hook: string; treatment: string;
   shots: string[]; factKeys: string[]; sourceRevision: string; createdAt: string;
   referenceSetRevision?:string;referenceIds?:string[];rubricRevision?:string;
-  origin: "source_outline" | "daily_agent"; fingerprint: string;
+  origin: "source_outline" | "daily_agent" | "on_demand_agent"; fingerprint: string;
 };
 export type ProductionState = "approved" | "starting" | "running" | "importing" | "cancel_requested" |
   "cancelled" | "needs_reconciliation" | "failed" | "ready";
@@ -24,9 +24,12 @@ export type VideoProduction = {
   approvalHash: string; sourceRevision: string; maxListCostCents: number;
   providerRevision: string; createdAt: string; updatedAt: string;
   credentialRevision: string;
+  sourceUrl?: string;
   scriptId?: string; scriptRevision?: string; scriptReviewId?: string; scriptText?: string;
   pilotGrantId?: string;
   sessionId?: string; error?: string; videoUrl?: string; clipId?: string;
+  idleObservedAt?: string;
+  importStartedAt?: string;
   startedAt?: string; watchdogDeadlineAt?: string; stoppedAt?: string; lastWatchdogAt?: string;
   stopRequest?: { id: string; reason: "owner_cancel" | "runtime_limit"; requestedAt: string; state: "pending_session" | "dispatching" | "requested" | "uncertain" | "confirmed" };
   plannedDate?: string; planningTimeZone?: "Asia/Dubai";
@@ -37,12 +40,14 @@ export type IdeaSchedule = {
   localTime: string | null; enabled: boolean; maxOutputTokensPerGame: number;
 };
 export type StudioSnapshot = {
+  rejections?: import("./content-preferences").ContentRejection[];
   sourceFacts?: { gameId:string; sourceRevision:string; facts:{key:string;value:string}[] }[];
   references?:{setId:string;revision:string;rubricRevision:string;selected:{id:string;relevance:string}[]};
-  scripts?: { ideaId: string; text: string; sourceStale: boolean; contextStale?:boolean;scoreReferenceSetRevision?:string;referenceIds?:string[];referenceSetRevision?:string;rubricRevision?:string; reviewState?: string; staleScore?: import("./content-scripts").ScriptScore; score?: { overall: number; hook: {score:number;explanation:string}; pacing: {score:number;explanation:string}; clarity: {score:number;explanation:string}; shareability: {score:number;explanation:string}; improvements:string[] } }[];
+  scripts?: { ideaId: string; revision?: string; reviewId?: string; text: string; sourceStale: boolean; contextStale?:boolean;scoreReferenceSetRevision?:string;referenceIds?:string[];referenceSetRevision?:string;rubricRevision?:string; reviewState?: string; staleScore?: import("./content-scripts").ScriptScore; score?: { overall: number; hook: {score:number;explanation:string}; pacing: {score:number;explanation:string}; clarity: {score:number;explanation:string}; shareability: {score:number;explanation:string}; improvements:string[] } }[];
   ideas: ContentIdea[]; productions: VideoProduction[]; schedule: IdeaSchedule;
+  dailyPlan?: {expiresAt?:string;needsReview:boolean};
   pilot?: { operator: boolean; ready: boolean; reasons: string[] };
-  readiness: { ready: boolean; reasons: string[]; provider: "anthropic_managed_agents"; connectionLabel?: string };
+  readiness: { providerRevision?: string; ready: boolean; reasons: string[]; provider: "anthropic_managed_agents"; connectionLabel?: string };
 };
 
 export type PilotGrant = {
