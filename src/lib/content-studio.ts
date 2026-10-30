@@ -1,15 +1,16 @@
 import { z } from "zod";
-import { comparePut, get, id, list, put, query, transaction } from "./db";
+import { comparePut, get, list, put, query, transaction } from "./db";
 import { hash } from "./security";
 import { HttpError } from "./http-error";
 import { readAISettings } from "./ai-settings";
 import { secretForConnection } from "./credentials";
 import { readProfile } from "./game-profile";
 import { mediaStorageConfigured, mediaRecord, saveAsset } from "./media";
-import { interruptManagedSession, managedFileBytes, managedOutputFiles, readManagedSession, startManagedSession } from "./managed-gameplay-agent";
+import { managedFileBytes, managedOutputFiles, readManagedSession, startManagedSession } from "./managed-gameplay-agent";
 import type { Connection, Game } from "./types";
 import type { ContentIdea, IdeaSchedule, StudioSnapshot, VideoProduction } from "./content-studio-contract";
 import { Input, BufferSource, MP4 } from "mediabunny";
+import { PRODUCTION_RUNTIME_MS, requestProductionStop, watchdogReady } from "./content-production-watchdog";
 
 export const videoSettingsSchema = z.object({
   aspectRatio: z.enum(["16:9", "9:16", "1:1"]), durationSeconds: z.number().int().min(10).max(60),
@@ -53,6 +54,7 @@ export async function studioReadiness(workspace: string) {
   if (!config?.networkPolicyVerified) reasons.push("Review the cloud environment's game and asset host allowlist.");
   if (!config?.pilotVerified) reasons.push("Approve one bounded cloud gameplay pilot to verify controls, WebGL, recording and any required audio.");
   if (!config?.watchdogVerified) reasons.push("Verify a monitored 30-minute cloud-session stop before enabling production.");
+  if (!config || !await watchdogReady(workspace, config.revision)) reasons.push("A fresh, healthy cloud-runtime watchdog heartbeat is required.");
   if (process.env.BLAZE_CLOUD_PRODUCTION_ENABLED !== "true") reasons.push("Cloud production is disabled pending setup and pilot approval.");
   if (!mediaStorageConfigured()) reasons.push("Configure Blaze private video storage.");
   return { ready: reasons.length === 0, reasons, provider: "anthropic_managed_agents" as const, connectionLabel: connection?.label };
@@ -158,7 +160,8 @@ export async function startApprovedVideo(workspace: string, productionId: string
   if (!(await studioReadiness(workspace)).ready) throw new HttpError(409, "Cloud production is paused. No request was sent.");
   const { config, secret } = await providerSecret(workspace, production.providerRevision);
   if (await credentialFingerprint(workspace, config.connectionId) !== production.credentialRevision) throw new HttpError(409, "The saved key changed. Review and approve a new run.");
-  const starting: VideoProduction = { ...production, state: "starting", updatedAt: new Date().toISOString(), usage: { status: "unavailable" } };
+  const dispatchAt = Date.now();
+  const starting: VideoProduction = { ...production, state: "starting", updatedAt: new Date(dispatchAt).toISOString(), startedAt: new Date(dispatchAt).toISOString(), watchdogDeadlineAt: new Date(dispatchAt + PRODUCTION_RUNTIME_MS).toISOString(), usage: { status: "unavailable" } };
   const reserved = await transaction(async sql => {
     const game = await sql(`SELECT id FROM records WHERE workspace_id=$1 AND kind='game' AND id=$2 FOR UPDATE`, [workspace, production.gameId]);
     if (!game.length) return false;
@@ -172,7 +175,7 @@ export async function startApprovedVideo(workspace: string, productionId: string
     // If cancellation raced the request, retain its marker and attach the session for operator reconciliation.
     await query(`UPDATE records SET body=body || $4::jsonb || jsonb_build_object('state',CASE WHEN body->>'state'='cancel_requested' THEN 'cancel_requested' ELSE 'running' END),updated_at=now() WHERE workspace_id=$1 AND kind='video_production' AND id=$2 AND body->>'approvalHash'=$3`,
       [workspace, productionId, production.approvalHash, JSON.stringify({ sessionId: session.id, updatedAt: new Date().toISOString() })]);
-    if ((await productionRecord(workspace, productionId)).state === "cancel_requested") await interruptManagedSession(secret, session.id).catch(() => {});
+    if ((await productionRecord(workspace, productionId)).state === "cancel_requested") await requestProductionStop(workspace, productionId, "owner_cancel");
   } catch {
     const current = await productionRecord(workspace, productionId);
     await comparePut(workspace, "video_production", current, { ...current, state: "needs_reconciliation", error: "The start result is uncertain. Check the Claude console; this approval will never be retried automatically.", updatedAt: new Date().toISOString() });
@@ -180,16 +183,8 @@ export async function startApprovedVideo(workspace: string, productionId: string
   return productionRecord(workspace, productionId);
 }
 export async function cancelVideo(workspace: string, productionId: string) {
-  const production = await productionRecord(workspace, productionId);
-  if (["ready", "failed", "cancelled"].includes(production.state)) return production;
-  const next: VideoProduction = { ...production, state: production.state === "approved" ? "cancelled" : "cancel_requested", updatedAt: new Date().toISOString(),
-    error: production.state === "approved" ? undefined : "Cancellation requested. Cloud execution is not yet confirmed stopped. Refresh status; if it stays active, stop it in Claude." };
-  if (!await comparePut(workspace, "video_production", production, next)) return cancelVideo(workspace, productionId);
-  if (production.sessionId) {
-    const { secret } = await providerSecret(workspace, production.providerRevision);
-    await interruptManagedSession(secret, production.sessionId).catch(() => {});
-  }
-  return next;
+  await productionRecord(workspace, productionId); // Preserve the authenticated route's 404 semantics.
+  return requestProductionStop(workspace, productionId, "owner_cancel");
 }
 export async function planVideo(workspace: string, productionId: string, date: string | null) {
   if (date !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T00:00:00Z`)) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date)) throw new HttpError(400, "Choose a valid calendar date.");
@@ -254,7 +249,8 @@ export async function refreshVideo(workspace: string, productionId: string) {
   }
   if (production.state === "cancel_requested") {
     if (session.status === "idle" || session.status === "terminated") {
-      const stopped: VideoProduction = { ...production, state: "cancelled", error: undefined, updatedAt: new Date().toISOString() };
+      const stopped: VideoProduction = { ...production, state: "cancelled", stoppedAt: new Date().toISOString(), error: undefined, updatedAt: new Date().toISOString(),
+        ...(production.stopRequest ? { stopRequest: { ...production.stopRequest, state: "confirmed" } } : {}) };
       await comparePut(workspace, "video_production", production, stopped); return stopped;
     }
     return production;

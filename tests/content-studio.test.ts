@@ -15,6 +15,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   vi.unstubAllGlobals(); delete process.env.BLAZE_CLOUD_PRODUCTION_ENABLED; delete process.env.BLAZE_DAILY_IDEAS_ENABLED;
+  delete process.env.BLAZE_CLOUD_WATCHDOG_ENABLED;
   await db.query("DELETE FROM records"); await db.query("DELETE FROM credentials"); await db.query("DELETE FROM jobs");
   await db.put("ws", "game", game);
   await db.put("ws", "game_profile", { id: "g", gameId: "g", result: "complete", lastRefresh: "2026-10-30T00:00:00Z", prerequisites: [], facts: [
@@ -29,6 +30,8 @@ async function setup() {
   await creds.saveSecret("ws", "anth", { token: "test-secret-not-real", model: "test" });
   await db.put("ws", "content_provider", { id: "default", connectionId: "anth", agentId: "agent_test", agentVersion: 1, environmentId: "env_test", revision: "v1", pilotVerified: true, networkPolicyVerified: true, organizationVerified: true, watchdogVerified: true, reviewedGames: { g: { sourceRevision: source.revision, gameAudioVerified: false } } });
   process.env.BLAZE_CLOUD_PRODUCTION_ENABLED = "true";
+  process.env.BLAZE_CLOUD_WATCHDOG_ENABLED = "true";
+  await db.put("ws", "content_watchdog", { id: "default", configRevision: "v1", checkedAt: new Date().toISOString(), healthy: true, scanned: 0, unresolved: 0 });
   return (await studio.prepareSourceIdeas("ws", "g"))[0];
 }
 const approve = (ideaId: string, requestId = randomUUID(), settings = DEFAULT_VIDEO_SETTINGS) => studio.approveVideo("ws", "owner", { ideaId, settings, maxListCostCents: 100, requestId });

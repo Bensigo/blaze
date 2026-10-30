@@ -24,6 +24,8 @@ export type VideoProduction = {
   providerRevision: string; createdAt: string; updatedAt: string;
   credentialRevision: string;
   sessionId?: string; error?: string; videoUrl?: string; clipId?: string;
+  startedAt?: string; watchdogDeadlineAt?: string; stoppedAt?: string; lastWatchdogAt?: string;
+  stopRequest?: { id: string; reason: "owner_cancel" | "runtime_limit"; requestedAt: string; state: "pending_session" | "dispatching" | "requested" | "uncertain" | "confirmed" };
   plannedDate?: string; planningTimeZone?: "Asia/Dubai";
   usage?: { listCostCents?: string; inputTokens?: number; outputTokens?: number; status: "unavailable" | "reported_unsettled" | "settled" };
 };

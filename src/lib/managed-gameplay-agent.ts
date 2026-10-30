@@ -8,7 +8,7 @@ const FILE = /^file_[A-Za-z0-9]+$/;
 export class ManagedAgentError extends Error {
   constructor(public readonly uncertain: boolean) { super("Managed Agent request failed. Check the Claude console before attempting another run."); }
 }
-async function response(secret: ProviderSecret, path: string, init: RequestInit = {}) {
+async function response(secret: ProviderSecret, path: string, init: RequestInit = {}, timeoutMs = 20000) {
   const headers: Record<string, string> = {
     "Authorization": `Bearer ${secret.token}`, "anthropic-version": "2026-10-21",
     "anthropic-beta": "managed-agents-2026-04-01", "content-type": "application/json",
@@ -18,7 +18,7 @@ async function response(secret: ProviderSecret, path: string, init: RequestInit 
     headers["anthropic-workspace-id"] = secret.workspaceId;
   }
   let result: Response;
-  try { result = await fetch(`https://api.anthropic.com/v1${path}`, { ...init, headers, redirect: "error", signal: AbortSignal.timeout(20000) }); }
+  try { result = await fetch(`https://api.anthropic.com/v1${path}`, { ...init, headers, redirect: "error", signal: AbortSignal.timeout(timeoutMs) }); }
   catch { throw new ManagedAgentError(init.method === "POST"); }
   if (!result.ok) {
     await result.body?.cancel();
@@ -40,17 +40,17 @@ export async function startManagedSession(secret: ProviderSecret, input: {
   try { return z.object({ id: z.string().regex(SESSION), status: z.string() }).parse(await result.json()); }
   catch { throw new ManagedAgentError(true); }
 }
-export async function readManagedSession(secret: ProviderSecret, sessionId: string) {
+export async function readManagedSession(secret: ProviderSecret, sessionId: string, timeoutMs = 20000) {
   if (!SESSION.test(sessionId)) throw new ManagedAgentError(false);
   return z.object({ id: z.literal(sessionId), status: z.string(), stop_reason: z.unknown().optional(), usage: z.object({
     input_tokens: z.number().int().nonnegative().optional(), output_tokens: z.number().int().nonnegative().optional(),
     list_cost: z.object({ amount: z.string().regex(/^\d+$/), currency: z.literal("USD") }).optional(),
   }).nullable().optional() })
-    .parse(await (await response(secret, `/sessions/${sessionId}`)).json());
+    .parse(await (await response(secret, `/sessions/${sessionId}`, {}, timeoutMs)).json());
 }
-export async function interruptManagedSession(secret: ProviderSecret, sessionId: string) {
+export async function interruptManagedSession(secret: ProviderSecret, sessionId: string, timeoutMs = 20000) {
   if (!SESSION.test(sessionId)) throw new ManagedAgentError(false);
-  await response(secret, `/sessions/${sessionId}/events`, { method: "POST", body: JSON.stringify({ events: [{ type: "user.interrupt" }] }) });
+  await response(secret, `/sessions/${sessionId}/events`, { method: "POST", body: JSON.stringify({ events: [{ type: "user.interrupt" }] }) }, timeoutMs);
 }
 export async function managedOutputFiles(secret: ProviderSecret, sessionId: string) {
   if (!SESSION.test(sessionId)) throw new ManagedAgentError(false);

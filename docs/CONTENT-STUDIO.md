@@ -13,7 +13,7 @@ Implementation prepared on the isolated `feat/cloud-content-studio` branch. This
 
 ## Default-off execution
 
-- `BLAZE_CLOUD_PRODUCTION_ENABLED` and `BLAZE_DAILY_IDEAS_ENABLED` are unset/false by default. No worker or recurring trigger is started by this change.
+- `BLAZE_CLOUD_PRODUCTION_ENABLED`, `BLAZE_DAILY_IDEAS_ENABLED` and `BLAZE_CLOUD_WATCHDOG_ENABLED` are unset/false by default. No worker or recurring trigger is started by this change.
 - Saving daily preferences always pauses execution. It does not create spend authorization. No clock time is invented; the owner may save a Dubai time.
 - The daily runner additionally requires an unexpired `daily_idea_authorization` matching `ideaScheduleHash(schedule)`, the exact AI settings revision and credential version. Its output-token bound is not a dollar cap. No authorization record is created by this feature.
 - The producer additionally requires a `content_provider/default` record with existing direct Anthropic connection ID, pinned agent/version, restricted environment ID, revision, verified organization/network/pilot/watchdog flags and `reviewedGames[gameId]` matching the current source revision. Required game audio needs its own verified capability. No provider configuration is created or enabled by this feature.
@@ -26,7 +26,9 @@ Repeated approval request IDs return the existing attempt; different tabs also s
 
 Cancellation before dispatch consumes approval locally. Cancellation after dispatch sends only `user.interrupt`, preserves a `cancel_requested` marker even if session creation races it, and waits for an observed idle/terminated state before reporting cancelled. No follow-up prompt resumes the agent. The reviewed producer configuration must keep orchestration disabled: interrupting an orchestration-enabled session is insufficient to prove its workflows stopped.
 
-The system prompt requests a 30-minute stop. An independent enforced cloud watchdog is **not implemented**; readiness additionally requires `watchdogVerified` and this dependency must be resolved before enabling production. No claim of a hard 30-minute runtime limit is made. Provider-side transient rescheduling behavior also needs pilot inspection; application-level retries are disabled.
+An independent durable watchdog is implemented at `POST /api/cron/content-production-watchdog`, authenticated with the existing cron token and an explicit workspace ID. It is default-off and has no installed trigger. Dispatch records an immutable 30-minute deadline. Each bounded poll leases the workspace, checks up to four due sessions, sends only a single durable `user.interrupt` request and waits for an observed idle/terminated state before reporting stopped. Interrupted/uncertain stop dispatches are not blindly repeated; unresolved sessions block fresh production. Batches rotate so a stuck session does not starve other deadlines. The producer requires both `watchdogVerified` and a healthy matching heartbeat no older than 90 seconds.
+
+Operational activation remains pending: configure and verify an independent one-minute authenticated trigger before enabling production. With that cadence, stop is requested at/after the 30-minute deadline, not guaranteed to be completed at exactly 30 minutes. The provider may finish an in-flight tool before applying an interrupt; a real bounded pilot must establish actual stop behavior. Provider-side transient rescheduling also needs inspection. Application-level generation retries remain disabled. No trigger, daemon or paid session was started during implementation.
 
 Output import has a separate durable reservation and can recover an already saved video with evidence without creating a new session. Missing files after idle remain pending because Files API uploads can arrive later. An interrupted incomplete import requires reconciliation.
 
@@ -40,7 +42,9 @@ Deletion is blocked while a recording, daily idea batch, claimed worker job or c
 
 Local unit/integration tests and browser acceptance are separate from an actual Anthropic cloud recording. No live metered production, recurring idea run, Jev/OpenRouter call, new credential, deployment or social request is part of acceptance.
 
-The actual Dia console screenshot showed `$260.73`, Default workspace and Sigo's individual organization. This verifies the displayed number only, not recurring-credit eligibility/expiry or which organization the existing Blaze key uses. Initial native navigation failed with `noWindowsAvailable`. After rebinding Dia, automatic approval review denied selecting the credential-vault tab because of possible secret exposure. No credentials were revealed/created. A permitted non-secret account/agent view or owner inspection is needed to finish account linkage.
+After the owner reopened Dia, read-only billing inspection verified `$260.72` in promotional credits in Sigo's individual organization. The grants explicitly include Managed Agents: `$99.89` expires 7 November2026 and `$160.83` expires26 November2026 (UTC). The header independently showed `$260.73`; no billing settings were changed. Default workspace showed no active agents or environments. Blaze Account settings showed the existing direct Anthropic workspace key and `claude-haiku-5-5`. A separate READ ONLY database diagnostic reused that saved key only in memory for official `GET /v1/organizations/me`: it returned Sigo's individual organization (`37d434cc-361f-45b7-84a7-725c0d45484c`), with zero inference calls, database writes or credential changes.
+
+The non-secret producer definition was filled into the existing Dia Create agent form. Clicking Create agent was **denied by automatic approval review** because persistent cloud resource creation needs explicit user authorization. No resource was created, no session started, and no retry was made. The form remains prepared in the Anthropic tab. Required next approval is specifically to save that agent, not to expose keys or start a paid run. A restricted environment, per-game pilot and release remain separately pending.
 
 The official Obsidian CLI could not find its running app; app selection also failed screen capture. Canonical vault consultation/update remains pending. No vault save is claimed.
 
@@ -58,7 +62,10 @@ Existing subscription-credit eligibility and the provider's current pricing must
 
 - Full local suite after deletion integration: 471 tests passed in 84 files. Follow-up targeted acceptance after the final usage/import/parser changes: 29 tests passed in six files.
 - Final production build and TypeScript results are recorded in the task's `build-final.log` and `typecheck-final.log`.
+- Watchdog follow-up: `watchdog-full-tests.log` passed all482 tests in86 files on the final follow-up source, including deadline/cancellation/restart/batch rotation/route authorization coverage. `watchdog-focused-final.log` separately passed eight watchdog tests; `watchdog-typecheck-final.log` and `watchdog-build.log` passed. No real cloud session was used.
 - Actual encoded H.264 MP4 was checked for dimensions, duration and required audio. A mocked session-scoped Files response was imported through real private local storage and served with an actual byte-range response. This is parser/storage integration proof, **not** real cloud gameplay proof.
 - Browser: local development sign-in; game-specific source outlines; settings/one-attempt acknowledgement; disabled unconfigured paid generation; desktop and 390px mobile layout with document width exactly 390px; delete confirmation disabled until exact name; cancel preserved game; confirmed recoverable deletion removed active game; restore returned it. Only the controlled local fixture was changed.
 - Screenshots: `output/playwright/content-studio-desktop.png`, `content-studio-mobile.png`, `deleted-game.png`, `restored-game.png`.
 - GitHub main was read-only verified at `c8f7d40e0f798134ae5414fd62b8c2fc89a53329`; the original `/Users/macbook/work/web-game-marketing` remained clean. No PR publication, merge or deployment was performed.
+
+The saved Anthropic key also returned HTTP200 from the read-only Managed Agents list endpoint (`GET /v1/agents?limit=1`). This verifies metadata access with the existing credential, not permission to create a persistent agent, run inference, expand access or activate a schedule.
