@@ -10,10 +10,23 @@ vi.mock('../src/lib/content-automation',()=>({drainContentAutomation:async()=>{}
 import background from '../netlify/functions/blaze-daily-consumer.mts';
 let db:typeof import('../src/lib/db'), daily:typeof import('../src/lib/daily-dispatch');
 beforeAll(async()=>{vi.stubEnv('DATABASE_URL',undefined);vi.stubEnv('VERCEL',undefined);vi.stubEnv('LOCAL_DATABASE_PATH','memory://');db=await import('../src/lib/db');daily=await import('../src/lib/daily-dispatch');});
-beforeEach(async()=>{h.fail=false;await db.query('DELETE FROM records');await db.query('DELETE FROM jobs');await db.query('DELETE FROM daily_runs');vi.stubEnv('CRON_SECRET','fixture-secret');vi.stubEnv('APP_URL',undefined);});
+beforeEach(async()=>{vi.stubEnv('BLAZE_LEGACY_DAILY_ENABLED','true');h.fail=false;await db.query('DELETE FROM records');await db.query('DELETE FROM jobs');await db.query('DELETE FROM daily_runs');vi.stubEnv('CRON_SECRET','fixture-secret');vi.stubEnv('APP_URL',undefined);});
 const day=()=>new Date().toISOString().slice(0,10);
 async function game(ws:string,id:string){await db.put(ws,'game',{id,dailyEnabled:true});}
 describe('daily scheduled dispatch',()=>{
+  it('leaves all legacy scheduled entry points inert unless explicitly enabled',async()=>{
+    vi.stubEnv('BLAZE_LEGACY_DAILY_ENABLED',undefined);await game('one','g1');
+    const fetchMock=vi.spyOn(globalThis,'fetch');
+    expect(await daily.dispatchDailyRequest()).toEqual({paused:true});expect(await daily.consumeDailyDispatch()).toEqual({paused:true});
+    // @ts-expect-error Explicit .mts import is compiled by Vitest/Netlify.
+    const scheduled=await import('../netlify/functions/blaze-daily.mts');
+    expect(await (await scheduled.default()).json()).toEqual({paused:true});
+    await background(new Request('https://site.test',{method:'POST',headers:{Authorization:'Bearer fixture-secret'}}));
+    const route=await import('../src/app/api/cron/daily/route');
+    expect(await (await route.GET(new Request('https://site.test',{headers:{Authorization:'Bearer fixture-secret'}}))).json()).toEqual({paused:true});
+    expect(await db.query("SELECT id FROM jobs WHERE kind IN ('research','daily_consumer')")).toHaveLength(0);expect(fetchMock).not.toHaveBeenCalled();fetchMock.mockRestore();
+  });
+
   it('inserts the existing durable jobs once and reports isolated live status',async()=>{
     await game('one','g1');await game('two','g2');await daily.enqueueDailyDispatch();await daily.enqueueDailyDispatch();
     expect(await db.query("SELECT id FROM jobs WHERE kind='research'")).toHaveLength(2);

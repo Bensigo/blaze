@@ -1,6 +1,6 @@
 :root {
   --ink: #1d2922;
-  --muted: #707a73;
+  --muted: #526157;
   --line: #e2e7e1;
   --accent: #397455;
   --accent-dark: #2e6147;
@@ -195,7 +195,7 @@ p {
   gap: 3px;
 }
 .nav-item {
-  height: 38px;
+  min-height: 42px;
   display: flex;
   align-items: center;
   gap: 11px;
@@ -205,7 +205,7 @@ p {
   background: transparent;
   color: #526057;
   text-align: left;
-  font-size: 12px;
+  font-size: 14px;
   width: 100%;
   transition:
     background 0.16s,
@@ -294,15 +294,15 @@ p {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  min-height: 35px;
-  padding: 0 13px;
+  min-height: 42px;
+  padding: 9px 15px;
   border: 1px solid #d9e1d9;
   border-radius: 6px;
   background: #fff;
   color: #35463a;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
-  white-space: nowrap;
+  white-space: normal;
   transition:
     background 0.16s,
     border-color 0.16s,
@@ -367,7 +367,7 @@ p {
 }
 .page-heading p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 15px;
   margin-top: 8px;
 }
 .filters {
@@ -382,8 +382,8 @@ p {
   background: #fff;
   padding: 0 10px;
   border-radius: 6px;
-  height: 35px;
-  color: #7e8a80;
+  height: 42px;
+  color: #526157;
 }
 .filters select {
   appearance: none;
@@ -391,9 +391,9 @@ p {
   background: transparent;
   outline: 0;
   color: #34433a;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
-  max-width: 145px;
+  max-width: 230px;
 }
 .section-head {
   display: flex;
@@ -404,7 +404,7 @@ p {
 }
 .section-head p,
 .calendar-toolbar p {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--muted);
   margin-top: 5px;
 }
@@ -1354,15 +1354,15 @@ tbody tr:hover {
 }
 .field > span {
   display: block;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
   color: #425448;
   margin-bottom: 7px;
 }
 .field small {
   display: block;
-  color: #849287;
-  font-size: 10px;
+  color: #526157;
+  font-size: 13px;
   line-height: 1.5;
   margin-top: 6px;
 }
@@ -1370,12 +1370,12 @@ tbody tr:hover {
 .field select,
 .field textarea {
   width: 100%;
-  border: 1px solid #d8e1d7;
+  border: 1px solid #8b9b8f;
   background: #fff;
   border-radius: 6px;
   padding: 10px 11px;
   color: #263a2c;
-  font-size: 12px;
+  font-size: 16px;
 }
 .field textarea {
   resize: vertical;
@@ -2037,7 +2037,7 @@ button.observation {
   --surface: #ffffff;
   --surface-soft: #f0f5ef;
   --ink: #1d2922;
-  --muted: #707a73;
+  --muted: #526157;
   --line: #e2e7e1;
   --accent: #397455;
   --accent-dark: #2e6147;
@@ -2485,3 +2485,5 @@ td { font-size: 12px; }
   .player-scope, .player-kpis small, .activity-legend, .analytics-section-title p { font-size: 13px; }
   .pointer-filters select, .heatmap-choose select { font-size: 16px; }
 }
+
+.workspace-unavailable{max-width:640px;margin:12vh auto;padding:28px;font-size:16px;line-height:1.65}.workspace-unavailable h1{font-size:28px;margin:32px 0 16px}.workspace-unavailable p{margin-bottom:24px;color:#526157}

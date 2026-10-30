@@ -48,17 +48,18 @@ describe("authentication and daily job isolation", () => {
       expect(url.hostname).toBe("database.example");
     }
   });
-  it("commits recording records and queue entries atomically", async () => {
+  it("commits owned clip records and queue entries atomically", async () => {
+    await db.put("ws-a", "game", { id: "atomic-game" });
     const { enqueue } = await import("../src/lib/jobs");
-    const body = { id: "atomic-recording", title: "Fixture", status: "queued" };
-    await enqueue("ws-a", "recording", body);
-    expect(await db.get("ws-a", "recording", body.id)).toEqual(body);
+    const body = { id: "atomic-clip", gameId: "atomic-game", title: "Fixture", status: "queued" };
+    await enqueue("ws-a", "clip", body);
+    expect(await db.get("ws-a", "clip", body.id)).toEqual(body);
     await db.query(
       "INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES('conflict-job','ws-a','recording','queued','{}')",
     );
-    const conflicting = { id: "conflict-job", title: "Must roll back" };
-    await expect(enqueue("ws-a", "recording", conflicting)).rejects.toThrow();
-    expect(await db.get("ws-a", "recording", conflicting.id)).toBeUndefined();
+    const conflicting = { id: "conflict-job", gameId: "atomic-game", title: "Must roll back" };
+    await expect(enqueue("ws-a", "clip", conflicting)).rejects.toThrow();
+    expect(await db.get("ws-a", "clip", conflicting.id)).toBeUndefined();
   });
   it("creates independent opaque sessions and expires them server-side", async () => {
     const a = await auth.createSession({

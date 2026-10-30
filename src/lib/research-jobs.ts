@@ -1,3 +1,5 @@
+import { HttpError } from "./http-error";
+import { withActiveGameWork } from "./active-game-work";
 import { get, list, put, query, id } from "./db";
 import { analytics } from "./analytics";
 import { loadAgentHistory } from "./agent-history";
@@ -217,15 +219,19 @@ export async function queueDailyResearch() {
     `SELECT workspace_id,body FROM records WHERE kind='game' AND (body->>'dailyEnabled')::boolean=true`,
   );
   const day = new Date().toISOString().slice(0, 10);
-  for (const row of rows)
-    await query(
+  for (const row of rows) {
+    try { await withActiveGameWork(row.workspace_id, row.body.id, sql => sql(
       `INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES($1,$2,'research','queued',$3::jsonb) ON CONFLICT DO NOTHING`,
       [
         `research:${day}:${row.body.id}`,
         row.workspace_id,
         JSON.stringify({ gameId: row.body.id, day }),
       ],
-    );
+    )); } catch (error) {
+      if (!(error instanceof HttpError) || error.status !== 404) throw error;
+      // A concurrent archive removed this parent; continue other games.
+    }
+  }
   return rows.length;
 }
 export async function drainResearch(limit = 1) {

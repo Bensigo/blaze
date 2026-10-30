@@ -1,3 +1,4 @@
+import { withActiveGameWork } from "./active-game-work";
 import { get, id, query } from "./db";
 import { hash } from "./security";
 import { analytics } from "./analytics";
@@ -24,8 +25,8 @@ export async function createGameWithProfile(workspace: string, game: Game, metad
 
 export async function queueProfile(workspace: string, gameId: string, appOrigin: string) {
   const jobId = profileJobId(workspace, gameId);
-  await query(`INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES($1,$2,'game_profile','queued',$3::jsonb) ON CONFLICT(id) DO UPDATE SET state='queued',body=excluded.body,available_at=now(),lease_until=NULL,updated_at=now() WHERE jobs.state IN ('complete','failed')`,
-    [jobId, workspace, JSON.stringify({ gameId, appOrigin, runKey: id("profile") })]);
+  await withActiveGameWork(workspace, gameId, sql => sql(`INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES($1,$2,'game_profile','queued',$3::jsonb) ON CONFLICT(id) DO UPDATE SET state='queued',body=excluded.body,available_at=now(),lease_until=NULL,updated_at=now() WHERE jobs.state IN ('complete','failed')`,
+    [jobId, workspace, JSON.stringify({ gameId, appOrigin, runKey: id("profile") })]));
   return jobId;
 }
 
@@ -34,7 +35,7 @@ export async function queueProfile(workspace: string, gameId: string, appOrigin:
 export async function queueHumanProfileRefresh(workspace: string, gameId: string, appOrigin: string) {
   const jobId = profileJobId(workspace, gameId);
   const body = { gameId, appOrigin, runKey: id("profile") };
-  const rows = await query<{ id: string }>(`WITH due AS (
+  const rows = await withActiveGameWork(workspace, gameId, sql => sql<{ id: string }>(`WITH due AS (
     INSERT INTO records(workspace_id,kind,id,body) VALUES($1,'profile_human_refresh',$2,jsonb_build_object('id',$2::text))
     ON CONFLICT(workspace_id,kind,id) DO UPDATE SET updated_at=now()
       WHERE records.updated_at<=now()-interval '24 hours' RETURNING id
@@ -45,7 +46,7 @@ export async function queueHumanProfileRefresh(workspace: string, gameId: string
       body=CASE WHEN jobs.state='claimed' THEN jobs.body || '{"humanRefreshPending":true}'::jsonb
         WHEN jobs.state IN ('complete','failed') THEN excluded.body ELSE jobs.body END,
       available_at=CASE WHEN jobs.state IN ('complete','failed') THEN now() ELSE jobs.available_at END,
-      updated_at=now() RETURNING id`, [workspace, gameId, jobId, JSON.stringify(body)]);
+      updated_at=now() RETURNING id`, [workspace, gameId, jobId, JSON.stringify(body)]));
   return rows.length ? jobId : undefined;
 }
 

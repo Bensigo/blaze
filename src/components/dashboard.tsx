@@ -1,4 +1,5 @@
 "use client";
+import GameSourceEditor from "./game-source-editor";
 
 import {
   useCallback,
@@ -46,6 +47,8 @@ import GameConnections from "./game-connections";
 import InfoHint from "./info-hint";
 import MostPlayedGames from "./most-played-games";
 const ActionsPage = dynamic(() => import("./actions-page"), { loading: () => <p role="status">Loading actions…</p> });
+const ContentStudio = dynamic(() => import("./content-studio"), { loading: () => <p role="status">Loading video studio…</p> });
+const GameArchiveControls = dynamic(() => import("./game-archive-controls"));
 const AccountSettings = dynamic(() => import("./account-settings"), { loading: () => <p role="status">Loading account settings…</p> });
 const DiscoveryReview = dynamic(() => import("./discovery-review").then(module => module.DiscoveryReview), { loading: () => <p role="status">Loading search review…</p> });
 import type {
@@ -99,6 +102,7 @@ const nav: { id: Page; label: string; icon: typeof Activity }[] = [
   { id: "games", label: "Games", icon: Gamepad2 },
   { id: "analytics", label: "Player analytics", icon: BarChart3 },
   { id: "sessions", label: "Sessions", icon: Users },
+  { id: "discovery", label: "SEO & AEO", icon: Search },
   { id: "recordings", label: "Recordings & clips", icon: Clapperboard },
   { id: "content", label: "Content studio", icon: FileText },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
@@ -484,7 +488,7 @@ export default function Dashboard() {
       try {
         const query = new URLSearchParams({ days });
         if (game !== "all") query.set("gameId", game);
-        const res = await fetch(`${demo ? "/api/demo" : "/api/workspace"}?${query}`, { cache: "no-store" });
+        const res = await fetch(`${demo ? "/api/demo" : "/api/workspace"}?${query}`, { cache: "no-store", signal: AbortSignal.timeout(20000) });
         if (request !== workspaceRequest.current) return;
         if (res.status === 401 && !demo) {
           sessionRequest.current++;
@@ -503,7 +507,7 @@ export default function Dashboard() {
         setUpdatedAt(new Date());
         setError("");
       } catch (e) {
-        if (request === workspaceRequest.current) setError(e instanceof Error ? e.message : "Could not load workspace");
+        if (request === workspaceRequest.current) setError(e instanceof Error && ["TimeoutError","AbortError"].includes(e.name) ? "Workspace took too long to respond. Retry loading." : e instanceof Error ? e.message : "Could not load workspace");
       } finally {
         if (request === workspaceRequest.current) setLoading(false);
       }
@@ -530,7 +534,7 @@ export default function Dashboard() {
     }
     if (authResult === "failed") setAuthNotice("Google sign-in did not finish. Please try again.");
     if (authResult === "setup") setAuthNotice("Google sign-in is not available yet.");
-    void fetch("/api/auth/config", { cache: "no-store" })
+    void fetch("/api/auth/config", { cache: "no-store", signal: AbortSignal.timeout(15000) })
       .then(async (res) => {
         if (!res.ok) throw new Error("Unable to check sign-in availability");
         const config = await res.json();
@@ -1017,6 +1021,8 @@ export default function Dashboard() {
           ? {
               action: "update_game",
               id: chosenGame.id,
+              expectedSourceUrl: chosenGame.url,
+              expectedSourceRevision: chosenGame.sourceUrlRevision || null,
               title: draft.title,
               image: draft.image,
               genre: draft.genre,
@@ -1184,6 +1190,8 @@ export default function Dashboard() {
         <LoaderCircle className="spin" size={22} /> Loading workspace
       </div>
     );
+  if (!snapshot && error)
+    return <main className="workspace-unavailable"><Brand/><h1>Workspace could not load</h1><p role="alert">{error}</p><Button variant="primary" onClick={()=>{setError("");setLoading(true);void refresh();}}>Retry loading</Button></main>;
   if (!snapshot)
     return (
       <div className="signin">
@@ -1257,8 +1265,8 @@ export default function Dashboard() {
         </div>
         <nav aria-label="Workspace navigation">
           {[
-            { title: "Player evidence", items: nav.slice(0, 4) },
-            { title: "Production", items: nav.slice(4) },
+            { title: "Player evidence", items: nav.slice(0, 5) },
+            { title: "Production", items: nav.slice(5) },
           ].map((group) => (
             <div className="nav-group" key={group.title}>
               <div className="nav-label">{group.title}</div>
@@ -1266,7 +1274,7 @@ export default function Dashboard() {
                 <button
                   key={n.id}
                   onClick={() => changePage(n.id)}
-                  className={`nav-item ${page === n.id || (page === "discovery" && n.id === "games") ? "active" : ""}`}
+                  className={`nav-item ${page === n.id ? "active" : ""}`}
                 >
                   <n.icon size={17} />
                   <span>{n.label}</span>
@@ -1474,6 +1482,7 @@ export default function Dashboard() {
                           {g.url} <ExternalLink size={12} />
                         </a>
                         <p>{g.description || "No description provided."}</p>
+                        {!snapshot.demo && <GameSourceEditor game={g} onSaved={() => { void refresh(); }}/>}
                         {g.manifestSource && <a className="game-manifest-source" href={g.manifestSource.url} target="_blank" rel="noreferrer">Imported from forever.json <ExternalLink size={11}/></a>}
                         <span className="tag">
                           {g.genre || "Web game"}
@@ -1484,6 +1493,7 @@ export default function Dashboard() {
                       </div>
                       <div className="game-actions">
                         <Button onClick={() => editGame(g)}>Edit</Button>
+                        <Button onClick={() => { setSelectedGame(g.id); changePage("content"); }}>Scripts &amp; video studio</Button>
                         <Button onClick={() => setSelectedGame(g.id)}>Game profile</Button>
                         <Button onClick={() => { setSelectedGame(g.id); changePage("discovery"); }}>Search &amp; answers</Button>
                         <Button
@@ -1520,8 +1530,9 @@ export default function Dashboard() {
               )}
             </>
           )}
+          {page === "games" && <GameArchiveControls games={games} demo={snapshot.demo} onUpdated={async () => { setSelectedGame("all"); await refresh("all", false); }}/>}
           {page === "discovery" && <>
-            <SectionHead title={games.find(game => game.id === selectedGame)?.title || "Choose a game"} detail="Public discovery review. Gameplay investigation and AI keys are not required." action={<Button onClick={() => changePage("games")}>Back to games</Button>}/>
+            <SectionHead title={games.find(game => game.id === selectedGame)?.title || "Choose a game"} detail="Public SEO/AEO checks and suggested fixes. Gameplay investigation and AI keys are not required." action={<Button onClick={() => changePage("games")}>Back to games</Button>}/>
             {snapshot.demo ? <Empty title="Sign in to review your game" detail="Public checks are unavailable in the example workspace."/> : selectedGame === "all" ? <Empty title="Choose one game" detail="Select a game above to read its cached observations or run a public-page review."/> : <DiscoveryReview key={selectedGame} gameId={selectedGame}/>}
           </>}
           {page === "sessions" && (
@@ -1762,9 +1773,10 @@ export default function Dashboard() {
           )}
           {page === "content" && (
             <>
+              <ContentStudio key={selectedGame} games={games} gameId={selectedGame} demo={snapshot.demo}/>
               <SectionHead
-                title="Content studio"
-                detail="Draft, review and approve the exact content before publishing."
+                title="Post drafts"
+                detail="Prepare text for the videos you will post manually."
                 action={
                   <Button variant="primary" onClick={() => openModal("post")}>
                     <Plus size={16} /> New post
@@ -1798,6 +1810,7 @@ export default function Dashboard() {
           )}
           {page === "calendar" && (
             <>
+              <ContentStudio key={selectedGame} games={games} gameId={selectedGame} demo={snapshot.demo} calendarOnly/>
               <div className="calendar-toolbar">
                 <div>
                   <h2>Publishing calendar</h2>
@@ -2182,9 +2195,9 @@ export default function Dashboard() {
               {error && <div ref={formError} className="alert error" role="alert">{error}</div>}
               {modal === "game" && (
                 <>
-                  <Field label="Game page URL" hint={chosenGame ? "The registered source URL." : "Blaze reads this game page’s /forever.json file and imports its metadata."}>
-                    <input required disabled={!!chosenGame} type="url" placeholder="https://yourgame.com/my/game" value={draft.url} onChange={e => { setError(""); setDraft({ ...draft, url: e.target.value }); }} />
-                  </Field>
+                  {chosenGame ? <><p>Main source URL: {chosenGame.url}</p><GameSourceEditor game={chosenGame} onSaved={() => { setModal(null); void refresh(); }}/></> : <Field label="Game page URL" hint="Blaze reads this game page’s /forever.json file and imports its metadata.">
+                    <input required type="url" placeholder="https://yourgame.com/my/game" value={draft.url} onChange={e => { setError(""); setDraft({ ...draft, url: e.target.value }); }} />
+                  </Field>}
                   {!chosenGame && <div className="manifest-import">
                     {manifestAddress(draft.url) && <div className="manifest-address"><span>Manifest URL</span><code>{manifestAddress(draft.url)}</code></div>}
                     {(gameImport.status === "waiting" || gameImport.status === "loading") && <p className="manifest-status" role="status"><LoaderCircle className="spin" size={15} /> Fetching and validating the manifest…</p>}

@@ -20,6 +20,7 @@ import {
   query,
   id,
   rateLimit,
+  transaction,
 } from "@/lib/db";
 import { sameOrigin, publicOrigin } from "@/lib/security";
 import { saveSecret, secretFor } from "@/lib/credentials";
@@ -151,6 +152,7 @@ export async function POST(request: Request) {
           capture: captureConfigSchema.optional(),
         })
         .parse(body);
+      if ((typeof body.expectedSourceUrl === "string" && body.expectedSourceUrl !== game.url) || (game.sourceUrlRevision && body.expectedSourceRevision !== game.sourceUrlRevision)) throw new HttpError(409,"Game source changed since these settings were opened. Reload before editing.");
       let networkPolicy = game.networkPolicy;
       if (body.networkPolicy !== undefined) {
         try {
@@ -178,12 +180,12 @@ export async function POST(request: Request) {
           throw new HttpError(400, "Use HTTP(S) origins.");
         return u.origin;
       });
-      await put(workspace, "game", {
-        ...game,
-        ...v,
-        networkPolicy,
-        ...(origins ? { origins } : {}),
-        image: v.image === undefined ? game.image : imageUrl(v.image, game.url),
+      await transaction(async sql => {
+        const current=(await sql<{body:Game}>("SELECT body FROM records WHERE workspace_id=$1 AND kind='game' AND id=$2 FOR UPDATE",[workspace,game.id]))[0]?.body;
+        if(!current)throw new HttpError(404,"Active game not found.");
+        if(current.url!==game.url || current.sourceUrlRevision!==game.sourceUrlRevision)throw new HttpError(409,"Game source changed while saving. Reload before editing settings.");
+        const next={...current,...v,networkPolicy,...(origins?{origins}:{}),image:v.image===undefined?current.image:imageUrl(v.image,current.url)};
+        await sql("UPDATE records SET body=$3::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='game' AND id=$2",[workspace,game.id,JSON.stringify(next)]);
       });
       return Response.json({ ok: true });
     }

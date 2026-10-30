@@ -14,11 +14,15 @@ export const dailyAuthorized = (request:Request) => bearer(request,'CRON_SECRET'
 
 // Keep the same deterministic job IDs and payloads as queueDailyResearch, in
 // one bounded SQL statement suitable for a 30-second scheduler invocation.
+// Lock the active parents before inserting so archive cannot miss phantom jobs.
 export async function enqueueDailyDispatch(day = new Date().toISOString().slice(0,10)) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Invalid daily dispatch date');
-  await query(`INSERT INTO jobs(id,workspace_id,kind,state,body)
+  await query(`WITH active AS MATERIALIZED (
+      SELECT id,workspace_id FROM records WHERE kind='game' AND (body->>'dailyEnabled')::boolean=true
+      ORDER BY workspace_id,id FOR UPDATE
+    ) INSERT INTO jobs(id,workspace_id,kind,state,body)
     SELECT 'research:' || $1 || ':' || id,workspace_id,'research','queued',jsonb_build_object('gameId',id,'day',$1::text)
-    FROM records WHERE kind='game' AND (body->>'dailyEnabled')::boolean=true
+    FROM active
     ON CONFLICT DO NOTHING`, [day]);
   await query(`INSERT INTO records(workspace_id,kind,id,body)
     SELECT DISTINCT workspace_id,'daily_dispatch','latest',jsonb_build_object('id','latest','day',$1::text,'updatedAt',$2::text)
@@ -54,6 +58,7 @@ async function clearFailure(day:string) {
   await query(`UPDATE records SET body=(body - 'error') || jsonb_build_object('updatedAt',$2::text),updated_at=now() WHERE kind='daily_dispatch' AND id='latest' AND body->>'day'=$1`,[day,new Date().toISOString()]);
 }
 export async function dispatchDailyRequest() {
+  if (process.env.BLAZE_LEGACY_DAILY_ENABLED !== "true") return { paused: true };
   const day=new Date().toISOString().slice(0,10);
   await enqueueDailyDispatch(day);
   try {
@@ -80,6 +85,7 @@ async function dailyMaintenance() {
   await Promise.all([drainProfile(),drainContentAutomation()]);
 }
 export async function consumeDailyDispatch() {
+  if (process.env.BLAZE_LEGACY_DAILY_ENABLED !== "true") return { paused: true };
   const day=new Date().toISOString().slice(0,10), leaseId=`daily-consumer:${day}`;
   const lease=await query(`INSERT INTO jobs(id,workspace_id,kind,state,body,lease_until) VALUES($1,'system','daily_consumer','claimed','{}',now()+interval '14 minutes') ON CONFLICT(id) DO UPDATE SET state='claimed',lease_until=excluded.lease_until,updated_at=now() WHERE jobs.lease_until<now() OR jobs.state='failed' RETURNING id`,[leaseId]);
   if (!lease.length) return;

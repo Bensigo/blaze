@@ -11,6 +11,7 @@ export const maxDuration = 60;
 export async function GET(request: Request) {
   if (!bearer(request, "CRON_SECRET"))
     return new Response(null, { status: 401 });
+  if (process.env.BLAZE_LEGACY_DAILY_ENABLED !== "true") return Response.json({ paused: true });
   if (process.env.SITE_ID && process.env.NODE_ENV === "production") {
     await dispatchDailyRequest();
     return Response.json({ queued: true, completed: false, message: "Daily work dispatched; inspect run history for actual progress and provider coverage." });

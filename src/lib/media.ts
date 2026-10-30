@@ -169,7 +169,9 @@ export async function serveMedia(record: MediaRecord, request: Request) {
   }
   if (record.backend === "neon") {
     if (!await lookupMedia(record.id)) return new Response(null, { status: 410 });
-    return new Response(null, { status: 307, headers: { Location: await neonDownloadUrl(record.location, new URL(request.url).pathname.includes("/manual-export/download") ? `game-clip.${record.contentType === "video/mp4" ? "mp4" : "webm"}` : undefined), "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" } });
+    const path = new URL(request.url).pathname;
+    const downloadName = path.includes("/manual-export/download") ? `game-clip.${record.contentType === "video/mp4" ? "mp4" : "webm"}` : /^\/api\/content-studio\/[^/]+\/download$/.test(path) ? "blaze-video.mp4" : undefined;
+    return new Response(null, { status: 307, headers: { Location: await neonDownloadUrl(record.location, downloadName), "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" } });
   }
   if (record.backend === "blob") {
     const blob = await blobGet(record.location, {

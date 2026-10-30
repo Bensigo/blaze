@@ -11,7 +11,7 @@ export function DiscoveryReview({ gameId }: { gameId: string }) {
   useEffect(() => {
     const current = ++generation.current;
     const controller = new AbortController(); setLoading(true); setReview(null); setError("");
-    fetch(`/api/games/${encodeURIComponent(gameId)}/discovery`, { signal: controller.signal }).then(async r => { if (!r.ok) throw new Error(); return r.json(); }).then(data => { if (generation.current === current) setReview(data.review); }).catch(() => { if (!controller.signal.aborted) setError("Could not load the review."); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    fetch(`/api/games/${encodeURIComponent(gameId)}/discovery`, { signal: AbortSignal.any([controller.signal,AbortSignal.timeout(20000)]) }).then(async r => { if (!r.ok) throw new Error(); return r.json(); }).then(data => { if (generation.current === current) setReview(data.review); }).catch(() => { if (!controller.signal.aborted) setError("Could not load the review."); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => { generation.current++; controller.abort(); };
   }, [gameId]);
   async function refresh() {

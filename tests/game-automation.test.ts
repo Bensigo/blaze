@@ -65,6 +65,7 @@ describe("automatic Jev recording and clip candidates", () => {
 
 describe("bounded content recovery", () => {
   it("wraps a finite snapshot even if new recordings keep arriving", async () => {
+    await db.put("ws", "game", game);
     for (let i = 0; i < 11; i++) {
       const id = `old-${String(i).padStart(2, "0")}`, media = `media_old${String(i).padStart(2, "0")}`;
       await db.put("ws", "recording", { ...rec, id, videoUrl: `/api/media/${media}` });

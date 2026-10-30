@@ -1,4 +1,5 @@
-import { get, query,transaction } from "./db";
+import { withActiveGameWork } from "./active-game-work";
+import { get, query } from "./db";
 import { secretFor } from "./credentials";
 import { resolveAISecret } from "./ai-settings";
 import { readProfile } from "./game-profile";
@@ -73,7 +74,7 @@ export async function enqueueRecording(workspace: string, recording: Recording, 
   if (game && isControlledLabTarget(game.url,process.env.APP_URL)) recording.targetProvenance="controlled_lab";
   const stamp = new Date().toISOString();
   const gate = { id: recording.gameId, active: recording.id, ...(scheduled ? { lastQueuedAt: stamp } : {}) };
-  return transaction(async tx=>{
+  return withActiveGameWork(workspace, recording.gameId, async tx=>{
   if(reservation)await reserveJevValidation(tx,workspace,recording,reservation.grant);
   const inserted = await tx<{ id: string }>(`WITH gate AS (
     INSERT INTO records(workspace_id,kind,id,body)
@@ -116,7 +117,7 @@ export async function queueClipCandidate(workspace: string, recording: Recording
   const end = Math.min(duration, start + 20);
   if (end <= start) return false;
   const clip: Clip = { id: `clip_${hash(`${workspace}:${recording.id}:candidate`).slice(0,32)}`, gameId: recording.gameId, recordingId: recording.id, title: `${title.slice(0,100)} · gameplay candidate`, start, end, layout: "landscape", status: "queued", createdAt: new Date().toISOString() };
-  const rows = await query(`WITH created AS (INSERT INTO records(workspace_id,kind,id,body) VALUES($1,'clip',$2,$3::jsonb) ON CONFLICT DO NOTHING RETURNING id) INSERT INTO jobs(id,workspace_id,kind,state,body) SELECT id,$1,'clip','queued',$3::jsonb FROM created ON CONFLICT DO NOTHING RETURNING id`, [workspace, clip.id, JSON.stringify(clip)]);
+  const rows = await withActiveGameWork(workspace, recording.gameId, sql => sql(`WITH created AS (INSERT INTO records(workspace_id,kind,id,body) VALUES($1,'clip',$2,$3::jsonb) ON CONFLICT DO NOTHING RETURNING id) INSERT INTO jobs(id,workspace_id,kind,state,body) SELECT id,$1,'clip','queued',$3::jsonb FROM created ON CONFLICT DO NOTHING RETURNING id`, [workspace, clip.id, JSON.stringify(clip)]));
   return rows.length > 0;
 }
 
