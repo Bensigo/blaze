@@ -42,6 +42,19 @@ async function setup() {
 }
 const approve = (ideaId: string, requestId = randomUUID(), settings = DEFAULT_VIDEO_SETTINGS) => studio.approveVideo("ws", "owner", { ideaId, settings, maxListCostCents: 100, requestId });
 describe("content studio approvals and recovery", () => {
+  it("recovers the same generation receipt after readiness changes without renewing consent", async () => {
+    const idea=await setup();const requestId=randomUUID();const first=await approve(idea.id,requestId);
+    await db.put("ws","video_production",{...first,state:"running",sessionId:"sesn_existing"});
+    delete process.env.BLAZE_CLOUD_PRODUCTION_ENABLED;
+    const replay=await approve(idea.id,requestId);expect(replay.state).toBe("running");expect(replay.approvedAt).toBe(first.approvedAt);
+    await expect(studio.approveVideo("ws","other-owner",{ideaId:idea.id,requestId,settings:DEFAULT_VIDEO_SETTINGS,maxListCostCents:100})).rejects.toThrow("different settings");
+    await expect(studio.approveVideo("ws","owner",{ideaId:idea.id,requestId,settings:DEFAULT_VIDEO_SETTINGS,maxListCostCents:100,scriptRevision:"different"})).rejects.toThrow("different settings");
+  });
+  it("rejects a changed displayed script before creating an owner generation grant", async () => {
+    const idea=await setup();
+    await expect(studio.approveVideo("ws","owner",{ideaId:idea.id,requestId:randomUUID(),settings:DEFAULT_VIDEO_SETTINGS,maxListCostCents:100,scriptRevision:"stale",scriptReviewId:"stale"})).rejects.toThrow("script or Jev score changed");
+    expect(await db.list("ws","video_production")).toEqual([]);
+  });
   it("prepares scoped source outlines once without model calls or private telemetry", async () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     const first = await studio.prepareSourceIdeas("ws", "g"); await studio.prepareSourceIdeas("ws", "g");
@@ -136,11 +149,37 @@ describe("content studio approvals and recovery", () => {
     expect(await studio.refreshVideo("ws", production.id)).toMatchObject({ state: "running", usage: { listCostCents: "12", inputTokens: 40, outputTokens: 80, status: "reported_unsettled" } });
     expect(fetch).toHaveBeenCalledOnce();
   });
+  it("shows a stopped cloud failure instead of polling forever or retrying inference", async () => {
+    const idea=await setup();const production=await approve(idea.id);
+    await db.put("ws","video_production",{...production,state:"running",sessionId:"sesn_existing"});
+    const fetch=vi.fn(async(url: string|URL|Request)=>Response.json(String(url).includes("/files?")?{data:[{id:"file_failed",filename:"failed.json",size_bytes:20}]}:{id:"sesn_existing",status:"idle"}));vi.stubGlobal("fetch",fetch);
+    expect(await studio.refreshVideo("ws",production.id)).toMatchObject({state:"failed",stoppedAt:expect.any(String)});
+    await studio.refreshVideo("ws",production.id);expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("keeps late output recoverable after idle without allowing a new paid attempt", async () => {
+    const idea=await setup();const production=await approve(idea.id);
+    await db.put("ws","video_production",{...production,state:"running",sessionId:"sesn_existing",idleObservedAt:new Date(Date.now()-180000).toISOString(),stoppedAt:new Date().toISOString()});
+    const fetch=vi.fn(async(url: string|URL|Request)=>Response.json(String(url).includes("/files?")?{data:[]}:{id:"sesn_existing",status:"idle"}));vi.stubGlobal("fetch",fetch);
+    expect(await studio.refreshVideo("ws",production.id)).toMatchObject({state:"needs_reconciliation"});
+    expect(await studio.refreshVideo("ws",production.id)).toMatchObject({state:"needs_reconciliation"});
+    expect(fetch).toHaveBeenCalledTimes(4);
+    await expect(approve(idea.id)).rejects.toThrow("reconciliation");
+  });
+  it("never reuploads a partially imported output after repeated status recovery", async () => {
+    const idea=await setup();const production=await approve(idea.id);
+    await db.put("ws","video_production",{...production,state:"needs_reconciliation",sessionId:"sesn_existing",importStartedAt:new Date(Date.now()-180000).toISOString(),updatedAt:new Date(Date.now()-180000).toISOString()});
+    const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    expect(await studio.refreshVideo("ws",production.id)).toMatchObject({state:"needs_reconciliation"});
+    expect(await studio.refreshVideo("ws",production.id)).toMatchObject({state:"needs_reconciliation"});
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("imports session-scoped MP4 and gameplay report into private storage without another paid call", async () => {
     const idea = await setup();
     const settings = { ...DEFAULT_VIDEO_SETTINGS, durationSeconds: 10, music: "none" as const };
     const production = await approve(idea.id, randomUUID(), settings);
     await db.put("ws", "video_production", { ...production, state: "running", sessionId: "sesn_test" });
+    // Later edits to the game must not invalidate the URL approved for this run.
+    await db.put("ws", "game", { ...game, url: "https://game.example/games/changed" });
     const encoded = spawnSync(ffmpeg!, ["-v", "error", "-f", "lavfi", "-i", "color=blue:s=360x640:r=15:d=10", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-movflags", "frag_keyframe+empty_moov", "-f", "mp4", "pipe:1"], { maxBuffer: 4 * 1024 * 1024 });
     if (encoded.status !== 0) throw new Error(encoded.stderr.toString());
     const report = Buffer.from(JSON.stringify({ gameUrl: game.url, durationSeconds: 10, playedActions: [{ at: 1, action: "Fixture-reported action" }], rawCaptureFilename: "raw.webm", audioCaptured: false, limitations: ["Synthetic parser fixture, not proof of cloud gameplay."] }));

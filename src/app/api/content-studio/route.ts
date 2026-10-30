@@ -8,6 +8,7 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("prepare_outlines"), gameId: recordId }).strict(),
   z.object({ action: z.literal("save_schedule"), schedule: scheduleSchema }).strict(),
   z.object({ action: z.literal("approve"), ideaId: recordId, requestId: z.string().uuid(), settings: videoSettingsSchema, maxListCostCents: z.number().int().min(1).max(5000), acknowledgeCost: z.literal(true) }).strict(),
+  z.object({ action: z.literal("generate"), providerRevision: recordId, scriptRevision: z.string().min(1).max(128), scriptReviewId: recordId, ideaId: recordId, requestId: z.string().uuid(), settings: videoSettingsSchema, maxListCostCents: z.number().int().min(1).max(5000), acknowledgeCost: z.literal(true) }).strict(),
   z.object({ action: z.literal("start"), productionId: recordId }).strict(),
   z.object({ action: z.literal("refresh"), productionId: recordId }).strict(),
   z.object({ action: z.literal("cancel"), productionId: recordId }).strict(),
@@ -36,6 +37,10 @@ export async function POST(request: Request) {
     if (body.action === "prepare_outlines") result = await prepareSourceIdeas(workspace, body.gameId);
     if (body.action === "save_schedule") result = await saveIdeaSchedule(workspace, body.schedule);
     if (body.action === "approve") result = await approveVideo(workspace, user.id, body);
+    if (body.action === "generate") {
+      const grant = await approveVideo(workspace, user.id, body);
+      result = grant.state === "approved" ? await startApprovedVideo(workspace, grant.id, user.id) : grant;
+    }
     if (body.action === "start") result = await startApprovedVideo(workspace, body.productionId, user.id);
     if (body.action === "refresh") result = await refreshVideo(workspace, body.productionId);
     if (body.action === "cancel") result = await cancelVideo(workspace, body.productionId);

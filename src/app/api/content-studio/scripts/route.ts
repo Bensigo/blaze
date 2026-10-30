@@ -8,6 +8,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("draft"), ideaId: id }).strict(),
   z.object({ action: z.literal("save"), ideaId: id, text: z.string().min(20).max(5000), expectedRevision: z.string().optional() }).strict(),
   z.object({ action: z.literal("review_proposal"), scriptId: id }).strict(),
+  z.object({ action: z.literal("request_review"), scriptId: id, reviewHash: z.string().regex(/^[a-f0-9]{64}$/), requestId: z.string().uuid(), maxCostCents: z.literal(1), acknowledgeCost: z.literal(true) }).strict(),
   z.object({ action: z.literal("approve_review"), scriptId: id, reviewHash: z.string().regex(/^[a-f0-9]{64}$/), requestId: z.string().uuid(), maxCostCents: z.literal(1), acknowledgeCost: z.literal(true) }).strict(),
   z.object({ action: z.literal("start_review"), reviewId: id }).strict(),
 ]);
@@ -28,6 +29,7 @@ export async function POST(request: Request) {
     if (body.action === "save") result = await saveContentScript(ws, body.ideaId, body.text, body.expectedRevision);
     if (body.action === "review_proposal") { const p = await reviewScriptProposal(ws, body.scriptId); result = { reviewHash: p.reviewHash, scriptRevision: p.script.revision, ...p.binding, inputBytes: p.inputBytes, questionCount: p.questionCount, pricing: p.pricing, costAdmission: p.costAdmission, ...await scriptReviewAvailability(ws) }; }
     if (body.action === "approve_review") result = await approveScriptReview(ws, user.id, body);
+    if (body.action === "request_review") { const grant = await approveScriptReview(ws, user.id, body); result = grant.state === "approved" ? await startScriptReview(ws, grant.id) : grant; }
     if (body.action === "start_review") result = await startScriptReview(ws, body.reviewId);
     return Response.json({ result }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { if (error instanceof z.ZodError || error instanceof SyntaxError) return Response.json({ error: "Check the script and review acknowledgement." }, { status: 400 }); return apiError(error); }

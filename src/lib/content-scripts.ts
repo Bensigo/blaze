@@ -61,7 +61,7 @@ export async function reviewedScript(workspace: string, ideaId: string, sourceRe
   return { script, review };
 }
 export async function scriptReviewAvailability(workspace: string) {
-  if(process.env.BLAZE_JEV_SCRIPT_REVIEW_ENABLED!=="true") return {enabled:false,reason:"Jev reviews are paused pending execution approval. No new review request has been sent."};
+  if(process.env.BLAZE_JEV_SCRIPT_REVIEW_ENABLED!=="true") return {enabled:false,reason:"Jev reviews are paused pending one-time service commissioning. No new review request has been sent."};
   const held = (await query(`SELECT id FROM records WHERE workspace_id=$1 AND kind='script_review' AND (body->>'costAdmissionViolation'='true' OR body->>'state' IN ('starting','needs_reconciliation')) LIMIT 1`,[workspace])).length > 0;
   return held ? {enabled:false,reason:"An earlier Jev request is active, uncertain or exceeded its cost bound. Reconcile billing for that request before another review."} : {enabled:true};
 }
@@ -104,7 +104,10 @@ export async function reviewScriptProposal(workspace:string,script:string) {
     questionCount:costAdmission.questionCount,inputBytes:costAdmission.inputBytes};
 }
 export async function approveScriptReview(workspace:string,actor:string,input:{scriptId:string;reviewHash:string;requestId:string;maxCostCents:1}) {
-  await reviewEnabled(workspace);z.literal(1).parse(input.maxCostCents);z.string().uuid().parse(input.requestId); const proposal=await reviewScriptProposal(workspace,input.scriptId);
+  z.literal(1).parse(input.maxCostCents);z.string().uuid().parse(input.requestId);
+  const receipt=await get<ScriptReview>(workspace,"script_review",`critique_${hash(`${workspace}:${input.requestId}`).slice(0,32)}`);
+  if(receipt){if(receipt.approvedBy!==actor||receipt.scriptId!==input.scriptId||receipt.reviewHash!==input.reviewHash)throw new HttpError(409,"This request approved a different script review.");return receipt;}
+  await reviewEnabled(workspace);const proposal=await reviewScriptProposal(workspace,input.scriptId);
   if(input.reviewHash!==proposal.reviewHash)throw new HttpError(409,"Script or Jev selection changed; review the request again.");
   const id=`critique_${hash(`${workspace}:${input.requestId}`).slice(0,32)}`; const stamp=new Date().toISOString();
   return transaction(async sql=>{

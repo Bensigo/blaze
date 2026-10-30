@@ -34,3 +34,5 @@
 @media(max-width:700px){.studio-idea-action{align-items:flex-start;width:100%}.studio-editor-steps{gap:2px}.studio-editor-steps button{padding:8px;min-height:44px;gap:6px}.studio-step-actions .button{width:100%}}
 .studio-editor-steps button:disabled{color:var(--muted);opacity:.55;cursor:not-allowed;background:transparent}
 .studio-editor-steps button:disabled span{background:transparent;color:var(--muted);border-color:var(--line)}
+.studio-generation-blockers{margin-top:16px;padding:16px 0;border-top:1px solid var(--line);font-size:14px;line-height:1.6;color:var(--muted)}
+.studio-generation-blockers>strong{color:var(--ink);font-weight:600}.studio-generation-blockers ul{padding-left:20px;margin:10px 0 16px}.studio-generation-blockers li{margin:6px 0}

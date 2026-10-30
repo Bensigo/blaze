@@ -6,6 +6,7 @@ import ContentScriptEditor from "./content-script-editor";
 import type { Game } from "@/lib/types";
 import { browserRead } from "@/lib/browser-read";
 import InfoHint from "./info-hint";
+import { dashboardRequestId, clearDashboardRequest } from "@/lib/dashboard-request";
 
 
 export default function ContentStudio({ games, gameId, demo, calendarOnly = false }: { games: Game[]; gameId: string; demo: boolean; calendarOnly?: boolean }) {
@@ -39,6 +40,21 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
     }).catch(error => { if (!cancelled) setError(error.message); });
     return () => { cancelled = true; controller.abort(); };
   }, [gameId, demo,readAttempt]);
+  useEffect(() => { if (scriptReady) void refresh().catch(() => setNotice("Refresh the studio to load the current script approval.")); }, [scriptReady, refresh]);
+  const hasActiveRun = !!data?.productions.some(p => !["ready", "failed", "cancelled"].includes(p.state));
+  useEffect(() => {
+    if (demo || !hasActiveRun) return;
+    let stopped = false; let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      if (!stopped && !document.hidden && !lock.current) {
+        try { await refresh(); }
+        catch { if (!stopped) setNotice("Status update delayed. Your run continues in the cloud."); }
+      }
+      if (!stopped) timer = setTimeout(poll, 10000);
+    };
+    timer = setTimeout(poll, 3000);
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [demo, hasActiveRun, refresh]);
   const send = async (body: Record<string, unknown>) => {
     const response = await fetch("/api/content-studio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const result = await response.json(); if (!response.ok) throw new Error(result.error || "The request did not complete."); return result.result;
@@ -52,11 +68,12 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
   const approve = async (event: FormEvent) => {
     event.preventDefault(); if (editorStep !== 3 || !chosen || lock.current || !acknowledge || !scriptReady || !data?.readiness.ready) return;
     lock.current = true; setBusy(true); setError("");
-    requestId.current ||= crypto.randomUUID();
+    const script = data.scripts?.find(s => s.ideaId === chosen.id);
+    const receiptKey = `blaze:video:${chosen.id}:${script?.revision}:${script?.reviewId}:${data.readiness.providerRevision}:${JSON.stringify(settings)}:${budget}`;
+    const id = dashboardRequestId(receiptKey, requestId);
     try {
-      const production: VideoProduction = await send({ action: "approve", ideaId: chosen.id, settings, maxListCostCents: budget, requestId: requestId.current, acknowledgeCost: true });
-      // Start once. Network errors keep the same request ID and recoverable approved record.
-      if (production.state === "approved") await send({ action: "start", productionId: production.id });
+      const production: VideoProduction = await send({ action: "generate", providerRevision: data.readiness.providerRevision, ideaId: chosen.id, scriptRevision: script?.revision, scriptReviewId: script?.reviewId, settings, maxListCostCents: budget, requestId: id, acknowledgeCost: true });
+      if (["ready", "failed", "cancelled"].includes(production.state)) clearDashboardRequest(receiptKey);
       setChosen(null); requestId.current = null; setAcknowledge(false); await refresh();
     } catch (error) { setError(error instanceof Error ? error.message : "Unable to start this video. Refresh to inspect its state before trying again."); await refresh().catch(() => {}); }
     finally { lock.current = false; setBusy(false); }
@@ -78,7 +95,15 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
     } catch (e) { setError(e instanceof Error ? e.message : "Pilot request failed."); await refresh().catch(() => {}); }
     finally { lock.current = false; setBusy(false); }
   };
+  useEffect(() => { if (!data?.readiness.ready) setAcknowledge(false); }, [data?.readiness.ready]);
   if (demo) return <section className="content-engine"><p>Sign in to prepare ideas and produce videos for your games.</p></section>;
+  const refreshSetup = async () => {
+    if (lock.current) return;
+    lock.current = true; setBusy(true); setError("");
+    try { await refresh(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Unable to refresh generation setup."); }
+    finally { lock.current = false; setBusy(false); }
+  };
   const title = (id: string) => games.find(g => g.id === id)?.title || "Game";
   const ideaPriority = (idea: ContentIdea) => { const script = data?.scripts?.find(s=>s.ideaId===idea.id); return script?.score ? 2 : script ? 1 : 0; };
   const ideas = [...(data?.ideas || [])].sort((a,b)=>ideaPriority(b)-ideaPriority(a));
@@ -132,9 +157,9 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
         <label className="studio-check"><input type="checkbox" checked={settings.gameAudio} onChange={e => setSettings({ ...settings, gameAudio: e.target.checked })}/>Require captured game audio</label>
         {!scriptReady && <p role="status">A current saved script and Jev review are required before approval.</p>}
         <p>Claude checks the threshold between model requests; the final request can exceed it. Existing credits depend on the key's organization and eligibility. Storage costs are separate. No automatic retry.</p>
-        <label className="studio-check"><input type="checkbox" required checked={acknowledge} onChange={e => setAcknowledge(e.target.checked)}/>I approve this idea, these settings and one metered cloud production attempt.</label>
-        <button className="button primary" disabled={busy || !acknowledge || !scriptReady || !data.readiness.ready}>{busy ? "Saving…" : "Approve & generate video"}</button>
-        {!data.readiness.ready && <p role="status">Generation is unavailable until the setup items above are complete.</p>}
+        <label className="studio-check"><input type="checkbox" required disabled={busy || !scriptReady || !data.readiness.ready} checked={acknowledge} onChange={e => setAcknowledge(e.target.checked)}/>I approve this idea, these settings and one metered cloud production attempt.</label>
+        <button className="button primary" disabled={busy || !acknowledge || !scriptReady || !data.readiness.ready}>{busy ? "Starting…" : "Generate video"}</button>
+        {!data.readiness.ready && <div className="studio-generation-blockers" role="status"><strong>Before generation</strong><ul>{data.readiness.reasons.length ? data.readiness.reasons.map(reason => <li key={reason}>{reason}</li>) : <li>Setup status is unavailable. Refresh it before approving generation.</li>}</ul><button type="button" className="button" disabled={busy} onClick={() => void refreshSetup()}>Refresh setup status</button></div>}
         {data.pilot?.operator && <div className="studio-pilot"><h4>Single-use operator pilot</h4><p>Only this reviewed script, game and provider configuration can be used. This does not enable normal generation or recurrence.</p><button type="button" className="button" disabled={busy || !scriptReady} onClick={() => void pilot(false)}>Inspect exact pilot approval</button>
           {pilotReview && <><p>{pilotReview.settings.durationSeconds}s · {pilotReview.settings.aspectRatio} · threshold ${(pilotReview.maxListCostCents / 100).toFixed(2)} (may overshoot; no hard total spending cap)</p><p>Agent {pilotReview.provider.agentId} v{pilotReview.provider.agentVersion} · environment {pilotReview.provider.environmentId}</p><small>Source revision {pilotReview.sourceRevision}</small><ul>{pilotReview.reasons.map(x => <li key={x}>{x}</li>)}</ul><label className="studio-check"><input type="checkbox" checked={pilotAck} onChange={e => setPilotAck(e.target.checked)}/>I approve this exact script, settings and one cloud pilot attempt. No retry or resume.</label><button type="button" className="button" disabled={busy || !pilotAck || !pilotReview.ready || !scriptReady} onClick={() => void pilot(true)}>Approve one pilot · start separately</button></>}
         </div>}
@@ -144,10 +169,12 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
     {data && <div className="studio-videos"><h3>{calendarOnly ? "Videos planned for manual posting · Dubai" : "Video runs"}</h3>
       {!videos.length && <p className="studio-secondary">{calendarOnly ? "Add a planning date to a finished video in Content Studio." : "Approved runs and finished videos will appear here."}</p>}
       {videos.map(video => <article className="studio-video" key={video.id}>
-        <header><div><small>{title(video.gameId)}{video.pilotGrantId ? " · single-use pilot" : ""}</small><h4>{video.idea.title}</h4></div><span>{video.state.replaceAll("_", " ")}</span></header>
+        <header><div><small>{title(video.gameId)}{video.pilotGrantId ? " · single-use pilot" : ""}</small><h4>{video.idea.title}</h4></div><span role="status">{({approved:"Approved · waiting to start",starting:"Starting cloud session",running:"Playing and editing",importing:"Saving video",cancel_requested:"Stopping",needs_reconciliation:"Needs attention",failed:"Failed",cancelled:"Cancelled",ready:"Ready"})[video.state]}</span></header>
         <p>{video.settings.aspectRatio} · {video.settings.durationSeconds}s · list-cost threshold ${(video.maxListCostCents / 100).toFixed(2)} · {video.usage?.listCostCents ? `Reported list cost $${(Number(video.usage.listCostCents) / 100).toFixed(2)} · unsettled` : "Actual cost unavailable"}</p>
         {video.usage?.inputTokens !== undefined && <small>{video.usage.inputTokens.toLocaleString()} input tokens · {(video.usage.outputTokens || 0).toLocaleString()} output tokens. Credits and final billing may differ from list cost.</small>}
         {video.error && <p role="status">{video.error}</p>}
+        {["starting", "running", "importing", "cancel_requested"].includes(video.state) && <p className="studio-secondary">Updates automatically. You can leave this page.</p>}
+        {video.state === "needs_reconciliation" && <p className="studio-secondary">The last outcome is uncertain. Status checks are safe; another generation request is blocked until this attempt is reconciled.</p>}
         {video.state === "ready" && video.videoUrl && <><video controls preload="metadata" playsInline src={video.videoUrl} aria-label={video.idea.title}/><p>Review the footage, captions and claimed results before posting.</p>
           <div className="studio-video-actions"><a className="button" href={`/api/content-studio/${video.id}/download`}>Download MP4</a>
           <label>Planning date · Dubai<input aria-label={`Planning date for ${video.idea.title}`} type="date" value={video.plannedDate || ""} disabled={busy} onChange={e => void act({ action: "plan", productionId: video.id, date: e.target.value || null })}/></label></div>

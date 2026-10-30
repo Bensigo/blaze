@@ -24,9 +24,12 @@ export type VideoProduction = {
   approvalHash: string; sourceRevision: string; maxListCostCents: number;
   providerRevision: string; createdAt: string; updatedAt: string;
   credentialRevision: string;
+  sourceUrl?: string;
   scriptId?: string; scriptRevision?: string; scriptReviewId?: string; scriptText?: string;
   pilotGrantId?: string;
   sessionId?: string; error?: string; videoUrl?: string; clipId?: string;
+  idleObservedAt?: string;
+  importStartedAt?: string;
   startedAt?: string; watchdogDeadlineAt?: string; stoppedAt?: string; lastWatchdogAt?: string;
   stopRequest?: { id: string; reason: "owner_cancel" | "runtime_limit"; requestedAt: string; state: "pending_session" | "dispatching" | "requested" | "uncertain" | "confirmed" };
   plannedDate?: string; planningTimeZone?: "Asia/Dubai";
@@ -39,10 +42,10 @@ export type IdeaSchedule = {
 export type StudioSnapshot = {
   sourceFacts?: { gameId:string; sourceRevision:string; facts:{key:string;value:string}[] }[];
   references?:{setId:string;revision:string;rubricRevision:string;selected:{id:string;relevance:string}[]};
-  scripts?: { ideaId: string; text: string; sourceStale: boolean; contextStale?:boolean;scoreReferenceSetRevision?:string;referenceIds?:string[];referenceSetRevision?:string;rubricRevision?:string; reviewState?: string; staleScore?: import("./content-scripts").ScriptScore; score?: { overall: number; hook: {score:number;explanation:string}; pacing: {score:number;explanation:string}; clarity: {score:number;explanation:string}; shareability: {score:number;explanation:string}; improvements:string[] } }[];
+  scripts?: { ideaId: string; revision?: string; reviewId?: string; text: string; sourceStale: boolean; contextStale?:boolean;scoreReferenceSetRevision?:string;referenceIds?:string[];referenceSetRevision?:string;rubricRevision?:string; reviewState?: string; staleScore?: import("./content-scripts").ScriptScore; score?: { overall: number; hook: {score:number;explanation:string}; pacing: {score:number;explanation:string}; clarity: {score:number;explanation:string}; shareability: {score:number;explanation:string}; improvements:string[] } }[];
   ideas: ContentIdea[]; productions: VideoProduction[]; schedule: IdeaSchedule;
   pilot?: { operator: boolean; ready: boolean; reasons: string[] };
-  readiness: { ready: boolean; reasons: string[]; provider: "anthropic_managed_agents"; connectionLabel?: string };
+  readiness: { providerRevision?: string; ready: boolean; reasons: string[]; provider: "anthropic_managed_agents"; connectionLabel?: string };
 };
 
 export type PilotGrant = {
