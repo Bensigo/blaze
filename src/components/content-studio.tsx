@@ -16,7 +16,9 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
   const [settings, setSettings] = useState<VideoSettings>(DEFAULT_VIDEO_SETTINGS);
   const [budget, setBudget] = useState(100); const [acknowledge, setAcknowledge] = useState(false);
   const [scriptReady, setScriptReady] = useState(false);
+  const [scriptSaved, setScriptSaved] = useState(false);
   const [editorStep, setEditorStep] = useState<1 | 2 | 3>(1);
+  useEffect(() => { if (editorStep === 3 && !scriptReady) setEditorStep(2); }, [editorStep, scriptReady]);
   const [pilotReview, setPilotReview] = useState<PilotReview | null>(null);
   const [pilotAck, setPilotAck] = useState(false);
   const requestId = useRef<string | null>(null);
@@ -48,7 +50,7 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
     finally { lock.current = false; setBusy(false); }
   };
   const approve = async (event: FormEvent) => {
-    event.preventDefault(); if (editorStep !== 3 || !chosen || lock.current || !acknowledge) return;
+    event.preventDefault(); if (editorStep !== 3 || !chosen || lock.current || !acknowledge || !scriptReady || !data?.readiness.ready) return;
     lock.current = true; setBusy(true); setError("");
     requestId.current ||= crypto.randomUUID();
     try {
@@ -108,14 +110,15 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
         <div><small>{title(idea.gameId)} · {idea.origin === "daily_agent" ? "Daily AI proposal" : "Source outline · no AI run"}</small><h3>{idea.title}</h3><p>{idea.hook}</p>
           <details><summary>Shots and source facts</summary><p>{idea.treatment}</p><ol>{idea.shots.map(shot => <li key={shot}>{shot}</li>)}</ol>{facts?.length?<ul className="studio-source-facts">{facts.map(f=><li key={f.key}>{f.value}</li>)}</ul>:<p>Current source evidence is unavailable for this outline. Prepare fresh outlines after reviewing the game source.</p>}</details></div>
         <div className="studio-idea-action">{shownScore ? <span className="studio-score-summary"><strong>{shownScore.overall}/100</strong><span>{saved?.staleScore ? "Earlier score" : "Jev score"}</span><InfoHint label="About this score">{saved?.staleScore ? "Historical score. Open the script to inspect the earlier review; it does not authorize production." : "A creative review, not a prediction of virality."}</InfoHint></span> : <span className="studio-secondary">{saved?.sourceStale ? "Source changed" : "Not scored"}</span>}
-        <button className="button" disabled={busy} onClick={() => { setChosen(idea); setEditorStep(1); setScriptReady(false); setSettings(DEFAULT_VIDEO_SETTINGS); setAcknowledge(false); requestId.current = null; }}>Open script</button></div>
+        <button className="button" disabled={busy} onClick={() => { setChosen(idea); setEditorStep(1); setScriptReady(false); setScriptSaved(false); setSettings(DEFAULT_VIDEO_SETTINGS); setAcknowledge(false); requestId.current = null; }}>Open script</button></div>
       </article>; })}</div>}
       {!data.ideas.length && <p className="studio-empty">No ideas yet. Select a game and prepare source outlines while the daily agent is being connected.</p>}
       {chosen && <form ref={approvalPanel} tabIndex={-1} className="studio-approval" onSubmit={approve} aria-label="Video settings and approval">
         <div className="studio-heading"><div><small>{title(chosen.gameId)}</small><h3>{chosen.title}</h3></div><button type="button" className="button" disabled={busy} onClick={() => { setChosen(null); ideaHeading.current?.focus(); void refresh().catch(e=>setError(e.message)); }}>Close settings</button></div>
-        <nav className="studio-editor-steps" aria-label="Production steps">{(["Script", "Jev score", "Video"] as const).map((label, index) => <button type="button" key={label} aria-current={editorStep === index + 1 ? "step" : undefined} onClick={() => setEditorStep((index + 1) as 1 | 2 | 3)}><span>{index + 1}</span>{label}</button>)}</nav>
-        <div hidden={editorStep === 3} className="studio-editor-section"><ContentScriptEditor key={chosen.id} ideaId={chosen.id} onReady={setScriptReady} step={editorStep === 1 ? "script" : "review"}/></div>
-        {editorStep < 3 && <div className="studio-step-actions"><button type="button" className="button primary" onClick={() => setEditorStep(editorStep === 1 ? 2 : 3)}>{editorStep === 1 ? "Continue to Jev score" : "Continue to video"}</button></div>}
+        <nav className="studio-editor-steps" aria-label="Production steps">{(["Script", "Jev score", "Video"] as const).map((label, index) => <button type="button" key={label} aria-current={editorStep === index + 1 ? "step" : undefined} disabled={index === 2 && !scriptReady} aria-describedby={index === 2 && !scriptReady ? "video-step-blocked" : undefined} onClick={() => setEditorStep((index + 1) as 1 | 2 | 3)}><span>{index + 1}</span>{label}</button>)}</nav>
+        <div hidden={editorStep === 3} className="studio-editor-section"><ContentScriptEditor key={chosen.id} ideaId={chosen.id} onReady={setScriptReady} onScriptReady={setScriptSaved} step={editorStep === 1 ? "script" : "review"}/></div>
+        {editorStep < 3 && <div className="studio-step-actions"><button type="button" className="button primary" disabled={busy || (editorStep === 1 ? !scriptSaved : !scriptReady)} onClick={() => setEditorStep(editorStep === 1 ? 2 : 3)}>{editorStep === 1 ? "Continue to Jev score" : "Continue to video"}</button></div>}
+        {!scriptReady && <p id="video-step-blocked" className="studio-secondary" role="status">{editorStep === 1 && !scriptSaved ? "Save the current script before continuing." : "Complete a successful review of this saved script to continue to video."}</p>}
         <section hidden={editorStep !== 3} className="studio-editor-section">
         <h4>Video settings</h4>
         <div className="studio-settings">

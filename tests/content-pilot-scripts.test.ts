@@ -36,6 +36,20 @@ describe("versioned scripts and paid Jev score admission",()=>{
     await expect(scripts.saveContentScript("ws",idea.id,"Different valid script text for another tab.",script.revision)).rejects.toThrow("another tab");
     await expect(scripts.saveContentScript("other",idea.id,"Owned text must stay in its own workspace.")).rejects.toThrow("Idea not found");expect((await scripts.scriptState("other",idea.id)).script).toBeUndefined();expect(fetch).not.toHaveBeenCalled();
   });
+  it("reports the same paused and workspace reconciliation holds before offering a paid review",async()=>{
+    await setup();const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    expect(await scripts.scriptReviewAvailability("ws")).toEqual({enabled:true});
+    for(const hold of [{state:"starting"},{state:"needs_reconciliation"},{state:"complete",costAdmissionViolation:true}]){
+      await db.put("ws","script_review",{id:"held-other-script",...hold});
+      expect(await scripts.scriptReviewAvailability("ws")).toMatchObject({enabled:false,reason:expect.stringMatching(/earlier Jev request/)});
+      await db.query("DELETE FROM records WHERE workspace_id='ws' AND kind='script_review'");
+    }
+    await db.put("other","script_review",{id:"other-workspace-hold",state:"starting"});
+    expect(await scripts.scriptReviewAvailability("ws")).toEqual({enabled:true});
+    process.env.BLAZE_JEV_SCRIPT_REVIEW_ENABLED="false";
+    expect(await scripts.scriptReviewAvailability("ws")).toMatchObject({enabled:false,reason:expect.stringMatching(/paused/)});
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("bounds the complete review input before dispatch and supports rich source facts",async()=>{
     await setup();
     const facts=Array.from({length:6},(_,i)=>({key:`manifest_about:fact${i}`,value:"A documented description. ".repeat(100).slice(0,1600),evidence:{source:"Fixture manifest",observedAt:"2026-10-30T00:00:00Z"}}));
