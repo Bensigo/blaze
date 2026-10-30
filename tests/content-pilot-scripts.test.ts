@@ -25,7 +25,7 @@ async function setup(){
   const idea=(await studio.prepareSourceIdeas("ws",game.id))[0]; const script=await scripts.saveContentScript("ws",idea.id);
   return {idea,script};
 }
-async function score(){const data=await setup();const p=await scripts.reviewScriptProposal("ws",data.script.id);const r=await scripts.approveScriptReview("ws","owner",{scriptId:data.script.id,reviewHash:p.reviewHash,requestId:randomUUID()});const fetch=vi.fn(async()=>Response.json(scoreResult()));vi.stubGlobal("fetch",fetch);const result=await scripts.startScriptReview("ws",r.id);expect(result?.state).toBe("complete");expect(fetch).toHaveBeenCalledOnce();return data;}
+async function score(){const data=await setup();const p=await scripts.reviewScriptProposal("ws",data.script.id);const r=await scripts.approveScriptReview("ws","owner",{scriptId:data.script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()});const fetch=vi.fn(async()=>Response.json(scoreResult()));vi.stubGlobal("fetch",fetch);const result=await scripts.startScriptReview("ws",r.id);expect(result?.state).toBe("complete");expect(fetch).toHaveBeenCalledOnce();return data;}
 const inputs=(ideaId:string)=>({ideaId,settings:{...DEFAULT_VIDEO_SETTINGS,durationSeconds:10,music:"none" as const},maxListCostCents:100});
 async function pilot(){const data=await score();const input=inputs(data.idea.id);const reviewed=await studio.reviewPilotVideo("ws","owner",input);const approved=await studio.approvePilotVideo("ws","owner",{...input,reviewHash:reviewed.reviewHash,requestId:randomUUID()});return {...data,input,reviewed,approved};}
 describe("versioned scripts and paid Jev score admission",()=>{
@@ -38,41 +38,80 @@ describe("versioned scripts and paid Jev score admission",()=>{
   });
   it("bounds the complete review input before dispatch and supports rich source facts",async()=>{
     await setup();
-    const facts=Array.from({length:12},(_,i)=>({key:`manifest_about:fact${i}`,value:"A documented description. ".repeat(100).slice(0,1600),evidence:{source:"Fixture manifest",observedAt:"2026-10-30T00:00:00Z"}}));
+    const facts=Array.from({length:6},(_,i)=>({key:`manifest_about:fact${i}`,value:"A documented description. ".repeat(100).slice(0,1600),evidence:{source:"Fixture manifest",observedAt:"2026-10-30T00:00:00Z"}}));
     await db.put("ws","game_profile",{id:game.id,facts});const idea=(await studio.prepareSourceIdeas("ws",game.id))[0];const script=await scripts.saveContentScript("ws",idea.id);expect(script.text.length).toBeLessThanOrEqual(5000);
-    const proposal=await scripts.reviewScriptProposal("ws",script.id);expect(proposal.inputBytes).toBeGreaterThan(12000);expect(proposal.inputBytes).toBeLessThanOrEqual(64000);
+    const proposal=await scripts.reviewScriptProposal("ws",script.id);expect(proposal.inputBytes).toBeGreaterThan(12000);expect(proposal.inputBytes).toBeLessThanOrEqual(16384);
     await db.put("ws","game_profile",{id:game.id,facts:Array.from({length:30},(_,i)=>({...facts[0],key:`manifest_about:large${i}`,value:"🌍".repeat(800)}))});const largeIdea=(await studio.prepareSourceIdeas("ws",game.id))[0];const largeScript=await scripts.saveContentScript("ws",largeIdea.id);
-    const fetch=vi.fn();vi.stubGlobal("fetch",fetch);await expect(scripts.reviewScriptProposal("ws",largeScript.id)).rejects.toThrow("64000-byte");expect(fetch).not.toHaveBeenCalled();
+    const fetch=vi.fn();vi.stubGlobal("fetch",fetch);await expect(scripts.reviewScriptProposal("ws",largeScript.id)).rejects.toThrow("16384-byte");expect(fetch).not.toHaveBeenCalled();
   });
   it("makes one Decisions request with rubric ratings and no generated-prose claim",async()=>{
     const {script,idea}=await score();const state=await scripts.scriptState("ws",idea.id);
     expect(state.review?.score).toMatchObject({overall:76,hook:{score:20},pacing:{score:15},clarity:{score:23},shareability:{score:18}});
     expect(state.review?.score?.hook.explanation).toContain("Rubric:");expect(state.review?.scriptText).toBe(script.text);expect(state.caveat).toContain("not a predicted");
-    const [url,init]=vi.mocked(fetch).mock.calls[0];expect(url).toBe("https://openrouter.ai/api/alpha/decisions");const request=JSON.parse(String(init?.body));expect(request.provider.allow_fallbacks).toBe(false);expect(Object.keys(request.questions)).toHaveLength(5);expect(request).not.toHaveProperty("messages");
+    const [url,init]=vi.mocked(fetch).mock.calls[0];expect(url).toBe("https://openrouter.ai/api/alpha/decisions");const request=JSON.parse(String(init?.body));expect(request.provider.allow_fallbacks).toBe(false);expect(request.provider.only).toEqual(["typesafe"]);expect(Buffer.byteLength(String(init?.body),"utf8")).toBeLessThanOrEqual(16384);expect(new Headers(init?.headers).has("TypeSafe-Danger-Zone-Long-Context")).toBe(false);expect(Object.keys(request.questions)).toHaveLength(5);expect(request).not.toHaveProperty("messages");
     await scripts.startScriptReview("ws",state.review!.id);expect(fetch).toHaveBeenCalledOnce();
   });
   it("requires fresh explicit review approval, rejects changed/expired selection and never retries ambiguity",async()=>{
     const {script}=await setup();const p=await scripts.reviewScriptProposal("ws",script.id);delete process.env.BLAZE_JEV_SCRIPT_REVIEW_ENABLED;
-    await expect(scripts.approveScriptReview("ws","owner",{scriptId:script.id,reviewHash:p.reviewHash,requestId:randomUUID()})).rejects.toThrow("paused");process.env.BLAZE_JEV_SCRIPT_REVIEW_ENABLED="true";
-    const r=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,reviewHash:p.reviewHash,requestId:randomUUID()});const fetch=vi.fn(async()=>{throw Error("Response lost");});vi.stubGlobal("fetch",fetch);
+    await expect(scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()})).rejects.toThrow("paused");process.env.BLAZE_JEV_SCRIPT_REVIEW_ENABLED="true";
+    const r=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()});const fetch=vi.fn(async()=>{throw Error("Response lost");});vi.stubGlobal("fetch",fetch);
     await Promise.all([scripts.startScriptReview("ws",r.id),scripts.startScriptReview("ws",r.id)]);expect(fetch).toHaveBeenCalledOnce();expect((await db.get<{id:string;state:string}>("ws","script_review",r.id))?.state).toBe("needs_reconciliation");await scripts.startScriptReview("ws",r.id);expect(fetch).toHaveBeenCalledOnce();
-    await expect(scripts.approveScriptReview("ws","owner",{scriptId:script.id,reviewHash:p.reviewHash,requestId:randomUUID()})).rejects.toThrow("uncertain");
+    await expect(scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()})).rejects.toThrow("uncertain");
+  });
+  it("reserves exactly one cent locally and fails closed on a provider admission violation",async()=>{
+    const {script,idea}=await setup();const p=await scripts.reviewScriptProposal("ws",script.id);
+    expect(p.costAdmission.maxCostBoundUsd).toBe(0.002752512);
+    await expect(scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:2 as 1,reviewHash:p.reviewHash,requestId:randomUUID()})).rejects.toThrow();
+    expect(await db.list("ws","script_review")).toHaveLength(0);
+    const grant=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()});
+    expect(grant).toMatchObject({maxCostCents:1,maxCostBoundNanoUsd:2752512,maxBillableInputTokens:65536});
+    const raw=scoreResult();raw.usage.cost=0.02;const fetch=vi.fn(async()=>Response.json(raw));vi.stubGlobal("fetch",fetch);
+    expect(await scripts.startScriptReview("ws",grant.id)).toMatchObject({state:"needs_reconciliation",costAdmissionViolation:true,usage:{reportedCostUsd:0.02}});
+    expect((await scripts.scriptState("ws",idea.id)).review?.score).toBeUndefined();
+    await expect(scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()})).rejects.toThrow("Reconcile billing");expect(fetch).toHaveBeenCalledOnce();
+  });
+  it.each([
+    {input_tokens:1000,cost:0.02},
+    {input_tokens:65537,output_tokens:"invalid",cost:0.0001},
+    {input_tokens:1000,output_tokens:70,cost:"invalid"},
+    undefined,
+  ])("holds workspace admission when any billing field is missing/malformed or exceeds bounds",async usage=>{
+    const {script}=await setup();const p=await scripts.reviewScriptProposal("ws",script.id);const r=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()});
+    const fetch=vi.fn(async()=>Response.json({...scoreResult(),usage}));vi.stubGlobal("fetch",fetch);
+    const result=await scripts.startScriptReview("ws",r.id);expect(result).toMatchObject({state:"needs_reconciliation",costAdmissionViolation:true});expect(result?.score).toBeUndefined();
+    if(usage?.cost===0.02)expect(result?.usage?.reportedCostUsd).toBe(0.02);
+    expect(await scripts.startScriptReview("ws",r.id)).toMatchObject({state:"needs_reconciliation"});await expect(scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()})).rejects.toThrow("Reconcile billing");expect(fetch).toHaveBeenCalledOnce();
+  });
+  it.each(["not-json", "timeout", "oversized", "non-success"])("holds unverifiable post-dispatch billing (%s) without retry",async failure=>{
+    const {script}=await setup();const p=await scripts.reviewScriptProposal("ws",script.id);const r=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()});
+    const fetch=vi.fn(async()=>{if(failure==="timeout")throw Error("Connection lost");if(failure==="oversized")return new Response("x".repeat(128*1024+1));if(failure==="non-success")return new Response(null,{status:503});return new Response("not-json",{status:200});});vi.stubGlobal("fetch",fetch);
+    expect(await scripts.startScriptReview("ws",r.id)).toMatchObject({state:"needs_reconciliation",costAdmissionViolation:true});
+    expect(await scripts.startScriptReview("ws",r.id)).toMatchObject({state:"needs_reconciliation"});expect(fetch).toHaveBeenCalledOnce();
+    await expect(scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()})).rejects.toThrow("Reconcile billing");
+  });
+  it("serializes different approved scripts before any second paid dispatch",async()=>{
+    const {script}=await setup();const secondIdea=(await studio.prepareSourceIdeas("ws",game.id))[1];const secondScript=await scripts.saveContentScript("ws",secondIdea.id);
+    const grants=[];for(const current of [script,secondScript]){const p=await scripts.reviewScriptProposal("ws",current.id);grants.push(await scripts.approveScriptReview("ws","owner",{scriptId:current.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()}));}
+    let release!:()=>void, entered!:()=>void, twice!:()=>void;const gate=new Promise<void>(r=>release=r),firstCall=new Promise<void>(r=>entered=r),secondCall=new Promise<void>(r=>twice=r);
+    let calls=0;const fetch=vi.fn(async()=>{if(++calls===1)entered();else twice();await gate;return Response.json(scoreResult());});vi.stubGlobal("fetch",fetch);
+    const pending=grants.map(g=>scripts.startScriptReview("ws",g.id).then(()=>"settled",()=>"settled"));
+    await firstCall;const observed=await Promise.race([secondCall.then(()=>"duplicate"),...pending]);release();await Promise.all(pending);expect(observed).toBe("settled");expect(fetch).toHaveBeenCalledOnce();
   });
   it("consumes stale unused review approvals and allows a newly edited version to be scored",async()=>{
-    const {script,idea}=await setup();const proposal=await scripts.reviewScriptProposal("ws",script.id);const prior=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,reviewHash:proposal.reviewHash,requestId:randomUUID()});
+    const {script,idea}=await setup();const proposal=await scripts.reviewScriptProposal("ws",script.id);const prior=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:proposal.reviewHash,requestId:randomUUID()});
     await scripts.saveContentScript("ws",idea.id,"A new opening and a clear source-grounded obstacle sequence.",script.revision);
-    expect(await db.get("ws","script_review",prior.id)).toMatchObject({state:"failed"});const next=await scripts.reviewScriptProposal("ws",script.id);const grant=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,reviewHash:next.reviewHash,requestId:randomUUID()});
+    expect(await db.get("ws","script_review",prior.id)).toMatchObject({state:"failed"});const next=await scripts.reviewScriptProposal("ws",script.id);const grant=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:next.reviewHash,requestId:randomUUID()});
     await db.put("ws","script_review",{...grant,expiresAt:"2020-01-01T00:00:00Z"});const fetch=vi.fn();vi.stubGlobal("fetch",fetch);expect(await scripts.startScriptReview("ws",grant.id)).toMatchObject({state:"failed"});expect(fetch).not.toHaveBeenCalled();
-    expect(await scripts.approveScriptReview("ws","owner",{scriptId:script.id,reviewHash:next.reviewHash,requestId:randomUUID()})).toMatchObject({state:"approved"});
+    expect(await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:next.reviewHash,requestId:randomUUID()})).toMatchObject({state:"approved"});
   });
   it("uses the latest attempt consistently when a repeated review fails",async()=>{
-    const {script,idea}=await score();const p=await scripts.reviewScriptProposal("ws",script.id);const grant=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,reviewHash:p.reviewHash,requestId:randomUUID()});
-    vi.stubGlobal("fetch",vi.fn(async()=>Response.json({bad:"response"})));expect(await scripts.startScriptReview("ws",grant.id)).toMatchObject({state:"failed"});expect((await scripts.scriptState("ws",idea.id)).review?.state).toBe("failed");await expect(scripts.reviewedScript("ws",idea.id,script.sourceRevision)).rejects.toThrow("successful Jev score");
+    const {script,idea}=await score();const p=await scripts.reviewScriptProposal("ws",script.id);const grant=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()});
+    vi.stubGlobal("fetch",vi.fn(async()=>Response.json({...scoreResult(),answers:{}})));expect(await scripts.startScriptReview("ws",grant.id)).toMatchObject({state:"failed"});expect((await scripts.scriptState("ws",idea.id)).review?.state).toBe("failed");await expect(scripts.reviewedScript("ws",idea.id,script.sourceRevision)).rejects.toThrow("successful Jev score");
   });
   it("rejects malformed/out-of-range scores without fake defaults or a retry",async()=>{
     for(const value of [-1,4.1,101,NaN]){const raw=scoreResult();raw.answers.hook.score=value;expect(()=>scripts.scoreFromDecisions(raw,"typesafe/jev-1.14")).toThrow();}
     expect(()=>scripts.scoreFromDecisions({...scoreResult(),model:"other/model"},"typesafe/jev-1.14")).toThrow();
-    const {script,idea}=await setup();const p=await scripts.reviewScriptProposal("ws",script.id);const r=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,reviewHash:p.reviewHash,requestId:randomUUID()});const raw=scoreResult();raw.answers.clarity.score=99;
+    const {script,idea}=await setup();const p=await scripts.reviewScriptProposal("ws",script.id);const r=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()});const raw=scoreResult();raw.answers.clarity.score=99;
     const fetch=vi.fn(async()=>Response.json(raw));vi.stubGlobal("fetch",fetch);expect(await scripts.startScriptReview("ws",r.id)).toMatchObject({state:"failed"});expect((await scripts.scriptState("ws",idea.id)).review?.score).toBeUndefined();await scripts.startScriptReview("ws",r.id);expect(fetch).toHaveBeenCalledOnce();
   });
 });
