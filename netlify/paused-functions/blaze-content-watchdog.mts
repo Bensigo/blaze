@@ -1,4 +1,4 @@
-import { tickContentProduction } from '../../src/lib/content-production-worker';
+import { tickContentService } from '../../src/lib/content-service';
 // Deliberately outside netlify/functions. Commissioning must explicitly publish
 // this minute schedule; an ordinary UI deployment cannot activate it.
 export const config = { schedule: '* * * * *' };
@@ -9,6 +9,6 @@ export default async function () {
   if (!workspace || workspace.length > 100 || /[\u0000-\u001f\u007f]/.test(workspace)) throw new Error('Monitoring workspace is missing.');
   // Native schedule invokes shared code directly: no public bearer endpoint,
   // internal HTTP hop, provider POST retry, or browser lifetime dependency.
-  await tickContentProduction(workspace);
+  await tickContentService(workspace);
   return new Response(null, { status: 204 });
 }

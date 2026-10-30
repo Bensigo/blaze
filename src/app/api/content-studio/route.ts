@@ -1,3 +1,4 @@
+import { rejectContentIdea } from "@/lib/content-preferences";
 import { z } from "zod";
 import { requireIdentity, apiError, HttpError } from "@/lib/auth";
 import { sameOrigin } from "@/lib/security";
@@ -5,6 +6,7 @@ import { rateLimit } from "@/lib/db";
 import { approveVideo, cancelVideo, planVideo, prepareSourceIdeas, refreshVideo, saveIdeaSchedule, scheduleSchema, startApprovedVideo, studioSnapshot, videoSettingsSchema } from "@/lib/content-studio";
 const recordId = z.string().min(1).max(100);
 const actionSchema = z.discriminatedUnion("action", [
+  z.object({action:z.literal("reject"),ideaId:recordId,reason:z.string().trim().max(300).optional()}).strict(),
   z.object({ action: z.literal("prepare_outlines"), gameId: recordId }).strict(),
   z.object({ action: z.literal("save_schedule"), schedule: scheduleSchema }).strict(),
   z.object({ action: z.literal("approve"), ideaId: recordId, requestId: z.string().uuid(), settings: videoSettingsSchema, maxListCostCents: z.number().int().min(1).max(5000), acknowledgeCost: z.literal(true) }).strict(),
@@ -34,6 +36,7 @@ export async function POST(request: Request) {
     const body = actionSchema.parse(JSON.parse(Buffer.concat(chunks, size).toString("utf8")));
     const workspace = user.workspace_id;
     let result: unknown;
+    if (body.action === "reject") result=await rejectContentIdea(workspace,user.id,body.ideaId,body.reason);
     if (body.action === "prepare_outlines") result = await prepareSourceIdeas(workspace, body.gameId);
     if (body.action === "save_schedule") result = await saveIdeaSchedule(workspace, body.schedule);
     if (body.action === "approve") result = await approveVideo(workspace, user.id, body);

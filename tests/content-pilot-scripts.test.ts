@@ -41,7 +41,7 @@ describe("versioned scripts and paid Jev score admission",()=>{
     expect(await scripts.scriptReviewAvailability("ws")).toEqual({enabled:true});
     for(const hold of [{state:"starting"},{state:"needs_reconciliation"},{state:"complete",costAdmissionViolation:true}]){
       await db.put("ws","script_review",{id:"held-other-script",...hold});
-      expect(await scripts.scriptReviewAvailability("ws")).toMatchObject({enabled:false,reason:expect.stringMatching(/earlier Jev request/)});
+      expect(await scripts.scriptReviewAvailability("ws")).toMatchObject({enabled:false,reason:expect.stringMatching(/earlier script review request/)});
       await db.query("DELETE FROM records WHERE workspace_id='ws' AND kind='script_review'");
     }
     await db.put("other","script_review",{id:"other-workspace-hold",state:"starting"});
@@ -69,7 +69,8 @@ describe("versioned scripts and paid Jev score admission",()=>{
     const {script}=await setup();const p=await scripts.reviewScriptProposal("ws",script.id);delete process.env.BLAZE_JEV_SCRIPT_REVIEW_ENABLED;
     await expect(scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()})).rejects.toThrow("paused");process.env.BLAZE_JEV_SCRIPT_REVIEW_ENABLED="true";
     const r=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()});const fetch=vi.fn(async()=>{throw Error("Response lost");});vi.stubGlobal("fetch",fetch);
-    await Promise.all([scripts.startScriptReview("ws",r.id),scripts.startScriptReview("ws",r.id)]);expect(fetch).toHaveBeenCalledOnce();expect((await db.get<{id:string;state:string}>("ws","script_review",r.id))?.state).toBe("needs_reconciliation");await scripts.startScriptReview("ws",r.id);expect(fetch).toHaveBeenCalledOnce();
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    await Promise.all([scripts.startScriptReview("ws",r.id,{timeoutMs:15000}),scripts.startScriptReview("ws",r.id,{timeoutMs:15000})]);expect(timeout).toHaveBeenCalledWith(15000);timeout.mockRestore();expect(fetch).toHaveBeenCalledOnce();expect((await db.get<{id:string;state:string}>("ws","script_review",r.id))?.state).toBe("needs_reconciliation");await scripts.startScriptReview("ws",r.id);expect(fetch).toHaveBeenCalledOnce();
     await expect(scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()})).rejects.toThrow("uncertain");
   });
   it("reserves exactly one cent locally and fails closed on a provider admission violation",async()=>{
@@ -120,7 +121,7 @@ describe("versioned scripts and paid Jev score admission",()=>{
   });
   it("uses the latest attempt consistently when a repeated review fails",async()=>{
     const {script,idea}=await score();const p=await scripts.reviewScriptProposal("ws",script.id);const grant=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:p.reviewHash,requestId:randomUUID()});
-    vi.stubGlobal("fetch",vi.fn(async()=>Response.json({...scoreResult(),answers:{}})));expect(await scripts.startScriptReview("ws",grant.id)).toMatchObject({state:"failed"});expect((await scripts.scriptState("ws",idea.id)).review?.state).toBe("failed");await expect(scripts.reviewedScript("ws",idea.id,script.sourceRevision)).rejects.toThrow("successful Jev score");
+    vi.stubGlobal("fetch",vi.fn(async()=>Response.json({...scoreResult(),answers:{}})));expect(await scripts.startScriptReview("ws",grant.id)).toMatchObject({state:"failed"});expect((await scripts.scriptState("ws",idea.id)).review?.state).toBe("failed");await expect(scripts.reviewedScript("ws",idea.id,script.sourceRevision)).rejects.toThrow("successful script review score");
   });
   it("rejects malformed/out-of-range scores without fake defaults or a retry",async()=>{
     for(const value of [-1,4.1,101,NaN]){const raw=scoreResult();raw.answers.hook.score=value;expect(()=>scripts.scoreFromDecisions(raw,"typesafe/jev-1.14")).toThrow();}
@@ -131,7 +132,7 @@ describe("versioned scripts and paid Jev score admission",()=>{
 });
 describe("single-use operator cloud pilot",()=>{
   it("waives only unproven pilot evidence while retaining operator, network, account, monitor and score gates",async()=>{
-    const {idea}=await setup();const input=inputs(idea.id);await expect(studio.reviewPilotVideo("ws","owner",input)).rejects.toThrow("successful Jev score");
+    const {idea}=await setup();const input=inputs(idea.id);await expect(studio.reviewPilotVideo("ws","owner",input)).rejects.toThrow("successful script review score");
     await score();await expect(studio.reviewPilotVideo("ws","other",input)).rejects.toThrow("operator");await expect(studio.reviewPilotVideo("other","owner",input)).rejects.toThrow("operator");
     expect((await studio.reviewPilotVideo("ws","owner",input)).ready).toBe(true);expect((await studio.studioReadiness("ws")).ready).toBe(false);
     const config=(await db.get<any>("ws","content_provider","default"))!;

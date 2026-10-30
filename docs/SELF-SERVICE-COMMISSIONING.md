@@ -1,5 +1,7 @@
 # Self-service content commissioning
 
+Superseded by [Content product acceptance](CONTENT-PRODUCT-ACCEPTANCE.md), including generated-and-scored daily cards, on-demand generation, scoped dashboard consent and the shared content bank.
+
 Status: implemented locally; persistent schedule and paid execution are NOT activated.
 
 ## Owner journey

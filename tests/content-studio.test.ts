@@ -58,7 +58,7 @@ describe("content studio approvals and recovery", () => {
   it("prepares scoped source outlines once without model calls or private telemetry", async () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     const first = await studio.prepareSourceIdeas("ws", "g"); await studio.prepareSourceIdeas("ws", "g");
-    expect(first).toHaveLength(3); expect(await db.list("ws", "content_idea")).toHaveLength(3);
+    expect(first).toHaveLength(2); expect(await db.list("ws", "content_idea")).toHaveLength(2);
     expect(JSON.stringify(await studio.gameSources("ws", "g"))).not.toContain("PRIVATE_TELEMETRY");
     expect((await studio.studioSnapshot("other")).ideas).toEqual([]);
     const snapshot=await studio.studioSnapshot("ws");

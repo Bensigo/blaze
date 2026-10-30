@@ -1,3 +1,5 @@
+import { productionObservationsSchema, persistProductionFindings } from "./production-findings";
+import { contentRejections } from "./content-preferences";
 import {referenceContext,referenceLibrary,referenceSetRevision,rubricRevision,referenceStructure,selectContentReferences} from "./content-references";
 import { approvalJson } from "./approval-json";
 import { reviewedScript, type ContentScript, type ScriptReview } from "./content-scripts";
@@ -22,9 +24,9 @@ export const videoSettingsSchema = z.object({
 }).strict();
 export const scheduleSchema = z.object({
   countPerGame: z.union([z.literal(2), z.literal(3)]), localTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
-  maxOutputTokensPerGame: z.number().int().min(500).max(2500),
+  maxOutputTokensPerGame: z.number().int().min(500).max(4000),
 }).strict();
-const defaultSchedule: IdeaSchedule = { id: "default", countPerGame: 3, localTime: null, enabled: false, timeZone: "Asia/Dubai", maxOutputTokensPerGame: 1800 };
+const defaultSchedule: IdeaSchedule = { id: "default", countPerGame: 2, localTime: "08:00", enabled: false, timeZone: "Asia/Dubai", maxOutputTokensPerGame: 4000 };
 type ProviderConfig = { id: "default"; connectionId: string; agentId: string; agentVersion: number; environmentId: string; revision: string; pilotVerified: boolean; networkPolicyVerified: boolean; organizationVerified: boolean; watchdogVerified: boolean; watchdogAdmissionVerified?: boolean;
   reviewedGames?: Record<string, { sourceRevision: string; gameAudioVerified: boolean }> };
 export const dubaiDate = (date = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
@@ -64,6 +66,11 @@ export async function studioSnapshot(workspace: string, gameId?: string, actor?:
     list<ContentIdea>(workspace, "content_idea"), list<VideoProduction>(workspace, "video_production"),
     get<IdeaSchedule>(workspace, "idea_schedule", "default"), studioReadiness(workspace, "production", gameId),
   ]);
+  const rejections=await contentRejections(workspace,gameId);
+  const rejectedIds=new Set(rejections.map(r=>r.ideaId));
+  const dailyGrant=await get<{expiresAt:string;scheduleHash:string}>(workspace,"daily_idea_authorization","default");
+  const persistedSchedule=schedule||defaultSchedule;
+  const dailyPlanExpired=persistedSchedule.enabled&&(!dailyGrant||!Number.isFinite(Date.parse(dailyGrant.expiresAt))||Date.parse(dailyGrant.expiresAt)<=Date.now()||dailyGrant.scheduleHash!==(await import("./daily-content-ideas")).ideaScheduleHash(persistedSchedule));
   const activeGames = new Set((await list<Game>(workspace, "game")).map(game => game.id));
   const visibleIdeas = ideas.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId));
   const [savedScripts, reviews] = await Promise.all([list<ContentScript>(workspace, "content_script"), list<ScriptReview>(workspace, "script_review")]);
@@ -79,7 +86,7 @@ export async function studioSnapshot(workspace: string, gameId?: string, actor?:
     return {ideaId:s.ideaId,revision:s.revision,reviewId:accepted?review?.id:undefined,text:s.text,sourceStale,contextStale,referenceIds:s.referenceIds||[],referenceSetRevision:s.referenceSetRevision,rubricRevision:s.rubricRevision,scoreReferenceSetRevision:(accepted?review:historical)?.referenceSetRevision,reviewState:sourceStale||contextStale?"stale":review?.state,...(accepted?{score:review!.score}:historical?.score?{staleScore:historical.score}:{})};
   });
   const referenceSource=gameId?(sources.get(gameId)||await gameSources(workspace,gameId).catch(()=>null)):null;
-  return { sourceFacts:[...sources.values()].flatMap(source=>source?[{gameId:source.gameId,sourceRevision:source.revision,facts:source.facts.map(({key,value})=>({key,value}))}]:[]), references:{setId:referenceLibrary.set_id,revision:referenceSetRevision,rubricRevision,selected:referenceSource?selectContentReferences(referenceSource).map(x=>({id:x.reference.id,relevance:x.relevance})):[]}, scripts, ideas: ideas.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), productions: productions.filter(v => activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), schedule: schedule || defaultSchedule, readiness, ...(pilotOperator(workspace, actor) ? { pilot: { operator: true, ...await studioReadiness(workspace, "pilot") } } : {}) };
+  return { rejections, sourceFacts:[...sources.values()].flatMap(source=>source?[{gameId:source.gameId,sourceRevision:source.revision,facts:source.facts.map(({key,value})=>({key,value}))}]:[]), references:{setId:referenceLibrary.set_id,revision:referenceSetRevision,rubricRevision,selected:referenceSource?selectContentReferences(referenceSource).map(x=>({id:x.reference.id,relevance:x.relevance})):[]}, scripts, ideas: ideas.filter(v => !rejectedIds.has(v.id) && activeGames.has(v.gameId) && (!gameId || v.gameId === gameId)), productions: productions.filter(v => (activeGames.has(v.gameId) || v.state === "ready") && (!gameId || v.gameId === gameId)), schedule: {...persistedSchedule,enabled:persistedSchedule.enabled&&!dailyPlanExpired}, dailyPlan:{expiresAt:dailyGrant?.expiresAt,needsReview:!!dailyPlanExpired}, readiness, ...(pilotOperator(workspace, actor) ? { pilot: { operator: true, ...await studioReadiness(workspace, "pilot") } } : {}) };
 }
 export async function saveIdeaSchedule(workspace: string, input: z.infer<typeof scheduleSchema>) {
   // Saving preferences never activates a metered recurring task or preserves an old spend approval.
@@ -190,6 +197,7 @@ export async function approveVideo(workspace: string, actor: string, input: { id
   }
   const idea = await get<ContentIdea>(workspace, "content_idea", input.ideaId);
   if (!idea) throw new HttpError(404, "Idea not found.");
+  if(await get(workspace,"content_rejection",idea.id)) throw new HttpError(409,"This suggestion was rejected. Choose another idea.");
   const source = await gameSources(workspace, idea.gameId);
   if (source.revision !== idea.sourceRevision) throw new HttpError(409, "The game evidence changed. Refresh the ideas and review them again.");
   const readiness = await studioReadiness(workspace);
@@ -208,7 +216,9 @@ export async function approveVideo(workspace: string, actor: string, input: { id
     approvalHash: hash(JSON.stringify({ idea, settings, maxListCostCents: input.maxListCostCents, sourceRevision: source.revision, providerRevision: config.revision, credentialRevision, script: { id: script.script.id, revision: script.script.revision, reviewId: script.review.id } })) };
   return transaction(async sql => {
     const lockedSource = await gameSources(workspace, idea.gameId, sql);
+    await sql("SELECT id FROM records WHERE workspace_id=$1 AND kind='content_script' AND id=$2 FOR UPDATE",[workspace,script.script.id]);
     const lockedScript = await reviewedScript(workspace, idea.id, lockedSource.revision, sql);
+    if((await sql("SELECT id FROM records WHERE workspace_id=$1 AND kind='content_rejection' AND id=$2",[workspace,idea.id])).length) throw new HttpError(409,"This suggestion was rejected.");
     if (lockedSource.revision !== source.revision || lockedScript.script.revision !== script.script.revision || lockedScript.review.id !== script.review.id) throw new HttpError(409, "Script or source changed before video approval.");
     // Serialize approvals per idea, including different tabs with different request IDs.
     await sql(`SELECT id FROM records WHERE workspace_id=$1 AND kind='content_idea' AND id=$2 FOR UPDATE`, [workspace, idea.id]);
@@ -276,7 +286,9 @@ export async function startApprovedVideo(workspace: string, productionId: string
     if (!currentProduction || JSON.stringify(currentProduction) !== JSON.stringify(production)) return false;
     const encrypted = (await sql<{ encrypted: string }>(`SELECT encrypted FROM credentials WHERE workspace_id=$1 AND provider=$2 FOR UPDATE`, [workspace, config.connectionId]))[0]?.encrypted;
     if (!encrypted || hash(encrypted) !== production.credentialRevision) throw new HttpError(409, "Producer key changed before dispatch.");
+    await sql("SELECT id FROM records WHERE workspace_id=$1 AND kind='content_script' AND id=$2 FOR UPDATE",[workspace,production.scriptId]);
     const script = await reviewedScript(workspace, production.ideaId, production.sourceRevision, sql);
+    if((await sql("SELECT id FROM records WHERE workspace_id=$1 AND kind='content_rejection' AND id=$2",[workspace,production.ideaId])).length) throw new HttpError(409,"This suggestion was rejected before generation.");
     if (script.script.id !== production.scriptId || script.script.revision !== production.scriptRevision || script.review.id !== production.scriptReviewId) throw new HttpError(409, "Script or Jev review changed before dispatch.");
     if (production.pilotGrantId) {
       const grant = (await sql<{ body: PilotGrant }>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='pilot_grant' AND id=$2 FOR UPDATE`, [workspace, production.pilotGrantId]))[0]?.body;
@@ -291,7 +303,7 @@ export async function startApprovedVideo(workspace: string, productionId: string
   try {
     const session = await startManagedSession(secret, { agentId: config.agentId, agentVersion: config.agentVersion, environmentId: config.environmentId,
       budgetCents: production.maxListCostCents, prompt: JSON.stringify({ productionId, source, idea: production.idea, script: { text: production.scriptText, revision: production.scriptRevision, jevReview: scriptSnapshot.review.score }, settings: production.settings,
-        requiredOutputs: ["video.mp4", "evidence.json", "raw capture"], instructions: "Actively play the real game in the cloud, capture footage and edit this exact approved script. Never publish. In evidence.json gameUrl must equal the initially requested source.url; record the actual final browser URL and any approved redirects in limitations. Stop if navigation requires an unapproved origin." }) });
+        requiredOutputs: ["video.mp4", "evidence.json", "raw capture"], outputLimits:{maxVideoBytes:25*1024*1024,maxEvidenceBytes:128*1024}, captureObservations:"In evidence.json include observations only for moments actually visible in the final video: at (final video seconds), kind (observed_error|performance_measurement|ux_suggestion), title, detail, capturedInVideo, optional measurement {metric:fps|frame_time_ms,value}. Separate measured values from subjective suggestions. Never invent errors or performance results; use an empty array when nothing was observed. Do not put URLs in observation text.", instructions: "Actively play the real game in the cloud, capture footage and edit this exact approved script. Never publish. In evidence.json gameUrl must equal the initially requested source.url; record the actual final browser URL and any approved redirects in limitations. Stop if navigation requires an unapproved origin." }) });
     // If cancellation raced the request, retain its marker and attach the session for operator reconciliation.
     await query(`UPDATE records SET body=body || $4::jsonb || jsonb_build_object('state',CASE WHEN body->>'state'='cancel_requested' THEN 'cancel_requested' ELSE 'running' END),updated_at=now() WHERE workspace_id=$1 AND kind='video_production' AND id=$2 AND body->>'approvalHash'=$3`,
       [workspace, productionId, production.approvalHash, JSON.stringify({ sessionId: session.id, updatedAt: new Date().toISOString() })]);
@@ -323,6 +335,7 @@ const evidenceSchema = z.object({
   playedActions: z.array(z.object({ at: z.number().nonnegative(), action: z.string().min(1).max(300) })).min(1).max(500),
   rawCaptureFilename: z.string().regex(/^raw[-_A-Za-z0-9]*\.(webm|mp4)$/), audioCaptured: z.boolean(),
   limitations: z.array(z.string().max(500)).max(20),
+  observations: productionObservationsSchema.optional(),
 });
 export async function inspectProducedVideo(bytes: Uint8Array, production: Pick<VideoProduction, "settings">) {
   const input = new Input({ source: new BufferSource(bytes), formats: [MP4] });
@@ -414,5 +427,6 @@ export async function refreshVideo(workspace: string, productionId: string, opti
   await put(workspace, "production_evidence", { id: production.id, sessionId: production.sessionId, report, inspection, rawFileId: raw.id, providerFileId: video.id, observedAt: new Date().toISOString(), verification: "Media structure validated; gameplay actions are agent-reported and require human review." });
   const next: VideoProduction = { ...importing, videoUrl, state: "ready", error: undefined, updatedAt: new Date().toISOString() };
   if (!await comparePut(workspace, "video_production", importing, next)) return productionRecord(workspace, productionId);
+  if(report.observations?.length) await persistProductionFindings(workspace,productionId,report.observations);
   return next;
 }

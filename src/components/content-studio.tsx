@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { DEFAULT_VIDEO_SETTINGS, type ContentIdea, type StudioSnapshot, type VideoProduction, type VideoSettings, type PilotReview } from "@/lib/content-studio-contract";
+import DailyContentConsent from "./daily-content-consent";
+import ContentGenerator from "./content-generator";
 import ContentReferenceLibrary from "./content-reference-library";
 import ContentScriptEditor from "./content-script-editor";
 import type { Game } from "@/lib/types";
@@ -16,6 +18,7 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
   const [chosen, setChosen] = useState<ContentIdea | null>(null);
   const [settings, setSettings] = useState<VideoSettings>(DEFAULT_VIDEO_SETTINGS);
   const [budget, setBudget] = useState(100); const [acknowledge, setAcknowledge] = useState(false);
+  const [focusRunId,setFocusRunId]=useState<string|null>(null);
   const [scriptReady, setScriptReady] = useState(false);
   const [scriptSaved, setScriptSaved] = useState(false);
   const [editorStep, setEditorStep] = useState<1 | 2 | 3>(1);
@@ -32,7 +35,12 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
   const refresh = useCallback(async () => {
     const body = await browserRead<StudioSnapshot>(`/api/content-studio${gameId === "all" ? "" : `?gameId=${encodeURIComponent(gameId)}`}`);
     if(currentGame.current===gameId)setData(body);
+    return body;
   }, [gameId]);
+  const generated = useCallback(async (ids:string[]) => {
+    const snapshot=await refresh();const idea=snapshot.ideas.find(item=>ids.includes(item.id));
+    if(idea){setChosen(idea);setEditorStep(1);setScriptReady(false);setScriptSaved(false);}
+  },[refresh]);
   useEffect(() => {
     let cancelled = false; const controller=new AbortController(); setData(null); setChosen(null); setError("");
     if (!demo) void browserRead<StudioSnapshot>(`/api/content-studio${gameId === "all" ? "" : `?gameId=${encodeURIComponent(gameId)}`}`,controller.signal).then(body => {
@@ -74,7 +82,7 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
     try {
       const production: VideoProduction = await send({ action: "generate", providerRevision: data.readiness.providerRevision, ideaId: chosen.id, scriptRevision: script?.revision, scriptReviewId: script?.reviewId, settings, maxListCostCents: budget, requestId: id, acknowledgeCost: true });
       if (["ready", "failed", "cancelled"].includes(production.state)) clearDashboardRequest(receiptKey);
-      setChosen(null); requestId.current = null; setAcknowledge(false); await refresh();
+      setChosen(null); requestId.current = null; setAcknowledge(false); setFocusRunId(production.id); await refresh();
     } catch (error) { setError(error instanceof Error ? error.message : "Unable to start this video. Refresh to inspect its state before trying again."); await refresh().catch(() => {}); }
     finally { lock.current = false; setBusy(false); }
   };
@@ -95,6 +103,7 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
     } catch (e) { setError(e instanceof Error ? e.message : "Pilot request failed."); await refresh().catch(() => {}); }
     finally { lock.current = false; setBusy(false); }
   };
+  useEffect(()=>{if(!focusRunId||!data?.productions.some(run=>run.id===focusRunId))return;const element=document.getElementById(`studio-run-${focusRunId}`);if(element){element.focus();element.scrollIntoView({block:"start"});setFocusRunId(null);}},[focusRunId,data]);
   useEffect(() => { if (!data?.readiness.ready) setAcknowledge(false); }, [data?.readiness.ready]);
   if (demo) return <section className="content-engine"><p>Sign in to prepare ideas and produce videos for your games.</p></section>;
   const refreshSetup = async () => {
@@ -107,14 +116,16 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
   const title = (id: string) => games.find(g => g.id === id)?.title || "Game";
   const ideaPriority = (idea: ContentIdea) => { const script = data?.scripts?.find(s=>s.ideaId===idea.id); return script?.score ? 2 : script ? 1 : 0; };
   const ideas = [...(data?.ideas || [])].sort((a,b)=>ideaPriority(b)-ideaPriority(a));
+  const pendingIdeas = ideas.filter(idea => !data?.scripts?.find(script=>script.ideaId===idea.id)?.score);
+  const readyIdeas = ideas.filter(idea => !pendingIdeas.some(p=>p.id===idea.id));
   const videos = (data?.productions || []).filter(p => !calendarOnly || p.plannedDate).sort((a, b) => (a.plannedDate || "").localeCompare(b.plannedDate || ""));
   return <section className="content-engine" aria-label={calendarOnly ? "Video planning calendar" : "Gameplay video studio"}>
     {error && <div className="studio-error"><p role="alert">{error}</p>{!data&&<button className="button" onClick={()=>setReadAttempt(n=>n+1)}>Retry loading studio</button>}</div>}
     {notice && <p role="status">{notice}</p>}
     {!data && !error && <p role="status">Loading video studio…</p>}
     {!calendarOnly && data && <>
-      <header className="studio-heading"><div><h2 ref={ideaHeading} tabIndex={-1}>Gameplay videos <InfoHint label="About source outlines">Source outlines use saved game facts without an AI charge. Daily AI ideas and cloud production require separate setup and approval.</InfoHint></h2><ol className="studio-step-list" aria-label="Video workflow"><li>Script</li><li>Jev score</li><li>Video</li></ol></div>
-        <button className="button" disabled={busy || !games.length || gameId === "all"} onClick={() => void act({ action: "prepare_outlines", gameId })}>Prepare source outlines</button></header>
+      <header className="studio-heading"><div><h2 ref={ideaHeading} tabIndex={-1}>Gameplay videos <InfoHint label="About source outlines">Source outlines use saved game facts without an AI charge. Generate game-specific ideas and scripts, choose a suggestion, review its score, then approve a video.</InfoHint></h2><ol className="studio-step-list" aria-label="Video workflow"><li>Script</li><li>Script review</li><li>Video</li></ol></div>
+        <ContentGenerator gameId={gameId} onGenerated={generated}/></header>
       {gameId === "all" && <p className="studio-hint">Choose one game above to prepare its ideas.</p>}
       <div className="studio-tools">
       <details className="studio-setup"><summary>{data.readiness.ready ? "Video · Ready" : "Video · Setup required"}</summary>
@@ -122,27 +133,30 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
         <ul>{data.readiness.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
         <p>The agent must play and capture the actual game in the cloud. No video has been generated until an accepted MP4 appears below.</p>
       </details>
-      <details className="studio-schedule"><summary>Daily ideas · {data.schedule.enabled ? "Enabled" : "Paused"}</summary>
+      <details className="studio-schedule"><summary>Daily suggestions · {data.schedule.enabled ? "Active" : "Paused"}</summary>
         <form className="studio-schedule-form" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); void act({ action: "save_schedule", schedule: { countPerGame: Number(form.get("count")), localTime: form.get("time") || null, maxOutputTokensPerGame: data.schedule.maxOutputTokensPerGame } }); }}>
           <label>Ideas per game<select name="count" defaultValue={data.schedule.countPerGame}><option value="2">2</option><option value="3">3</option></select></label>
           <label>Daily time · Dubai<input type="time" name="time" defaultValue={data.schedule.localTime || ""}/></label>
           <button className="button" disabled={busy}>Save preferences</button>
-        </form><p>Source outlines are free preparation. Daily AI ideas stay paused until the account, budget and schedule are approved.</p>
+        </form><DailyContentConsent enabled={data.schedule.enabled} onChanged={refresh}/>{data.dailyPlan?.needsReview&&<p role="status">Daily consent expired or changed. Review the plan to continue.</p>}{data.schedule.enabled&&data.dailyPlan?.expiresAt&&<small>Approved until {new Date(data.dailyPlan.expiresAt).toLocaleDateString("en-GB",{timeZone:"Asia/Dubai"})}</small>}
       </details>
+      <details><summary>Source outlines · no AI charge</summary><button type="button" className="button" disabled={busy || gameId === "all"} onClick={()=>void act({action:"prepare_outlines",gameId})}>Prepare source outlines</button></details>
       <ContentReferenceLibrary selected={data.references?.selected} revision={data.references?.revision}/>
       </div>
-      {!chosen&&<div className="studio-ideas">{ideas.map(idea => { const saved = data.scripts?.find(s=>s.ideaId===idea.id); const shownScore = saved?.score || saved?.staleScore; const facts=data.sourceFacts?.find(s=>s.gameId===idea.gameId&&s.sourceRevision===idea.sourceRevision)?.facts.filter(f=>idea.factKeys.includes(f.key)); return <article className="studio-idea" key={idea.id}>
-        <div><small>{title(idea.gameId)} · {idea.origin === "daily_agent" ? "Daily AI proposal" : "Source outline · no AI run"}</small><h3>{idea.title}</h3><p>{idea.hook}</p>
+      {!chosen&&<div className="studio-ideas">{readyIdeas.map(idea => { const saved = data.scripts?.find(s=>s.ideaId===idea.id); const shownScore = saved?.score || saved?.staleScore; const facts=data.sourceFacts?.find(s=>s.gameId===idea.gameId&&s.sourceRevision===idea.sourceRevision)?.facts.filter(f=>idea.factKeys.includes(f.key)); return <article className="studio-idea" key={idea.id} onClick={event=>{if((event.target as HTMLElement).closest("button,a,details,input,select,textarea"))return;setChosen(idea);setEditorStep(1);setScriptReady(false);setScriptSaved(false);}}>
+        <div><small>{title(idea.gameId)} · {idea.origin === "daily_agent" ? "Daily suggestion" : idea.origin === "on_demand_agent" ? "Generated suggestion" : "Source outline · no AI run"}</small><h3>{idea.title}</h3><p>{idea.hook}</p>
           <details><summary>Shots and source facts</summary><p>{idea.treatment}</p><ol>{idea.shots.map(shot => <li key={shot}>{shot}</li>)}</ol>{facts?.length?<ul className="studio-source-facts">{facts.map(f=><li key={f.key}>{f.value}</li>)}</ul>:<p>Current source evidence is unavailable for this outline. Prepare fresh outlines after reviewing the game source.</p>}</details></div>
-        <div className="studio-idea-action">{shownScore ? <span className="studio-score-summary"><strong>{shownScore.overall}/100</strong><span>{saved?.staleScore ? "Earlier score" : "Jev score"}</span><InfoHint label="About this score">{saved?.staleScore ? "Historical score. Open the script to inspect the earlier review; it does not authorize production." : "A creative review, not a prediction of virality."}</InfoHint></span> : <span className="studio-secondary">{saved?.sourceStale ? "Source changed" : "Not scored"}</span>}
-        <button className="button" disabled={busy} onClick={() => { setChosen(idea); setEditorStep(1); setScriptReady(false); setScriptSaved(false); setSettings(DEFAULT_VIDEO_SETTINGS); setAcknowledge(false); requestId.current = null; }}>Open script</button></div>
+        <div className="studio-idea-action">{shownScore ? <span className="studio-score-summary"><strong>{shownScore.overall}/100</strong><span>{saved?.staleScore ? "Earlier score" : "Content score"}</span><InfoHint label="About this score">{saved?.staleScore ? "Historical score. Open the script to inspect the earlier review; it does not authorize production." : "A creative review, not a prediction of virality."}</InfoHint></span> : <span className="studio-secondary">{saved?.sourceStale ? "Source changed" : "Not scored"}</span>}
+        <button className="button" disabled={busy} onClick={() => { setChosen(idea); setEditorStep(1); setScriptReady(false); setScriptSaved(false); setSettings(DEFAULT_VIDEO_SETTINGS); setAcknowledge(false); requestId.current = null; }}>Open script</button>{!saved?.score&&<button type="button" className="button" disabled={busy || !saved || saved.sourceStale} onClick={()=>{setChosen(idea);setEditorStep(2);setScriptReady(false);setScriptSaved(false);}}>Score content</button>}<button type="button" className="button" disabled={busy} onClick={()=>void act({action:"reject",ideaId:idea.id})}>I don’t like this</button></div>
       </article>; })}</div>}
-      {!data.ideas.length && <p className="studio-empty">No ideas yet. Select a game and prepare source outlines while the daily agent is being connected.</p>}
+      {!!pendingIdeas.length&&<section className="studio-pending" aria-label="Pending suggestions"><h3>Drafts and in progress · {pendingIdeas.length}</h3>{pendingIdeas.map(idea=><div key={idea.id}><strong>{idea.title}</strong><span role="status">{idea.origin === "source_outline" ? "Draft · not scored" : data.scripts?.find(script=>script.ideaId===idea.id)?.reviewState === "failed" || data.scripts?.find(script=>script.ideaId===idea.id)?.reviewState === "needs_reconciliation" ? "Review needs attention" : "Awaiting current score"}</span><button type="button" className="button" onClick={()=>{setChosen(idea);setEditorStep(1);setScriptReady(false);setScriptSaved(false);}}>Inspect script</button><button type="button" className="button" disabled={busy} onClick={()=>void act({action:"reject",ideaId:idea.id})}>I don’t like this</button></div>)}</section>}
+      {!data.ideas.length && <p className="studio-empty">No suggestions yet. Choose a game and generate ideas and scripts.</p>}
+      {!!data.rejections?.length&&<details className="studio-rejection-history"><summary>Not for me · {data.rejections.length}</summary><ul>{data.rejections.map(item=><li key={item.id}><strong>{item.title}</strong><span>{new Date(item.rejectedAt).toLocaleDateString("en-GB",{timeZone:"Asia/Dubai"})}</span>{item.reason&&<p>{item.reason}</p>}</li>)}</ul><small>Used as context for future suggestions. This is saved feedback, not model training.</small></details>}
       {chosen && <form ref={approvalPanel} tabIndex={-1} className="studio-approval" onSubmit={approve} aria-label="Video settings and approval">
         <div className="studio-heading"><div><small>{title(chosen.gameId)}</small><h3>{chosen.title}</h3></div><button type="button" className="button" disabled={busy} onClick={() => { setChosen(null); ideaHeading.current?.focus(); void refresh().catch(e=>setError(e.message)); }}>Close settings</button></div>
-        <nav className="studio-editor-steps" aria-label="Production steps">{(["Script", "Jev score", "Video"] as const).map((label, index) => <button type="button" key={label} aria-current={editorStep === index + 1 ? "step" : undefined} disabled={index === 2 && !scriptReady} aria-describedby={index === 2 && !scriptReady ? "video-step-blocked" : undefined} onClick={() => setEditorStep((index + 1) as 1 | 2 | 3)}><span>{index + 1}</span>{label}</button>)}</nav>
+        <nav className="studio-editor-steps" aria-label="Production steps">{(["Script", "Script review", "Video"] as const).map((label, index) => <button type="button" key={label} aria-current={editorStep === index + 1 ? "step" : undefined} disabled={index === 2 && !scriptReady} aria-describedby={index === 2 && !scriptReady ? "video-step-blocked" : undefined} onClick={() => setEditorStep((index + 1) as 1 | 2 | 3)}><span>{index + 1}</span>{label}</button>)}</nav>
         <div hidden={editorStep === 3} className="studio-editor-section"><ContentScriptEditor key={chosen.id} ideaId={chosen.id} onReady={setScriptReady} onScriptReady={setScriptSaved} step={editorStep === 1 ? "script" : "review"}/></div>
-        {editorStep < 3 && <div className="studio-step-actions"><button type="button" className="button primary" disabled={busy || (editorStep === 1 ? !scriptSaved : !scriptReady)} onClick={() => setEditorStep(editorStep === 1 ? 2 : 3)}>{editorStep === 1 ? "Continue to Jev score" : "Continue to video"}</button></div>}
+        {editorStep < 3 && <div className="studio-step-actions"><button type="button" className="button primary" disabled={busy || (editorStep === 1 ? !scriptSaved : !scriptReady)} onClick={() => setEditorStep(editorStep === 1 ? 2 : 3)}>{editorStep === 1 ? "Continue to review" : "Continue to video"}</button></div>}
         {!scriptReady && <p id="video-step-blocked" className="studio-secondary" role="status">{editorStep === 1 && !scriptSaved ? "Save the current script before continuing." : "Complete a successful review of this saved script to continue to video."}</p>}
         <section hidden={editorStep !== 3} className="studio-editor-section">
         <h4>Video settings</h4>
@@ -155,7 +169,7 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
         </div>
         <label className="studio-check"><input type="checkbox" checked={settings.motionGraphics} onChange={e => setSettings({ ...settings, motionGraphics: e.target.checked })}/>Motion graphics</label>
         <label className="studio-check"><input type="checkbox" checked={settings.gameAudio} onChange={e => setSettings({ ...settings, gameAudio: e.target.checked })}/>Require captured game audio</label>
-        {!scriptReady && <p role="status">A current saved script and Jev review are required before approval.</p>}
+        {!scriptReady && <p role="status">A current saved script and script review are required before approval.</p>}
         <p>Claude checks the threshold between model requests; the final request can exceed it. Existing credits depend on the key's organization and eligibility. Storage costs are separate. No automatic retry.</p>
         <label className="studio-check"><input type="checkbox" required disabled={busy || !scriptReady || !data.readiness.ready} checked={acknowledge} onChange={e => setAcknowledge(e.target.checked)}/>I approve this idea, these settings and one metered cloud production attempt.</label>
         <button className="button primary" disabled={busy || !acknowledge || !scriptReady || !data.readiness.ready}>{busy ? "Starting…" : "Generate video"}</button>
@@ -168,7 +182,7 @@ export default function ContentStudio({ games, gameId, demo, calendarOnly = fals
     </>}
     {data && <div className="studio-videos"><h3>{calendarOnly ? "Videos planned for manual posting · Dubai" : "Video runs"}</h3>
       {!videos.length && <p className="studio-secondary">{calendarOnly ? "Add a planning date to a finished video in Content Studio." : "Approved runs and finished videos will appear here."}</p>}
-      {videos.map(video => <article className="studio-video" key={video.id}>
+      {videos.map(video => <article className="studio-video" key={video.id} id={`studio-run-${video.id}`} tabIndex={-1}>
         <header><div><small>{title(video.gameId)}{video.pilotGrantId ? " · single-use pilot" : ""}</small><h4>{video.idea.title}</h4></div><span role="status">{({approved:"Approved · waiting to start",starting:"Starting cloud session",running:"Playing and editing",importing:"Saving video",cancel_requested:"Stopping",needs_reconciliation:"Needs attention",failed:"Failed",cancelled:"Cancelled",ready:"Ready"})[video.state]}</span></header>
         <p>{video.settings.aspectRatio} · {video.settings.durationSeconds}s · list-cost threshold ${(video.maxListCostCents / 100).toFixed(2)} · {video.usage?.listCostCents ? `Reported list cost $${(Number(video.usage.listCostCents) / 100).toFixed(2)} · unsettled` : "Actual cost unavailable"}</p>
         {video.usage?.inputTokens !== undefined && <small>{video.usage.inputTokens.toLocaleString()} input tokens · {(video.usage.outputTokens || 0).toLocaleString()} output tokens. Credits and final billing may differ from list cost.</small>}
