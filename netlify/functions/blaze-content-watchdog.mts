@@ -1,6 +1,6 @@
 import { tickContentService } from '../../src/lib/content-service';
-// Deliberately outside netlify/functions. Commissioning must explicitly publish
-// this minute schedule; an ordinary UI deployment cannot activate it.
+// Persistent minute service explicitly approved on 2026-10-30.
+// Runtime gates and owner-scoped grants still guard every metered stage.
 export const config = { schedule: '* * * * *' };
 export default async function () {
   if (process.env.BLAZE_CLOUD_WATCHDOG_SCHEDULE_ENABLED !== 'true') return new Response(null, { status: 204 });
