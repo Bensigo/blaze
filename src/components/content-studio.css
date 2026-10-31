@@ -46,3 +46,67 @@
 .studio-bank-grid>*{min-width:0;overflow-wrap:anywhere}.studio-bank-grid details p{overflow-wrap:anywhere}.studio-bank-grid .studio-bank-script{max-width:100%;min-width:0}
 
 .studio-idea{cursor:pointer}.studio-video:focus-visible{outline:2px solid var(--accent,#356e56);outline-offset:6px}
+
+/* Content-first composition: compact rows, quiet utilities, readable editing. */
+.content-engine{font-size:14px;line-height:1.5;margin-bottom:24px}
+.studio-heading{gap:16px;margin-bottom:16px;align-items:center}
+.studio-heading h2{font-size:16px;margin:0;font-weight:600}
+.studio-heading h3{font-size:20px;line-height:1.35}
+.studio-step-list{margin-top:6px;gap:16px;font-size:12px}
+.content-engine .button{min-height:36px;padding:8px 12px;font-size:13px}
+.studio-ideas{margin-top:0}
+.studio-idea{padding:20px 0;gap:16px;grid-template-columns:minmax(0,1fr) 240px}
+.studio-idea>div{max-width:none}
+.studio-idea h3{font-size:17px;letter-spacing:-.2px;margin:4px 0 6px}
+.studio-idea p{margin:4px 0;font-size:14px}
+.studio-idea small{font-size:12px}
+.studio-idea details{margin-top:10px;font-size:13px}
+.studio-idea details summary{color:var(--muted);font-weight:400}
+.studio-idea-action{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px 12px;justify-content:end}
+.studio-score-summary{grid-column:1/-1;justify-content:flex-end;font-size:12px}
+.studio-score-summary strong{font-size:18px}
+.studio-open{grid-column:2}
+.content-engine .studio-dismiss{min-height:32px;padding:4px 8px;background:transparent;border-color:transparent;color:var(--muted);font-weight:400}
+.studio-idea-action .studio-dismiss{grid-column:1/-1;justify-self:end}
+.content-engine .studio-dismiss:hover:not(:disabled){background:var(--hover);color:var(--ink)}
+.studio-pending{margin:20px 0}
+.studio-pending h3{font-size:14px;font-weight:600;margin-bottom:4px}
+.studio-pending>div{gap:8px 12px;padding:12px 0;font-size:13px}
+.studio-pending>div strong{font-weight:500}
+.studio-pending>div span{font-size:12px}
+.studio-options{margin:20px 0 0;border-top:1px solid var(--line);padding-top:12px}
+.studio-options>summary{font-size:13px;font-weight:500;color:var(--muted)}
+.studio-tools{margin:8px 0 0;padding:12px 0;border-top:0;gap:12px 20px}
+.studio-approval{max-width:800px;padding:16px 0;margin:12px 0;border-top:0}
+.studio-approval>.studio-heading{padding-bottom:12px;margin-bottom:0}
+.studio-approval .studio-heading small{font-size:12px;color:var(--muted)}
+.studio-editor-steps{padding:12px 0;margin-bottom:16px}
+.studio-editor-steps button{min-height:36px;font-size:13px;padding:6px 10px}
+.studio-script{padding:0 0 12px;margin:0;border-bottom:0}
+.studio-script-label{display:flex;align-items:center;gap:4px;margin:0 0 10px!important;font-size:14px!important}
+.studio-script textarea{max-width:100%;min-height:360px;font-size:15px;font-weight:400;line-height:1.65;padding:16px;margin-bottom:12px;resize:vertical}
+.studio-script label:not(.studio-check){font-weight:400;gap:0}
+.studio-step-actions{padding-top:16px;margin-top:16px}
+.studio-videos{padding-top:16px;margin-top:24px}
+.studio-videos>h3{font-size:16px;margin:0 0 8px}
+@media(max-width:700px){
+ .studio-heading{align-items:stretch;gap:12px}
+ .studio-idea{gap:12px;padding:16px 0}
+ .studio-idea-action{width:100%;grid-template-columns:1fr auto;gap:8px}
+ .studio-score-summary{grid-column:1;justify-content:flex-start}
+ .studio-open{grid-column:2;grid-row:1}
+ .studio-idea-action .studio-dismiss{grid-column:2;grid-row:2}
+ .content-engine .button{min-height:44px}
+ .content-engine .studio-dismiss{min-height:44px}
+ .studio-pending>div strong{flex-basis:100%}
+ .studio-pending>div span{flex:1}
+ .studio-pending .studio-dismiss{margin-left:auto}
+ .studio-approval{padding-top:8px}
+ .studio-editor-steps{gap:2px}
+ .studio-editor-steps button{min-height:44px;padding:6px 8px}
+ .studio-script textarea{font-size:16px;min-height:380px;padding:12px}
+}
+
+.studio-heading[hidden]{display:none}
+
+@media(max-width:700px){.studio-approval>.studio-heading{flex-direction:row;align-items:start}.studio-approval>.studio-heading>div{min-width:0}.studio-approval>.studio-heading>.button{flex:none;padding-inline:10px}}

@@ -1409,7 +1409,7 @@ export default function Dashboard() {
                 ↻
               </button>
             )}
-            {page !== "account" && <Button variant="primary" onClick={() => openModal("game")}>
+            {!["account", "content", "recordings"].includes(page) && <Button variant="primary" onClick={() => openModal("game")}>
               <Plus size={16} /> Add game
             </Button>}
           </div>
@@ -1604,216 +1604,19 @@ export default function Dashboard() {
               )}
             </>
           )}
-          {page === "recordings" && (
-            <>
-              <GeneratedContentBank gameId={selectedGame} games={games} demo={snapshot.demo}/>
-              <SectionHead
-                title="Recordings"
-                detail="Recorded browser gameplay and timestamped observations."
-                action={
-                  <Button
-                    variant="primary"
-                    onClick={() => openModal("recording")}
-                  >
-                    <Plus size={16} /> Queue recording
-                  </Button>
-                }
-              />
-              {records.length ? (
-                <div className="recording-grid">
-                  {records.map((r) => (
-                    <button
-                      className={`recording-item ${chosenRecording?.id === r.id ? "selected" : ""}`}
-                      key={r.id}
-                      onClick={() => {
-                        setChosenRecording(r);
-                        setChosenClip(null);
-                        setSeekAt(undefined);
-                      }}
-                    >
-                      <Media src={r.screenshotUrl} title={r.title} />
-                      <div className="recording-caption">
-                        <div>
-                          <strong>{r.title}</strong>
-                          <span>
-                            {gameName(games, r.gameId)} ·{" "}
-                            {shortDate(r.createdAt)}
-                          </span>
-                        </div>
-                        <Status value={r.status} />
-                      </div>
-                      <div className="recording-meta">
-                        {r.mode === "fixture" ? "Fixture decisions" : "Jev"} ·{" "}
-                        {r.duration ? timecode(r.duration) : "Duration pending"}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <Empty
-                  title="No recordings yet"
-                  detail="Connect a gameplay worker to record a game. Fixture recordings are for testing only."
-                  action={
-                    <Button onClick={() => openModal("recording")}>
-                      Queue recording
-                    </Button>
-                  }
-                />
-              )}{" "}
-              {chosenRecording && (
-                <div className="detail-panel">
-                  <div className="detail-heading">
-                    <div>
-                      <div className="eyebrow">RECORDING DETAIL</div>
-                      <h2>{chosenRecording.title}</h2>
-                      <p>
-                        {chosenRecording.mode === "fixture"
-                          ? "Controlled fixture run"
-                          : "Jev run"}{" "}
-                        · {shortDate(chosenRecording.createdAt)}
-                      </p>
-                    </div>
-                    <Button
-                      onClick={() => openClip(chosenRecording)}
-                      disabled={chosenRecording.status !== "ready"}
-                    >
-                      <Plus size={15} /> Create clip
-                    </Button>
-                  </div>
-                  <div className="recording-detail">
-                    <Media
-                      src={
-                        chosenRecording.videoUrl ||
-                        chosenRecording.screenshotUrl
-                      }
-                      video={!!chosenRecording.videoUrl}
-                      title={chosenRecording.title}
-                      startAt={seekAt}
-                    />
-                    {seekAt !== undefined && (
-                      <p className="muted">
-                        Evidence timestamp: {timecode(seekAt)}
-                        {!chosenRecording.videoUrl
-                          ? " · Video unavailable"
-                          : ""}
-                      </p>
-                    )}
-                    <div>
-                      <h3>Observations</h3>
-                      <p className="muted">
-                        Notes from the run; hypotheses need human validation.
-                      </p>
-                      {chosenRecording.observations?.length ? (
-                        chosenRecording.observations.map((o, i) => (
-                          <button
-                            className="observation"
-                            key={i}
-                            onClick={() => {
-                              openClip(chosenRecording);
-                              setDraft((d) => ({
-                                ...d,
-                                start: String(o.at),
-                                end: String(
-                                  Math.min(
-                                    chosenRecording.duration || o.at + 10,
-                                    o.at + 10,
-                                  ),
-                                ),
-                              }));
-                            }}
-                          >
-                            <span>{timecode(o.at)}</span>
-                            <div>
-                              <strong>{label(o.type)}</strong>
-                              <p>{o.text}</p>
-                            </div>
-                            <small>Use highlight</small>
-                          </button>
-                        ))
-                      ) : (
-                        <p className="muted">No observations recorded.</p>
-                      )}
-                      {chosenRecording.error && (
-                        <div className="alert error">
-                          {chosenRecording.error}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div className="section-spacer">
-                <SectionHead
-                  title="Clip library"
-                  detail="Reusable clips from completed recordings."
-                />
-                {clips.length ? (
-                  <div className="clip-list">
-                    {clips.map((c) => (
-                      <button
-                        className="clip-row"
-                        key={c.id}
-                        onClick={() => setChosenClip(c)}
-                      >
-                        <div className="clip-icon">
-                          <Play size={16} />
-                        </div>
-                        <div>
-                          <strong>{c.title}</strong>
-                          <span>
-                            {gameName(games, c.gameId)} · {timecode(c.start)}–
-                            {timecode(c.end)} · {label(c.layout)}
-                          </span>
-                        </div>
-                        <Status value={c.status} />
-                        <ChevronRight size={16} />
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="table-empty">
-                    No clips yet. Select a ready recording to create one.
-                  </p>
-                )}
-                {chosenClip && (
-                  <div className="detail-panel">
-                    <div className="detail-heading">
-                      <div>
-                        <h2>{chosenClip.title}</h2>
-                        <p>
-                          {timecode(chosenClip.start)}–
-                          {timecode(chosenClip.end)} ·{" "}
-                          {label(chosenClip.layout)}
-                        </p>
-                      </div>
-                      <Button
-                        onClick={() => {
-                          resetDraft();
-                          setDraft((d) => ({
-                            ...d,
-                            gameId: chosenClip.gameId,
-                            clipId: chosenClip.id,
-                          }));
-                          setModal("post");
-                        }}
-                      >
-                        Create post <ArrowRight size={15} />
-                      </Button>
-                    </div>
-                    <Media
-                      src={chosenClip.videoUrl}
-                      video={!!chosenClip.videoUrl}
-                      title={chosenClip.title}
-                    />
-                  </div>
-                )}
-              </div>
-            </>
-          )}
+          {page === "recordings" && <GeneratedContentBank
+            gameId={selectedGame} games={games} demo={snapshot.demo} recordings={records} clips={clips}
+            selectedRecording={chosenRecording} seekAt={seekAt}
+            onRecordingSelect={setChosenRecording}
+            onQueueRecording={() => openModal("recording")}
+            onStudio={() => changePage("content")}
+            onCreateClip={(recording, start) => { openClip(recording); if(start !== undefined) setDraft(d => ({...d, start:String(start), end:String(Math.min(recording.duration || start+10,start+10))})); }}
+            onCreatePost={clip => { resetDraft(); setDraft(d => ({...d,gameId:clip.gameId,clipId:clip.id})); setModal("post"); }}
+          />}
           {page === "content" && (
             <>
               <ContentStudio key={selectedGame} games={games} gameId={selectedGame} demo={snapshot.demo}/>
-              <details className="post-drafts-disclosure"><summary>Post drafts · {posts.length}</summary>
+              {posts.length>0&&<details className="post-drafts-disclosure"><summary>Post drafts · {posts.length}</summary>
               <SectionHead
                 title="Post drafts"
                 detail="Prepare text for the videos you will post manually."
@@ -1846,7 +1649,7 @@ export default function Dashboard() {
                   }
                 />
               )}
-              </details>
+              </details>}
             </>
           )}
           {page === "calendar" && (

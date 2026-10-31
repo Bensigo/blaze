@@ -2482,3 +2482,17 @@ button:disabled{opacity:1;color:#747780;background-color:var(--surface-soft);bor
 @media(max-width:440px){.topbar-right .button{font-size:13px;gap:6px;width:auto;padding:9px 12px}.topbar-left strong{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.topbar-right{gap:4px}}
 .player-visuals.overview-visuals{display:block;max-width:none}.overview-visuals .activity-column{display:block}.overview-visuals .activity-chart,.overview-visuals .chart-data-empty{height:250px}.player-kpis>div>span{display:flex;align-items:center;min-height:28px}.player-kpis [data-info-hint]{width:24px;height:24px}.player-scope>.text-action{margin-left:auto;font-size:13px}@media(max-width:600px){.player-kpis [data-info-hint]{width:32px;height:44px}.player-kpis>div>span{min-height:44px}.player-scope>.text-action{margin-left:0}}
 .main-content:focus{outline:none}
+
+/* Deliberate workspace density; keep mobile targets generous. */
+@media(min-width:761px){
+ .sidebar{padding-top:18px}
+ .side-top{padding-bottom:18px}
+ .workspace-switch{margin-bottom:18px;padding:12px}
+ .sidebar nav{gap:2px}
+ .nav-item{min-height:36px;font-size:13px}
+ .nav-label{margin-bottom:6px}
+ .main-content{padding-top:28px}
+ .page-heading{margin-bottom:24px}
+ .page-heading h1{font-size:24px;letter-spacing:-.5px}
+ .topbar{height:56px}
+}
