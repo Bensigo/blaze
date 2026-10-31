@@ -4,6 +4,7 @@ import "../components/account-settings.css";
 import "../components/action-board.css";
 import "../components/actions-page.css";
 import "../components/content-studio.css";
+import "../components/media-workspace.css";
 import "../components/discovery-review.css";
 import "../components/game-connections.css";
 import "../components/launch-links.css";
