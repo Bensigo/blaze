@@ -1,3 +1,4 @@
+import {createHash} from "node:crypto";
 import { mkdir, writeFile, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -24,6 +25,7 @@ export interface MediaRecord {
   createdAt: string;
   captureId?: string;
   sessionId?: string;
+  sha256?: string;
   expiresAt?: string;
   deletedAt?: string;
 }
@@ -55,7 +57,7 @@ export async function saveAsset(
       await mkdir(join(".data/media", workspace), { recursive: true });
       await writeFile(location, bytes, { mode: 0o600, flag: "wx" });
     }
-    await put<MediaRecord>(workspace, "media", { id: mid, recordingId, clipId, kind, contentType, size: bytes.length, location, backend, createdAt: new Date().toISOString(), ...capture });
+    await put<MediaRecord>(workspace, "media", { id: mid, recordingId, clipId, kind, contentType, size: bytes.length, location, backend, createdAt: new Date().toISOString(), ...capture, sha256:createHash("sha256").update(bytes).digest("hex") });
     await remove(workspace, "media_storage_intent", mid).catch(() => {});
   } catch (error) {
     try {

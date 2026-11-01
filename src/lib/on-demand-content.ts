@@ -29,13 +29,13 @@ function reviewRequestId(batchId:string, ideaId:string) {
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-4${hex.slice(13,16)}-8${hex.slice(17,20)}-${hex.slice(20,32)}`;
 }
 /** Run only reviews covered by a separately disclosed owner grant. No retry. */
-export async function scoreGeneratedScript(workspace:string, actor:string, batchId:string, ideaId:string, script:ContentScript, expected:ReviewBinding) {
+export async function scoreGeneratedScript(workspace:string, actor:string, batchId:string, ideaId:string, script:ContentScript, expected:ReviewBinding, options?:NonNullable<Parameters<typeof startScriptReview>[2]> & {approvalRequestKey?:string}) {
   const config=await currentReviewBinding(workspace);
   if (!config.availability.enabled || !sameReviewBinding(config,expected)) throw new Error("Review setup changed or is paused");
   const proposal=await reviewScriptProposal(workspace,script.id);
   if (!sameReviewBinding({...proposal.binding,...proposal.adapterBinding},expected) || proposal.script.revision!==script.revision || proposal.script.reviewContextRevision!==script.reviewContextRevision) throw new Error("Review setup or script changed");
-  const approved=await approveScriptReview(workspace,actor,{scriptId:script.id,reviewHash:proposal.reviewHash,requestId:reviewRequestId(batchId,ideaId),maxCostCents:1});
-  const result=await startScriptReview(workspace,approved.id,{timeoutMs:15000});
+  const approved=await approveScriptReview(workspace,actor,{scriptId:script.id,reviewHash:proposal.reviewHash,requestId:reviewRequestId(options?.approvalRequestKey?`${batchId}:${options.approvalRequestKey}`:batchId,ideaId),maxCostCents:1});
+  const result=await startScriptReview(workspace,approved.id,{timeoutMs:15000,...options});
   if (!result || result.state!=="complete" || !result.score || result.scriptRevision!==script.revision || result.reviewContextRevision!==script.reviewContextRevision) throw new Error("Review not complete");
   return result;
 }

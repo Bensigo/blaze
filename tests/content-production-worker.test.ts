@@ -1,3 +1,4 @@
+import {ManagedAgentError} from "../src/lib/managed-gameplay-agent";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const watchdog = vi.hoisted(() => vi.fn());
@@ -55,6 +56,32 @@ describe("scheduled production reconciliation", () => {
     await worker.tickContentProduction("ws");expect(refresh).not.toHaveBeenCalled();
     await db.query("UPDATE jobs SET lease_until=now()-interval '1 second' WHERE id=$1",[id]);
     await worker.tickContentProduction("ws");expect(refresh).toHaveBeenCalledOnce();
+  });
+  it("automatically checks late files and locally recovers uncertain imports", async () => {
+    await production("late", {state:"needs_reconciliation",outputRecovery:"waiting_files",idleObservedAt:new Date(Date.now()-180000).toISOString(),stoppedAt:new Date().toISOString()});
+    await production("partial", {state:"needs_reconciliation",importStartedAt:new Date(Date.now()-180000).toISOString(),stoppedAt:new Date().toISOString()});
+    await worker.tickContentProduction("ws");await worker.tickContentProduction("ws");
+    expect(refresh.mock.calls.map(call=>call[1]).sort()).toEqual(["late","partial"]);
+  });
+  it("does not automatically revisit unclassified failures or expired file waits", async () => {
+    await production("manual", {state:"needs_reconciliation",stoppedAt:new Date().toISOString()});
+    await production("old", {state:"needs_reconciliation",outputRecovery:"waiting_files",idleObservedAt:new Date(Date.now()-7200000).toISOString(),stoppedAt:new Date().toISOString()});
+    await worker.tickContentProduction("ws");expect(refresh).not.toHaveBeenCalled();
+  });
+  it("does not let 32 expired output waits starve a newer production",async()=>{
+    for(let i=0;i<32;i++)await production(`a${i}`,{state:"needs_reconciliation",outputRecovery:"waiting_files",idleObservedAt:new Date(Date.now()-7200000).toISOString(),stoppedAt:new Date().toISOString()});
+    await production("z-new");await worker.tickContentProduction("ws");
+    expect(refresh).toHaveBeenCalledWith("ws","z-new",expect.anything());
+  });
+  it("continues late-file recovery after a transient GET failure but holds invalid output",async()=>{
+    const pending={state:"needs_reconciliation",outputRecovery:"waiting_files",idleObservedAt:new Date(Date.now()-180000).toISOString(),stoppedAt:new Date().toISOString()};
+    await production("late",pending);refresh.mockRejectedValueOnce(new ManagedAgentError(false));
+    await worker.tickContentProduction("ws");
+    expect(await db.get("ws","video_production","late")).toMatchObject({outputRecovery:"waiting_files"});
+    await worker.tickContentProduction("ws");expect(refresh).toHaveBeenCalledTimes(2);
+    refresh.mockRejectedValueOnce(new Error("Invalid media structure"));await worker.tickContentProduction("ws");
+    expect((await db.get<{outputRecovery?:string}>("ws","video_production","late"))?.outputRecovery).toBeUndefined();
+    await worker.tickContentProduction("ws");expect(refresh).toHaveBeenCalledTimes(3);
   });
   it("prevents concurrent ticks from importing the same record", async () => {
     await production("a"); let release!: () => void; let entered!: () => void;

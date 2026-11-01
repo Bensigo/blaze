@@ -119,7 +119,7 @@ export async function approveScriptReview(workspace:string,actor:string,input:{s
     return review;
   });
 }
-export async function startScriptReview(workspace:string,id:string,options?:{timeoutMs?:number}) {
+export async function startScriptReview(workspace:string,id:string,options?:{timeoutMs?:number;beforeDispatch?:(sql:TransactionQuery)=>Promise<void>;beforeRequest?:()=>void;isDispatchDeferred?:(error:unknown)=>boolean;onDispatchAborted?:(sql:TransactionQuery)=>Promise<void>}) {
   const prior=await get<ScriptReview>(workspace,"script_review",id);if(!prior)throw new HttpError(404,"Script review not found.");if(prior.state!=="approved")return prior;await reviewEnabled(workspace);
   const saved=await get<ContentScript>(workspace,"content_script",prior.scriptId);
   const context=saved?referenceContext(await gameSources(workspace,saved.gameId)):null;
@@ -136,7 +136,16 @@ export async function startScriptReview(workspace:string,id:string,options?:{tim
   const headers={Authorization:`Bearer ${secret.token}`,"Content-Type":"application/json"};
   const admitted=proposal.adapter.admit(proposal.request,headers);
   if(admitted.body!==proposal.prompt)throw new HttpError(409,"Review payload changed after cost admission.");
-  const reserved=await transaction(async sql=>{
+  const retireUnstarted=async(expected:ScriptReview)=>transaction(async sql=>{
+    const failed={...prior,state:"failed",error:"Dispatch deferred before any provider request; no cost incurred."};
+    const changed=await sql(`UPDATE records SET body=$4::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='script_review' AND id=$2 AND body=$3::jsonb RETURNING id`,[workspace,id,JSON.stringify(expected),JSON.stringify(failed)]);
+    if(changed.length!==1)throw new HttpError(409,"Unstarted review changed during dispatch deferral.");
+    await options?.onDispatchAborted?.(sql);
+  });
+  let reserved:boolean;
+  try { reserved=await transaction(async sql=>{
+    // Daily admission acquires schedule/grant locks before game/reviewer locks.
+    await options?.beforeDispatch?.(sql);
     const source=await gameSources(workspace,prior.gameId,sql);
     const script=(await sql<{body:ContentScript}>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='content_script' AND id=$2 FOR UPDATE`,[workspace,prior.scriptId]))[0]?.body;
     if(source.revision!==prior.sourceRevision || script?.revision!==prior.scriptRevision)throw new HttpError(409,"Script or source changed before review dispatch.");
@@ -151,8 +160,18 @@ export async function startScriptReview(workspace:string,id:string,options?:{tim
     if(!selection || resolveScriptReviewAdapter(selection.reviewAdapter).id!==proposal.adapter.id || selection.connectionId!==prior.connectionId || selection.model!==prior.model || selection.revision!==prior.settingsRevision || selection.credentialVersion!==prior.credentialRevision || !connection?.connected || connection.provider!=="openrouter" || !key || `${connection.credentialVersion||"legacy"}:${hash(key)}`!==prior.credentialRevision) throw new HttpError(409,"Review service connection changed before dispatch.");
     if (!Number.isFinite(Date.parse(prior.expiresAt)) || Date.parse(prior.expiresAt)<=Date.now()) throw new HttpError(409,"The review approval expired before dispatch. No request was sent.");
     return (await sql(`UPDATE records SET body=body || '{"state":"starting"}'::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='script_review' AND id=$2 AND body=$3::jsonb RETURNING id`,[workspace,id,JSON.stringify(prior)])).length>0;
-  });
+  }); } catch(error) {
+    if(options?.isDispatchDeferred?.(error))await retireUnstarted(prior);
+    throw error;
+  }
   if(!reserved)return get<ScriptReview>(workspace,"script_review",id);
+  // This guard runs before fetch is invoked. Only this known-unstarted path may
+  // release admission; transport errors after fetch retain every reservation.
+  try { options?.beforeRequest?.(); }
+  catch(error) {
+    await retireUnstarted({...prior,state:"starting"});
+    throw error;
+  }
   let next:ScriptReview; let responseReceived=false; let costAdmissionViolation=true; let usage:ScriptReview["usage"];
   try {
     const timeoutMs = Number.isFinite(options?.timeoutMs) ? Math.max(1, Math.min(45000, Math.floor(options!.timeoutMs!))) : 45000;

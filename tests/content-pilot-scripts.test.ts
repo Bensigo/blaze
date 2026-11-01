@@ -29,6 +29,22 @@ async function score(){const data=await setup();const p=await scripts.reviewScri
 const inputs=(ideaId:string)=>({ideaId,settings:{...DEFAULT_VIDEO_SETTINGS,durationSeconds:10,music:"none" as const},maxListCostCents:100});
 async function pilot(){const data=await score();const input=inputs(data.idea.id);const reviewed=await studio.reviewPilotVideo("ws","owner",input);const approved=await studio.approvePilotVideo("ws","owner",{...input,reviewHash:reviewed.reviewHash,requestId:randomUUID()});return {...data,input,reviewed,approved};}
 describe("versioned scripts and paid Jev score admission",()=>{
+  it.each(["admission","request"])("retires a known-unstarted %s deferral atomically and allows fresh granted approval",async phase=>{
+    const {script}=await setup(),proposal=await scripts.reviewScriptProposal("ws",script.id);
+    const review=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:proposal.reviewHash,requestId:randomUUID()});
+    const deferred=new Error("Known window deferral"),cleanup=vi.fn(async(sql:typeof db.query)=>{await sql(`DELETE FROM records WHERE workspace_id='ws' AND kind='test_admission'`);});
+    const fetch=vi.fn(async()=>Response.json(scoreResult()));vi.stubGlobal("fetch",fetch);
+    await expect(scripts.startScriptReview("ws",review.id,{
+      beforeDispatch:async sql=>{await sql(`INSERT INTO records(workspace_id,kind,id,body) VALUES('ws','test_admission','ledger','{"id":"ledger"}'::jsonb)`);if(phase==="admission")throw deferred;},
+      beforeRequest:()=>{if(phase==="request")throw deferred;},isDispatchDeferred:error=>error===deferred,onDispatchAborted:cleanup,
+    })).rejects.toBe(deferred);
+    expect(fetch).not.toHaveBeenCalled();expect(cleanup).toHaveBeenCalledOnce();
+    expect(await db.list("ws","test_admission")).toHaveLength(0);
+    expect(await db.get("ws","script_review",review.id)).toMatchObject({state:"failed"});
+    const fresh=await scripts.approveScriptReview("ws","owner",{scriptId:script.id,maxCostCents:1,reviewHash:proposal.reviewHash,requestId:randomUUID()});
+    expect(await scripts.startScriptReview("ws",fresh.id)).toMatchObject({state:"complete"});expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("drafts without inference, supports owner text and scopes records",async()=>{
     const {idea,script}=await setup();const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
     expect(script.origin).toBe("source_draft");expect((await scripts.scriptState("ws",idea.id)).review).toBeUndefined();

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { transaction } from "./db";
+import { transaction, type TransactionQuery } from "./db";
 import { hash } from "./security";
 import { HttpError } from "./http-error";
 import type { VideoProduction } from "./content-studio-contract";
@@ -18,9 +18,9 @@ export const productionObservationsSchema = z.array(productionObservationSchema)
 export type ProductionObservation = z.infer<typeof productionObservationSchema>;
 
 /** Store only timestamped agent reports tied to an owned, ready production's verified media record. */
-export async function persistProductionFindings(workspace: string, productionId: string, input: unknown) {
+export async function persistProductionFindings(workspace: string, productionId: string, input: unknown, existingTransaction?:TransactionQuery) {
   const observations = productionObservationsSchema.parse(input);
-  return transaction(async sql => {
+  const persist=async (sql:TransactionQuery) => {
     const production = (await sql<{body:VideoProduction}>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='video_production' AND id=$2 FOR UPDATE`, [workspace,productionId]))[0]?.body;
     if (!production || production.state !== "ready" || !production.videoUrl || !Number.isFinite(production.settings?.durationSeconds) || production.settings.durationSeconds <= 0) throw new HttpError(409, "A ready production with owned video is required for findings.");
     const mediaId = /^\/api\/media\/(media_[a-z0-9]+)$/.exec(production.videoUrl)?.[1];
@@ -37,5 +37,6 @@ export async function persistProductionFindings(workspace: string, productionId:
       inserted += rows.length;
     }
     return { inserted };
-  });
+  };
+  return existingTransaction ? persist(existingTransaction) : transaction(persist);
 }

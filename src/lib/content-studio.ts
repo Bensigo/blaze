@@ -1,3 +1,5 @@
+import {createHash} from "node:crypto";
+import { buildCloudRuntimePreflight } from "./cloud-runtime-preflight";
 import { productionObservationsSchema, persistProductionFindings } from "./production-findings";
 import { contentRejections } from "./content-preferences";
 import {referenceContext,referenceLibrary,referenceSetRevision,rubricRevision,referenceStructure,selectContentReferences} from "./content-references";
@@ -10,7 +12,7 @@ import { HttpError } from "./http-error";
 import { readAISettings } from "./ai-settings";
 import { secretForConnection } from "./credentials";
 import { gameSources } from "./content-studio-sources";
-import { mediaStorageConfigured, mediaRecord, saveAsset } from "./media";
+import { mediaStorageConfigured, mediaRecord, mediaBytes, saveAsset } from "./media";
 import { managedFileBytes, managedOutputFiles, readManagedSession, startManagedSession } from "./managed-gameplay-agent";
 import type { Connection, Game } from "./types";
 import type { ContentIdea, IdeaSchedule, PilotGrant, PilotReview, StudioSnapshot, VideoProduction } from "./content-studio-contract";
@@ -123,7 +125,7 @@ function requirePilotOperator(workspace: string, actor?: string) {
 }
 const pilotProvider = (config: ProviderConfig) => ({ connectionId: config.connectionId, agentId: config.agentId, agentVersion: config.agentVersion, environmentId: config.environmentId, revision: config.revision });
 function pilotReviewHash(workspace: string, actor: string, source: Awaited<ReturnType<typeof gameSources>>, idea: ContentIdea, settings: VideoProduction["settings"], maxListCostCents: number, config: ProviderConfig, credentialRevision: string, script: Awaited<ReturnType<typeof reviewedScript>>) {
-  return hash(approvalJson({ purpose: "single_cloud_gameplay_pilot", workspace, actor, source, idea, settings, maxListCostCents, provider: pilotProvider(config), configurationHash: hash(approvalJson(config)), credentialRevision, script: { id: script.script.id, revision: script.script.revision, text: script.script.text, reviewId: script.review.id, score: script.review.score } }));
+  return hash(approvalJson({ purpose: "single_cloud_gameplay_pilot", runtimePreflightRevision:buildCloudRuntimePreflight(source).revision, workspace, actor, source, idea, settings, maxListCostCents, provider: pilotProvider(config), configurationHash: hash(approvalJson(config)), credentialRevision, script: { id: script.script.id, revision: script.script.revision, text: script.script.text, reviewId: script.review.id, score: script.review.score } }));
 }
 export async function reviewPilotVideo(workspace: string, actor: string, input: { ideaId: string; settings: unknown; maxListCostCents: number }): Promise<PilotReview> {
   requirePilotOperator(workspace, actor);
@@ -175,7 +177,7 @@ export async function approvePilotVideo(workspace: string, actor: string, input:
     const credentialRevision = hash(encrypted);
     const production: VideoProduction = { id: productionId, gameId: idea.gameId, ideaId: idea.id, idea, settings: reviewed.settings,
       state: "approved", sourceUrl: source.url, scriptId: script.script.id, scriptRevision: script.script.revision, scriptReviewId: script.review.id, scriptText: script.script.text, pilotGrantId: grantId, approvedBy: actor, approvedAt: stamp, createdAt: stamp, updatedAt: stamp, expiresAt,
-      approvalHash: input.reviewHash, sourceRevision: source.revision, providerRevision: config.revision, credentialRevision, maxListCostCents: input.maxListCostCents };
+      runtimePreflightRevision:buildCloudRuntimePreflight(source).revision, approvalHash: input.reviewHash, sourceRevision: source.revision, providerRevision: config.revision, credentialRevision, maxListCostCents: input.maxListCostCents };
     const grant: PilotGrant = { id: grantId, workspaceId: workspace, productionId, approvedBy: actor, approvedAt: stamp, expiresAt,
       reviewHash: input.reviewHash, gameId: idea.gameId, ideaId: idea.id, sourceRevision: source.revision, providerRevision: config.revision,
       credentialRevision, ...pilotProvider(config), settings: reviewed.settings, maxListCostCents: input.maxListCostCents, state: "approved" };
@@ -212,8 +214,8 @@ export async function approveVideo(workspace: string, actor: string, input: { id
   const now = new Date().toISOString();
   const production: VideoProduction = { id: `production_${hash(`${workspace}:${input.requestId}`).slice(0, 32)}`, gameId: idea.gameId, ideaId: idea.id, idea,
     settings, scriptId: script.script.id, scriptRevision: script.script.revision, scriptReviewId: script.review.id, scriptText: script.script.text, state: "approved", approvedBy: actor, approvedAt: now, createdAt: now, updatedAt: now, expiresAt: new Date(Date.now() + 15 * 60000).toISOString(),
-    sourceUrl: source.url, sourceRevision: source.revision, providerRevision: config.revision, credentialRevision, maxListCostCents: input.maxListCostCents,
-    approvalHash: hash(JSON.stringify({ idea, settings, maxListCostCents: input.maxListCostCents, sourceRevision: source.revision, providerRevision: config.revision, credentialRevision, script: { id: script.script.id, revision: script.script.revision, reviewId: script.review.id } })) };
+    runtimePreflightRevision:buildCloudRuntimePreflight(source).revision, sourceUrl: source.url, sourceRevision: source.revision, providerRevision: config.revision, credentialRevision, maxListCostCents: input.maxListCostCents,
+    approvalHash: hash(JSON.stringify({ runtimePreflightRevision:buildCloudRuntimePreflight(source).revision, idea, settings, maxListCostCents: input.maxListCostCents, sourceRevision: source.revision, providerRevision: config.revision, credentialRevision, script: { id: script.script.id, revision: script.script.revision, reviewId: script.review.id } })) };
   return transaction(async sql => {
     const lockedSource = await gameSources(workspace, idea.gameId, sql);
     await sql("SELECT id FROM records WHERE workspace_id=$1 AND kind='content_script' AND id=$2 FOR UPDATE",[workspace,script.script.id]);
@@ -273,6 +275,8 @@ export async function startApprovedVideo(workspace: string, productionId: string
   if (await credentialFingerprint(workspace, config.connectionId) !== production.credentialRevision) throw new HttpError(409, "The saved key changed. Review and approve a new run.");
   const scriptSnapshot = await reviewedScript(workspace, production.ideaId, production.sourceRevision);
   if (scriptSnapshot.script.id !== production.scriptId || scriptSnapshot.script.revision !== production.scriptRevision || scriptSnapshot.review.id !== production.scriptReviewId || scriptSnapshot.script.text !== production.scriptText) throw new HttpError(409, "Script or Jev review changed. Approve the exact current version again.");
+  const runtimePreflight = buildCloudRuntimePreflight(source);
+  if (production.runtimePreflightRevision !== runtimePreflight.revision) throw new HttpError(409,"The cloud runtime check changed. Cancel this unused approval and review the current attempt before starting.");
   const dispatchAt = Date.now();
   const starting: VideoProduction = { ...production, state: "starting", updatedAt: new Date(dispatchAt).toISOString(), startedAt: new Date(dispatchAt).toISOString(), watchdogDeadlineAt: new Date(dispatchAt + PRODUCTION_RUNTIME_MS).toISOString(), usage: { status: "unavailable" } };
   const reserved = await transaction(async sql => {
@@ -303,6 +307,7 @@ export async function startApprovedVideo(workspace: string, productionId: string
   try {
     const session = await startManagedSession(secret, { agentId: config.agentId, agentVersion: config.agentVersion, environmentId: config.environmentId,
       budgetCents: production.maxListCostCents, prompt: JSON.stringify({ productionId, source, idea: production.idea, script: { text: production.scriptText, revision: production.scriptRevision, jevReview: scriptSnapshot.review.score }, settings: production.settings,
+        runtimePreflight: { ...runtimePreflight, command: "timeout 120s python3 /tmp/blaze-tls-probe.py", output: "tls-diagnostics.json", instructions: "Before capture, save and run this exact program once unchanged using preinstalled python3/Playwright. It records TLS/runtime diagnostics using normal HTTPS verification on this production's approved game/frame URLs only. Inspect tls-diagnostics.json: only continue to actual gameplay and the approved video if ALL targets loaded successfully. On any probe failure or certificate error, write failed.json and stop. Do not install, retry, change proxies/trust/networking or bypass verification. Do not upload raw NetLog or environment variable values. A successful probe alone is not successful gameplay or a video." },
         requiredOutputs: ["video.mp4", "evidence.json", "raw capture"], outputLimits:{maxVideoBytes:25*1024*1024,maxEvidenceBytes:128*1024}, captureObservations:"In evidence.json include observations only for moments actually visible in the final video: at (final video seconds), kind (observed_error|performance_measurement|ux_suggestion), title, detail, capturedInVideo, optional measurement {metric:fps|frame_time_ms,value}. Separate measured values from subjective suggestions. Never invent errors or performance results; use an empty array when nothing was observed. Do not put URLs in observation text.", instructions: "Actively play the real game in the cloud, capture footage and edit this exact approved script. Never publish. In evidence.json gameUrl must equal the initially requested source.url; record the actual final browser URL and any approved redirects in limitations. Stop if navigation requires an unapproved origin." }) });
     // If cancellation raced the request, retain its marker and attach the session for operator reconciliation.
     await query(`UPDATE records SET body=body || $4::jsonb || jsonb_build_object('state',CASE WHEN body->>'state'='cancel_requested' THEN 'cancel_requested' ELSE 'running' END),updated_at=now() WHERE workspace_id=$1 AND kind='video_production' AND id=$2 AND body->>'approvalHash'=$3`,
@@ -351,6 +356,15 @@ export async function inspectProducedVideo(bytes: Uint8Array, production: Pick<V
     return { width, height, duration, audioTracks: audio.length };
   } finally { input.dispose(); }
 }
+// Ready state and validated observations commit together, including recovery.
+async function completeVideoImport(workspace:string, prior:VideoProduction, ready:VideoProduction, observations:unknown) {
+  return transaction(async sql=>{
+    const updated=await sql(`UPDATE records SET body=$4::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='video_production' AND id=$2 AND body=$3::jsonb RETURNING id`,[workspace,prior.id,JSON.stringify(prior),JSON.stringify(ready)]);
+    if(!updated.length)return false;
+    if(Array.isArray(observations)&&observations.length)await persistProductionFindings(workspace,prior.id,observations,sql);
+    return true;
+  });
+}
 // GET-only provider reconciliation: never sends a new prompt, resumes a session, or retries paid work.
 export async function refreshVideo(workspace: string, productionId: string, options: { signal?: AbortSignal; maxVideoBytes?: number } = {}) {
   options.signal?.throwIfAborted();
@@ -358,11 +372,24 @@ export async function refreshVideo(workspace: string, productionId: string, opti
   if (production.state === "ready" || production.state === "cancelled" || production.state === "failed") return production;
   if (production.state === "importing" || (production.state === "needs_reconciliation" && production.importStartedAt)) {
     if (Date.now() - Date.parse(production.importStartedAt || production.updatedAt) > 120000) {
-      const evidence = await get(workspace, "production_evidence", production.id);
-      const media = (await list<import("./media").MediaRecord>(workspace, "media")).find(m => m.recordingId === production.id && m.kind === "clip" && m.contentType === "video/mp4" && !m.deletedAt);
-      const next: VideoProduction = evidence && media ? { ...production, state: "ready", videoUrl: `/api/media/${media.id}`, error: undefined, updatedAt: new Date().toISOString() }
-        : { ...production, state: "needs_reconciliation", error: "Artifact import was interrupted. Reconcile the saved cloud output; do not generate again.", updatedAt: new Date().toISOString() };
-      await comparePut(workspace, "video_production", production, next); return next;
+      const evidence = await get<{sessionId:string;videoSha256:string;report:unknown}>(workspace, "production_evidence", production.id);
+      const digest=evidence?.videoSha256;
+      const media = evidence?.sessionId===production.sessionId && /^[a-f0-9]{64}$/.test(evidence?.videoSha256||"") ? (await list<import("./media").MediaRecord>(workspace, "media")).find(m => m.recordingId===production.id && m.sessionId===production.sessionId && m.sha256===digest && m.kind==="clip" && m.contentType==="video/mp4" && !m.deletedAt && (!m.expiresAt || (Number.isFinite(Date.parse(m.expiresAt))&&Date.parse(m.expiresAt)>Date.now())) && Number.isSafeInteger(m.size) && m.size>0 && m.size<=(options.maxVideoBytes??25*1024*1024)) : undefined;
+      if(evidence && media) {
+        try {
+          options.signal?.throwIfAborted();
+          const bytes=await mediaBytes(media);options.signal?.throwIfAborted();
+          if(bytes.length!==media.size || createHash("sha256").update(bytes).digest("hex")!==evidence.videoSha256)throw Error("Media integrity mismatch");
+          await inspectProducedVideo(bytes,production);
+          const report=evidenceSchema.parse(evidence.report);
+          if(!production.sourceUrl || report.gameUrl!==production.sourceUrl || (production.settings.gameAudio&&!report.audioCaptured) || Math.abs(report.durationSeconds-production.settings.durationSeconds)>1)throw Error("Gameplay evidence mismatch");
+          const ready:VideoProduction={...production,state:"ready",videoUrl:`/api/media/${media.id}`,error:undefined,outputRecovery:undefined,updatedAt:new Date().toISOString()};
+          if(await completeVideoImport(workspace,production,ready,report.observations))return ready;
+          return productionRecord(workspace,productionId);
+        }catch {/* Unavailable, expired, mismatched or invalid media stays held; no upload is repeated. */}
+      }
+      const next:VideoProduction={...production,state:"needs_reconciliation",error:"Artifact import was interrupted. Saved media could not be verified; reconcile the output without generating again.",updatedAt:new Date().toISOString()};
+      await comparePut(workspace,"video_production",production,next);return productionRecord(workspace,productionId);
     }
     return production;
   }
@@ -406,7 +433,7 @@ export async function refreshVideo(workspace: string, productionId: string, opti
   if (!video || !evidence) {
     if (files.some(file=>file.filename === "failed.json") || Date.now()-Date.parse(production.idleObservedAt!)>120000) {
       const explicitlyFailed=files.some(file=>file.filename === "failed.json");
-      const next:VideoProduction={...production,state:explicitlyFailed?"failed":"needs_reconciliation",error:explicitlyFailed?"The cloud producer reported failure. No retry was started.":"The cloud session stopped, but complete output files have not arrived. Refresh status to recover late files; do not generate again.",updatedAt:new Date().toISOString()};
+      const next:VideoProduction={...production,state:explicitlyFailed?"failed":"needs_reconciliation",outputRecovery:explicitlyFailed?undefined:"waiting_files",error:explicitlyFailed?"The cloud producer reported failure. No retry was started.":"The cloud session stopped, but complete output files have not arrived. Background status checks can recover late files for one hour; do not generate again.",updatedAt:new Date().toISOString()};
       await comparePut(workspace,"video_production",production,next);return productionRecord(workspace,productionId);
     }
     return production;
@@ -421,12 +448,13 @@ export async function refreshVideo(workspace: string, productionId: string, opti
   const inspection = await inspectProducedVideo(bytes, production);
   // Serialize artifact import independently of paid session creation. A crashed importer is reconcilable, never a paid retry.
   options.signal?.throwIfAborted();
-  const importing: VideoProduction = { ...production, importStartedAt: new Date().toISOString(), state: "importing", updatedAt: new Date().toISOString(), error: "Validating and importing the cloud output." };
+  const importing: VideoProduction = { ...production, importStartedAt: new Date().toISOString(), state: "importing", outputRecovery: undefined, updatedAt: new Date().toISOString(), error: "Validating and importing the cloud output." };
   if (!await comparePut(workspace, "video_production", production, importing)) return productionRecord(workspace, productionId);
-  const videoUrl = await saveAsset(workspace, production.id, "clip", new File([new Uint8Array(bytes)], "video.mp4", { type: "video/mp4" }));
-  await put(workspace, "production_evidence", { id: production.id, sessionId: production.sessionId, report, inspection, rawFileId: raw.id, providerFileId: video.id, observedAt: new Date().toISOString(), verification: "Media structure validated; gameplay actions are agent-reported and require human review." });
+  // Persist validated evidence first. If storage completes but its return is lost,
+  // the existing media record plus this receipt can finish locally without upload.
+  await put(workspace, "production_evidence", { id: production.id, sessionId: production.sessionId, report, inspection, videoSha256:createHash("sha256").update(bytes).digest("hex"), rawFileId: raw.id, providerFileId: video.id, observedAt: new Date().toISOString(), verification: "Media structure validated; gameplay actions are agent-reported and require human review." });
+  const videoUrl = await saveAsset(workspace, production.id, "clip", new File([new Uint8Array(bytes)], "video.mp4", { type: "video/mp4" }),undefined,{sessionId:production.sessionId});
   const next: VideoProduction = { ...importing, videoUrl, state: "ready", error: undefined, updatedAt: new Date().toISOString() };
-  if (!await comparePut(workspace, "video_production", importing, next)) return productionRecord(workspace, productionId);
-  if(report.observations?.length) await persistProductionFindings(workspace,productionId,report.observations);
+  if (!await completeVideoImport(workspace,importing,next,report.observations)) return productionRecord(workspace, productionId);
   return next;
 }
