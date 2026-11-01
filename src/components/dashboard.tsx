@@ -1489,7 +1489,7 @@ export default function Dashboard() {
           </div>}
           {page === "overview" && sessionScopeReady && <MostPlayedGames analytics={snapshot.analytics} games={games} />}
           {(page === "overview" || page === "analytics") && (sessionScopeReady ? <PlayerAnalytics
-            analytics={analytics} games={games} gameId={selectedGame} days={period} demo={snapshot.demo} detailed={page === "analytics"}
+            analytics={analytics} games={games} gameId={selectedGame} days={period} demo={snapshot.demo} detailed
             onChooseGame={setSelectedGame} onAddGame={() => openModal("game")} onSetup={() => changePage("help")}
             onAnalytics={() => changePage("analytics")} onSessions={() => changePage("sessions")} onOpenSession={openSession}
             onDropoff={name => void investigate("dropoff", name, { dropoff: name })}
