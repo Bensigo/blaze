@@ -85,11 +85,22 @@ describe("content studio approvals and recovery", () => {
     await expect(approve(idea.id, randomUUID(), { ...DEFAULT_VIDEO_SETTINGS, durationSeconds: 20 })).rejects.toThrow("active run");
     await expect(approve(idea.id, requestId, { ...DEFAULT_VIDEO_SETTINGS, durationSeconds: 20 })).rejects.toThrow("different settings");
   });
+  it("requires fresh approval when the runtime preflight changes",async()=>{
+    const idea=await setup(),production=await approve(idea.id);
+    await db.put("ws","video_production",{...production,runtimePreflightRevision:"earlier-runtime"});
+    const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    await expect(studio.startApprovedVideo("ws",production.id)).rejects.toThrow("runtime check changed");
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("makes one session create for repeated clicks and never retries uncertain starts", async () => {
     const idea = await setup(); const production = await approve(idea.id);
-    const fetch = vi.fn(async () => { throw new Error("connection lost after provider accepted"); }); vi.stubGlobal("fetch", fetch);
+    const fetch = vi.fn(async (_url:RequestInfo|URL,_init?:RequestInit) => { throw new Error("connection lost after provider accepted"); }); vi.stubGlobal("fetch", fetch);
     await Promise.all([studio.startApprovedVideo("ws", production.id), studio.startApprovedVideo("ws", production.id)]);
     expect(fetch).toHaveBeenCalledTimes(1);
+    const prompt=JSON.parse(JSON.parse(String(fetch.mock.calls[0][1]?.body)).initial_events[0].content[0].text);
+    expect(prompt.runtimePreflight.targets).toEqual([game.url]);
+    expect(prompt.runtimePreflight.hosts).toEqual(["game.example"]);
+    expect(prompt.runtimePreflight.revision).toBe(production.runtimePreflightRevision);
     expect(await db.get("ws", "video_production", production.id)).toMatchObject({ state: "needs_reconciliation" });
     await studio.startApprovedVideo("ws", production.id); expect(fetch).toHaveBeenCalledTimes(1);
     await expect(approve(idea.id, randomUUID(), { ...DEFAULT_VIDEO_SETTINGS, durationSeconds: 15 })).rejects.toThrow("reconciliation");
@@ -202,6 +213,47 @@ describe("content studio approvals and recovery", () => {
       expect(response.status).toBe(206); expect((await response.arrayBuffer()).byteLength).toBe(16);
       await studio.refreshVideo("ws", production.id); expect(fetch).toHaveBeenCalledTimes(4);
     } finally { if (result.videoUrl) await (await import("../src/lib/media")).deleteAsset("ws", result.videoUrl); }
+  });
+  it("recovers a persisted MP4 after losing the storage response without another upload", async () => {
+    const idea=await setup(),settings={...DEFAULT_VIDEO_SETTINGS,durationSeconds:10,music:"none" as const};
+    const production=await approve(idea.id,randomUUID(),settings);
+    await db.put("ws","video_production",{...production,state:"running",sessionId:"sesn_test"});
+    const encoded=spawnSync(ffmpeg!,["-v","error","-f","lavfi","-i","color=blue:s=360x640:r=15:d=10","-c:v","libx264","-preset","ultrafast","-pix_fmt","yuv420p","-movflags","frag_keyframe+empty_moov","-f","mp4","pipe:1"],{maxBuffer:4*1024*1024});
+    if(encoded.status!==0)throw Error(encoded.stderr.toString());
+    const report=Buffer.from(JSON.stringify({gameUrl:game.url,durationSeconds:10,playedActions:[{at:1,action:"Parser fixture"}],rawCaptureFilename:"raw.webm",audioCaptured:false,limitations:["Synthetic parser/storage fixture; no cloud gameplay"],observations:[{at:1,kind:"ux_suggestion",title:"Fixture observation",detail:"Synthetic report for recovery verification",capturedInVideo:true}]}));
+    const fetch=vi.fn(async(url:RequestInfo|URL,init?:RequestInit)=>{
+      expect(init?.method||"GET").toBe("GET");
+      if(String(url).includes("/sessions/"))return Response.json({id:"sesn_test",status:"idle"});
+      if(String(url).includes("/files?"))return Response.json({data:[{id:"file_video",filename:"video.mp4",size_bytes:encoded.stdout.length},{id:"file_report",filename:"evidence.json",size_bytes:report.length},{id:"file_raw",filename:"raw.webm",size_bytes:2000}]});
+      if(String(url).endsWith("/file_report/content"))return new Response(report);
+      if(String(url).endsWith("/file_video/content"))return new Response(encoded.stdout);
+      throw Error("Unexpected request");
+    });vi.stubGlobal("fetch",fetch);
+    const media=await import("../src/lib/media"),save=media.saveAsset;let savedUrl="";
+    const upload=vi.spyOn(media,"saveAsset").mockImplementation(async(...args)=>{savedUrl=await save(...args);throw Error("Lost return after persisted storage");});
+    try{
+      await expect(studio.refreshVideo("ws",production.id)).rejects.toThrow("Lost return");
+      const current=await db.get<VideoProduction>("ws","video_production",production.id);
+      await db.put("ws","video_production",{...current!,state:"needs_reconciliation",importStartedAt:new Date(Date.now()-180000).toISOString()});
+      const mid=savedUrl.split("/").at(-1)!;
+      const stored=(await media.mediaRecord("ws",mid))!;
+      for(const invalid of [{...stored,sessionId:"sesn_other"},{...stored,sha256:"0".repeat(64)},{...stored,expiresAt:"2020-01-01T00:00:00Z"}]) {
+        await db.put("ws","media",invalid);
+        expect(await studio.refreshVideo("ws",production.id)).toMatchObject({state:"needs_reconciliation"});
+      }
+      await db.put("ws","media",stored);
+      const fs=await import("node:fs/promises");
+      await fs.rename(stored.location,stored.location+".held");
+      try{expect(await studio.refreshVideo("ws",production.id)).toMatchObject({state:"needs_reconciliation"});}
+      finally{await fs.rename(stored.location+".held",stored.location);}
+      await fs.writeFile(stored.location,Buffer.alloc(encoded.stdout.length));
+      expect(await studio.refreshVideo("ws",production.id)).toMatchObject({state:"needs_reconciliation"});
+      await fs.writeFile(stored.location,encoded.stdout);
+      expect(await studio.refreshVideo("ws",production.id)).toMatchObject({state:"ready",videoUrl:savedUrl});
+      expect(await db.list("ws","finding")).toHaveLength(1);
+      await studio.refreshVideo("ws",production.id);expect(await db.list("ws","finding")).toHaveLength(1);
+      expect(upload).toHaveBeenCalledOnce();expect(fetch).toHaveBeenCalledTimes(4);
+    }finally{upload.mockRestore();if(savedUrl)await media.deleteAsset("ws",savedUrl);}
   });
   it("validates exact Dubai dates and owned ready media without creating a publishing job", async () => {
     const idea = await setup(); const production = await approve(idea.id);

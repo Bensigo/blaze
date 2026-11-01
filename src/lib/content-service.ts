@@ -17,8 +17,7 @@ export async function tickContentService(workspace:string,now=new Date()){
  if(Date.now()-started>3000)return{production};
  const pending=(await query<{body:OnDemandReceipt}>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='on_demand_content' AND body->>'state'='scoring' AND NOT (body ? 'scoringIdeaId') ORDER BY body->>'approvedAt',id LIMIT 1`,[workspace]))[0]?.body;
  if(pending)return{production,content:await scoreOnDemand(workspace,pending.id)};
- const day=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Dubai",year:"numeric",month:"2-digit",day:"2-digit"}).format(now);
- const scoring=(await query("SELECT id FROM records WHERE workspace_id=$1 AND kind='idea_batch' AND body->>'state'='scoring' AND body->>'day'=$2 AND NOT (body ? 'scoringIdeaId') LIMIT 1",[workspace,day])).length>0;
+ const scoring=(await query("SELECT id FROM records WHERE workspace_id=$1 AND kind='idea_batch' AND body->>'state'='scoring' AND NOT (body ? 'scoringIdeaId') LIMIT 1",[workspace])).length>0;
  if(scoring)return{production,daily:await scoreDailyIdeas(workspace,now)};
  if(Date.now()-started>3000)return{production};
  return{production,daily:await runDailyIdeas(workspace,now)};

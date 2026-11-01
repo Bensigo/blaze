@@ -1,17 +1,18 @@
+import {randomUUID} from "node:crypto";
 import {referenceContext,referenceSetRevision,rubricRevision} from "./content-references";
 import { CONTENT_GENERATION_SYSTEM, generatedContentSchema, recentContentRejections, recentContentIdeas, buildContentPrompt, currentReviewBinding, sameReviewBinding, scoreGeneratedScript, type ReviewBinding } from "./on-demand-content";
 import { saveContentScript, type ContentScript } from "./content-scripts";
 import { generateText } from "ai";
 import { aiModel } from "./ai-provider";
 import { resolveAISecret, type AISettings } from "./ai-settings";
-import { comparePut, get, list, query, transaction } from "./db";
+import { comparePut, get, list, query, transaction, type TransactionQuery } from "./db";
 import { hash } from "./security";
 import { dubaiDate, gameSources } from "./content-studio";
 import type { ContentIdea, IdeaSchedule } from "./content-studio-contract";
 import type { Connection, Game } from "./types";
 import type { DailyContentGrant } from "./daily-content-consent";
 
-export type IdeaBatch = { id: string; gameId: string; day: string; state: "starting" | "scoring" | "complete" | "failed" | "needs_reconciliation"; reviewReserved?:number; approvedBy?:string; reviewerBinding?:ReviewBinding; grantHash?:string; scoredIdeaIds?:string[]; scoringIdeaId?:string; scriptRevisions?:Record<string,string>; createdAt: string; ideaIds?: string[]; error?: string; usage?: { inputTokens?: number; outputTokens?: number; costStatus: "unavailable" };referenceSetRevision?:string;referenceIds?:string[];rubricRevision?:string };
+export type IdeaBatch = { id: string; gameId: string; day: string; state: "starting" | "scoring" | "complete" | "failed" | "needs_reconciliation"; reviewReserved?:number; approvedBy?:string; reviewerBinding?:ReviewBinding; grantHash?:string; scoredIdeaIds?:string[]; scoringIdeaId?:string; scoringReservationId?:string; scriptRevisions?:Record<string,string>; createdAt: string; ideaIds?: string[]; error?: string; usage?: { inputTokens?: number; outputTokens?: number; costStatus: "unavailable" };referenceSetRevision?:string;referenceIds?:string[];rubricRevision?:string };
 export const ideaScheduleHash = (schedule: IdeaSchedule) => hash(JSON.stringify([schedule.countPerGame, schedule.localTime, schedule.timeZone, schedule.enabled, schedule.maxOutputTokensPerGame,referenceSetRevision,rubricRevision,"daily-generated-and-scored-v3"]));
 
 // Called by an explicitly approved scheduler, never on a page read or profile refresh.
@@ -98,13 +99,39 @@ export async function runDailyIdeas(workspace: string, now = new Date()) {
   return { paused: false, batches };
 }
 
+// Count actual dispatches on the Dubai day, including carry-over and uncertain calls.
+// Legacy same-day markers without a ledger entry still consume their quota.
+async function dailyReviewCount(sql: TransactionQuery, workspace: string, day: string, unstartedPair?:string) {
+  const dispatches = await sql<{body:{batchId:string;ideaId:string;day:string}}>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='daily_review_dispatch'`, [workspace]);
+  const dispatched = new Set(dispatches.map(row => JSON.stringify([row.body.batchId,row.body.ideaId])));
+  const legacy = await sql<{body:IdeaBatch}>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='idea_batch' AND body->>'day'=$2`, [workspace,day]);
+  let used = dispatches.filter(row => row.body.day === day).length;
+  for (const {body:batch} of legacy) {
+    const attempts = new Set([...(batch.scoredIdeaIds || []), ...(batch.scoringIdeaId ? [batch.scoringIdeaId] : [])]);
+    for (const ideaId of attempts) if (JSON.stringify([batch.id,ideaId])!==unstartedPair && !dispatched.has(JSON.stringify([batch.id,ideaId]))) used++;
+  }
+  return used;
+}
+
+class DailyDispatchDeferred extends Error {
+  constructor(readonly quotaReached:boolean) {super("Daily review not dispatched");}
+}
+// Keep daily requests out of the 30-second rollover window (review timeout 15s).
+function dispatchWindow(now:number) {
+  const day=dubaiDate(new Date(now));
+  const end=Date.parse(`${day}T20:00:00Z`); // Dubai midnight ending this date.
+  return {day,open:end-now>30000};
+}
 /** Process at most one granted daily review. An interrupted marker is held for inspection. */
 export async function scoreDailyIdeas(workspace:string, now = new Date()) {
+  const startedAt=Date.now(), day=dubaiDate(now);
   if (process.env.BLAZE_DAILY_IDEAS_ENABLED!=="true" || process.env.BLAZE_ON_DEMAND_CONTENT_ENABLED!=="true") return {paused:true};
-  const authorization=await get<{expiresAt:string;scheduleHash:string;approvedBy:string;scoreConsent:{reviewerBinding:ReviewBinding}}>(workspace,"daily_idea_authorization","default");
+  const authorization=await get<DailyContentGrant>(workspace,"daily_idea_authorization","default");
   const schedule=await get<IdeaSchedule>(workspace,"idea_schedule","default");
   if (!authorization || !schedule?.enabled || !Number.isFinite(Date.parse(authorization.expiresAt)) || Date.parse(authorization.expiresAt)<=now.getTime() || authorization.scheduleHash!==ideaScheduleHash(schedule)) return {paused:true};
-  const rows=await query<{body:IdeaBatch}>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='idea_batch' AND body->>'state'='scoring' AND body->>'day'=$2 AND NOT (body ? 'scoringIdeaId') ORDER BY body->>'createdAt',id LIMIT 1`,[workspace,dubaiDate(now)]);
+  const consent=authorization.scoreConsent;
+  if (!consent || consent.maxCostCentsPerReview!==1 || !Number.isSafeInteger(consent.maxReviewsPerDay) || consent.maxReviewsPerDay<schedule.countPerGame || consent.maxReviewsPerDay>100 || consent.countPerGame!==schedule.countPerGame) return {paused:true};
+  const rows=await query<{body:IdeaBatch}>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='idea_batch' AND body->>'state'='scoring' AND body->>'day'<=$2 AND NOT (body ? 'scoringIdeaId') ORDER BY body->>'createdAt',id LIMIT 1`,[workspace,day]);
   const prior=rows[0]?.body;
   if (!prior) return {paused:false,scored:0};
   if (!prior.grantHash || prior.grantHash!==hash(JSON.stringify(authorization)) || !prior.approvedBy || !prior.reviewerBinding || !authorization.scoreConsent?.reviewerBinding || !sameReviewBinding(prior.reviewerBinding,authorization.scoreConsent.reviewerBinding)) {
@@ -120,22 +147,62 @@ export async function scoreDailyIdeas(workspace:string, now = new Date()) {
     const failed:IdeaBatch={...prior,state:"needs_reconciliation",error:"A generated script is missing or changed. Inspect this batch."};
     await comparePut(workspace,"idea_batch",prior,failed); return {paused:false,scored:0,reconciliationRequired:true};
   }
-  const reserved:IdeaBatch={...prior,scoringIdeaId:ideaId};
+  const reserved:IdeaBatch={...prior,scoringIdeaId:ideaId,scoringReservationId:randomUUID()};
   const claimed=await transaction(async sql=>{
     const currentSchedule=(await sql<{body:IdeaSchedule}>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='idea_schedule' AND id='default' FOR UPDATE`,[workspace]))[0]?.body;
     if (!currentSchedule?.enabled || ideaScheduleHash(currentSchedule)!==authorization.scheduleHash) return false;
     const grant=(await sql<{body:typeof authorization}>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='daily_idea_authorization' AND id='default' FOR UPDATE`,[workspace]))[0]?.body;
-    if (!grant || !Number.isFinite(Date.parse(grant.expiresAt)) || Date.parse(grant.expiresAt)<=Date.now() || hash(JSON.stringify(grant))!==prior.grantHash) return false;
-    return (await sql(`UPDATE records SET body=$3::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='idea_batch' AND id=$2 AND body=$4::jsonb RETURNING id`,[workspace,prior.id,JSON.stringify(reserved),JSON.stringify(prior)])).length>0;
+    if (!grant || !Number.isFinite(Date.parse(grant.expiresAt)) || Date.parse(grant.expiresAt)<=now.getTime()+Math.max(0,Date.now()-startedAt) || hash(JSON.stringify(grant))!==prior.grantHash) return false;
+    const updated=(await sql(`UPDATE records SET body=$3::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='idea_batch' AND id=$2 AND body=$4::jsonb RETURNING id`,[workspace,prior.id,JSON.stringify(reserved),JSON.stringify(prior)])).length>0;
+    if (!updated) return false;
+    return true;
   });
   if (!claimed) return {paused:false,scored:0};
+  const dispatchId=`review_${hash(JSON.stringify([prior.id,ideaId,reserved.scoringReservationId])).slice(0,32)}`;
+  let admittedDay:string|undefined;
+  const actualNow=()=>now.getTime()+Math.max(0,Date.now()-startedAt);
+  const restoreUnstarted=async(sql:TransactionQuery)=>{
+    const restored=await sql(`UPDATE records SET body=$3::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='idea_batch' AND id=$2 AND body=$4::jsonb RETURNING id`,[workspace,prior.id,JSON.stringify(prior),JSON.stringify(reserved)]);
+    if(restored.length!==1)throw Error("Unstarted batch changed");
+    await sql(`DELETE FROM records WHERE workspace_id=$1 AND kind='daily_review_dispatch' AND id=$2`,[workspace,dispatchId]);
+  };
+  // Avoid creating a short-lived review approval while quota/window is closed.
+  const earlyWindow=dispatchWindow(actualNow());
+  const earlyQuota=await transaction(sql=>dailyReviewCount(sql,workspace,earlyWindow.day,JSON.stringify([prior.id,ideaId])));
+  if(!earlyWindow.open || earlyQuota>=consent.maxReviewsPerDay){
+    await transaction(restoreUnstarted);
+    return {paused:false,scored:0,...(earlyQuota>=consent.maxReviewsPerDay?{quotaReached:true}:{dispatchDeferred:true})};
+  }
   try {
-    await scoreGeneratedScript(workspace,prior.approvedBy,prior.id,ideaId,script,prior.reviewerBinding);
+    await scoreGeneratedScript(workspace,prior.approvedBy,prior.id,ideaId,script,prior.reviewerBinding,{
+      approvalRequestKey:reserved.scoringReservationId,
+      isDispatchDeferred:error=>error instanceof DailyDispatchDeferred,
+      beforeDispatch:async sql=>{
+        const savedSchedule=(await sql<{body:IdeaSchedule}>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='idea_schedule' AND id='default' FOR UPDATE`,[workspace]))[0]?.body;
+        const grant=(await sql<{body:DailyContentGrant}>(`SELECT body FROM records WHERE workspace_id=$1 AND kind='daily_idea_authorization' AND id='default' FOR UPDATE`,[workspace]))[0]?.body;
+        const at=actualNow(),window=dispatchWindow(at);
+        if(!savedSchedule?.enabled || !grant || ideaScheduleHash(savedSchedule)!==authorization.scheduleHash || hash(JSON.stringify(grant))!==prior.grantHash || Date.parse(grant.expiresAt)<=at)throw Error("Daily admission changed");
+        if(!window.open)throw new DailyDispatchDeferred(false);
+        if(await dailyReviewCount(sql,workspace,window.day,JSON.stringify([prior.id,ideaId]))>=consent.maxReviewsPerDay)throw new DailyDispatchDeferred(true);
+        const batch=(await sql(`SELECT id FROM records WHERE workspace_id=$1 AND kind='idea_batch' AND id=$2 AND body=$3::jsonb FOR UPDATE`,[workspace,prior.id,JSON.stringify(reserved)])).length;
+        if(!batch)throw Error("Batch changed before dispatch");
+        const dispatch={id:dispatchId,batchId:prior.id,ideaId,reservationId:reserved.scoringReservationId,day:window.day,grantHash:prior.grantHash,dispatchedAt:new Date(at).toISOString()};
+        await sql(`INSERT INTO records(workspace_id,kind,id,body) VALUES($1,'daily_review_dispatch',$2,$3::jsonb)`,[workspace,dispatchId,JSON.stringify(dispatch)]);
+        admittedDay=window.day;
+      },
+      beforeRequest:()=>{const window=dispatchWindow(actualNow());if(!window.open || window.day!==admittedDay)throw new DailyDispatchDeferred(false);},
+      onDispatchAborted:restoreUnstarted,
+    });
     const scoredIdeaIds=[...(prior.scoredIdeaIds||[]),ideaId];
-    const next:IdeaBatch={...reserved,scoringIdeaId:undefined,scoredIdeaIds,state:scoredIdeaIds.length===prior.ideaIds!.length?"complete":"scoring"};
+    const next:IdeaBatch={...reserved,scoringIdeaId:undefined,scoringReservationId:undefined,scoredIdeaIds,state:scoredIdeaIds.length===prior.ideaIds!.length?"complete":"scoring"};
     await comparePut(workspace,"idea_batch",reserved,next);
     return {paused:false,scored:1};
-  } catch {
+  } catch(error) {
+    if(error instanceof DailyDispatchDeferred) {
+      // startScriptReview already atomically retired its known-unstarted approval
+      // and restored this uniquely tokened batch/ledger. Never restore twice.
+      return {paused:false,scored:0,...(error.quotaReached?{quotaReached:true}:{dispatchDeferred:true})};
+    }
     const failed:IdeaBatch={...reserved,state:"needs_reconciliation",error:"A review did not complete. Inspect the draft and review receipt; it will not be retried automatically."};
     await comparePut(workspace,"idea_batch",reserved,failed);
     return {paused:false,scored:0,reconciliationRequired:true};

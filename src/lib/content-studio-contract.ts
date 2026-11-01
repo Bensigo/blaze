@@ -30,6 +30,8 @@ export type VideoProduction = {
   sessionId?: string; error?: string; videoUrl?: string; clipId?: string;
   idleObservedAt?: string;
   importStartedAt?: string;
+  outputRecovery?: "waiting_files";
+  runtimePreflightRevision?: string;
   startedAt?: string; watchdogDeadlineAt?: string; stoppedAt?: string; lastWatchdogAt?: string;
   stopRequest?: { id: string; reason: "owner_cancel" | "runtime_limit"; requestedAt: string; state: "pending_session" | "dispatching" | "requested" | "uncertain" | "confirmed" };
   plannedDate?: string; planningTimeZone?: "Asia/Dubai";
