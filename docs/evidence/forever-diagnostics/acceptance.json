@@ -1,24 +1,25 @@
 {
   "controlled": true,
   "productionTraffic": false,
-  "verifiedAt": "2026-11-04T07:26:09.253Z",
+  "verifiedAt": "2026-11-04T07:41:03.968Z",
   "checks": [
-    "Actual home visit emitted visit without a round start",
-    "Actual runtime error reduced to a fixed code without its private message",
-    "Actual guest Bible Journey start and saved reading step emitted round/action events",
-    "Private Forever report showed visit-only, played and error sessions; anonymous reads denied",
-    "Authenticated Blaze bridge returned the real local report without the bearer",
+    "Actual home visit emits visit without inventing a round start",
+    "Actual runtime error produces a fixed code without leaking its message",
+    "Actual guest Bible Journey start and saved reading step emit separate round/action signals",
+    "Actual Colour Pour solved through bottle clicks reports start, accepted action and completion; opening alone reports no action",
+    "Private Forever report contains nonplay + play + error evidence and rejects anonymous reads",
+    "Real Blaze bridge is authenticated, credential-free in the browser, and renders without errors/overflow at four sizes",
     "All four browser layouts passed without document overflow or JavaScript errors"
   ],
   "summary": {
-    "sessions": 6,
-    "gameViewSessions": 3,
-    "playClickSessions": 3,
-    "readySessions": 1,
+    "sessions": 3,
+    "gameViewSessions": 2,
+    "playClickSessions": 2,
+    "readySessions": 2,
     "startedSessions": 2,
-    "actionSessions": 1,
-    "noPlaySessions": 4,
-    "errorSessions": 4
+    "actionSessions": 2,
+    "noPlaySessions": 1,
+    "errorSessions": 1
   },
   "errors": [
     {
@@ -26,19 +27,9 @@
       "game": "site",
       "browser": "chrome",
       "device": "desktop",
-      "count": 3,
-      "sessions": 3,
-      "lastAt": "2026-11-04T07:23:27.850Z",
-      "source": "browser"
-    },
-    {
-      "code": "start_timeout",
-      "game": "bible-learning",
-      "browser": "chrome",
-      "device": "desktop",
       "count": 1,
       "sessions": 1,
-      "lastAt": "2026-11-04T07:14:11.469Z",
+      "lastAt": "2026-11-04T07:37:58.226Z",
       "source": "browser"
     }
   ],
