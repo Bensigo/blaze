@@ -16,6 +16,7 @@ Open **Forever health** in Blaze. This view always covers the last 14 days and i
 - “Never started a round” is a visit without an observed round start. It includes open tabs, blocked/dropped telemetry and incomplete instrumentation; it does not establish why a visitor left.
 - The ordered funnel follows one game's stages after the visit. Per-game rows show event presence separately. A Play click or ready renderer never counts as gameplay.
 - Round/action signals follow the existing gameplay lifecycle, with separate local-game hooks. These browser observations do not replace Forever's canonical server result journals or existing server-verified launch diagnostics.
+- First-action coverage is explicit: Dog Chase and Tuk Tuk Rush are unmeasured, Rage Football reports actions at finish, and other supported games use their accepted lifecycle signals. The strict funnel stops at first action; completions are shown separately per game.
 - Issues are fixed codes grouped by game, browser and device, with generic server 5xx counts separate from browser sessions. No raw exception messages, stack traces, request bodies, private URLs, account identifiers, or recordings are returned.
 - Recent evidence is a bounded sample. Delivery loss, instrumentation gaps, retention and automation filtering limits remain visible in the report.
 

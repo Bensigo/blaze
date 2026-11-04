@@ -7,7 +7,7 @@ export function fixtureReport(): ForeverReport {
     schemaVersion: 1, generatedAt: now, window: { days: 14, since: new Date(Date.now() - 14 * 86400000).toISOString(), until: now },
     summary: { sessions: 3, gameViewSessions: 2, playClickSessions: 1, readySessions: 1, startedSessions: 1, actionSessions: 1, noPlaySessions: 2, errorSessions: 1 },
     funnel: [{ stage: "visit", sessions: 3 }, { stage: "game_view", sessions: 2 }, { stage: "play_click", sessions: 1 }, { stage: "game_ready", sessions: 1 }, { stage: "round_start", sessions: 1 }, { stage: "first_action", sessions: 1 }],
-    games: [{ game: "last-card", views: 2, playClicks: 1, ready: 1, starts: 1, actions: 1, errorSessions: 1 }],
+    games: [{ game: "last-card", views: 2, playClicks: 1, ready: 1, starts: 1, actions: 1, actionCoverage: "live", completed: 0, errorSessions: 1 }],
     errors: [{ code: "load_timeout", game: "last-card", browser: "safari", device: "iphone", count: 1, sessions: 1, lastAt: now, source: "browser" }],
     delivery: { pending: 0, dropped: 0, writeFailures: 0 },
     recent: [{ session: "a".repeat(64), game: "last-card", device: "iphone", browser: "safari", at: now, stage: "error", code: "load_timeout" }],

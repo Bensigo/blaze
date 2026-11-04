@@ -11,7 +11,7 @@ export const foreverReportSchema = z.object({
   window: z.object({ days: z.literal(14), since: at, until: at }),
   summary: z.object({ sessions: count, gameViewSessions: count, playClickSessions: count, readySessions: count, startedSessions: count, actionSessions: count, noPlaySessions: count, errorSessions: count }),
   funnel: z.array(z.object({ stage: label, sessions: count })).max(10),
-  games: z.array(z.object({ game: label, views: count, playClicks: count, ready: count, starts: count, actions: count, errorSessions: count })).max(100),
+  games: z.array(z.object({ game: label, views: count, playClicks: count, ready: count, starts: count, actions: count.nullable(), actionCoverage: z.enum(["live", "finish_only", "unmeasured"]), completed: count, errorSessions: count })).max(100),
   errors: z.array(z.object({ code: label, game: label, browser: label, device: label, count, sessions: count, lastAt: at, source: z.enum(["browser", "server"]) })).max(100),
   delivery: z.object({ pending: count, dropped: count, writeFailures: count }),
   recent: z.array(z.object({ session: label, game: label, device: label, browser: label, at, stage: label, code: label.optional() })).max(100),
