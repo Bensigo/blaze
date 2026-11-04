@@ -1,0 +1,71 @@
+{
+  "controlled": true,
+  "productionTraffic": false,
+  "verifiedAt": "2026-11-04T07:26:09.253Z",
+  "checks": [
+    "Actual home visit emitted visit without a round start",
+    "Actual runtime error reduced to a fixed code without its private message",
+    "Actual guest Bible Journey start and saved reading step emitted round/action events",
+    "Private Forever report showed visit-only, played and error sessions; anonymous reads denied",
+    "Authenticated Blaze bridge returned the real local report without the bearer",
+    "All four browser layouts passed without document overflow or JavaScript errors"
+  ],
+  "summary": {
+    "sessions": 6,
+    "gameViewSessions": 3,
+    "playClickSessions": 3,
+    "readySessions": 1,
+    "startedSessions": 2,
+    "actionSessions": 1,
+    "noPlaySessions": 4,
+    "errorSessions": 4
+  },
+  "errors": [
+    {
+      "code": "runtime_error",
+      "game": "site",
+      "browser": "chrome",
+      "device": "desktop",
+      "count": 3,
+      "sessions": 3,
+      "lastAt": "2026-11-04T07:23:27.850Z",
+      "source": "browser"
+    },
+    {
+      "code": "start_timeout",
+      "game": "bible-learning",
+      "browser": "chrome",
+      "device": "desktop",
+      "count": 1,
+      "sessions": 1,
+      "lastAt": "2026-11-04T07:14:11.469Z",
+      "source": "browser"
+    }
+  ],
+  "layouts": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 1000,
+      "overflow": false
+    },
+    {
+      "name": "tablet",
+      "width": 834,
+      "height": 1112,
+      "overflow": false
+    },
+    {
+      "name": "phone",
+      "width": 390,
+      "height": 844,
+      "overflow": false
+    },
+    {
+      "name": "landscape",
+      "width": 844,
+      "height": 390,
+      "overflow": false
+    }
+  ]
+}
