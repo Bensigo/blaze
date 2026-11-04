@@ -70,6 +70,7 @@ import type {
 } from "@/lib/types";
 
 const PlayerAnalytics = dynamic(() => import("./player-analytics"), { loading: () => <div className="analytics-loading" role="status">Loading analytics…</div> });
+const ForeverHealth = dynamic(() => import("./forever-health"), { loading: () => <p role="status">Loading Forever diagnostics…</p> });
 
 type GameImportMetadata = { url: string; title: string; description: string; image: string; genre: string; metadataStatus: string; manifestSource: { url: string; observedAt: string; sha256: string; formatVersion: 1 } };
 type GameImportState = { status: "idle" | "waiting" | "loading" | "ready" | "error"; input: string; metadata?: GameImportMetadata; error?: string };
@@ -91,6 +92,7 @@ const nav: { id: Page; label: string; icon: typeof Activity }[] = [
   { id: "overview", label: "Dashboard", icon: LayoutDashboard },
   { id: "games", label: "Games", icon: Gamepad2 },
   { id: "analytics", label: "Player analytics", icon: BarChart3 },
+  { id: "forever", label: "Forever health", icon: Activity },
   { id: "sessions", label: "Sessions", icon: Users },
   { id: "discovery", label: "SEO & AEO", icon: Search },
   { id: "recordings", label: "Recordings & clips", icon: Clapperboard },
@@ -1453,7 +1455,7 @@ export default function Dashboard() {
             <div>
               <div className="page-title-line"><h1>{title}</h1><InfoHint label={`About ${title}`}>{pageDescriptions[page]}</InfoHint></div>
             </div>
-            {page !== "connections" && page !== "help" && page !== "research" && (
+            {page !== "connections" && page !== "help" && page !== "research" && page !== "forever" && (
               <div className="filters">
                 <label>
                   <span className="sr-only">Filter by game</span>
@@ -1487,6 +1489,7 @@ export default function Dashboard() {
               </div>
             )}
           </div>}
+          {page === "forever" && <ForeverHealth demo={snapshot.demo}/>}
           {page === "overview" && sessionScopeReady && <MostPlayedGames analytics={snapshot.analytics} games={games} />}
           {(page === "overview" || page === "analytics") && (sessionScopeReady ? <PlayerAnalytics
             analytics={analytics} games={games} gameId={selectedGame} days={period} demo={snapshot.demo} detailed
@@ -2801,6 +2804,7 @@ const pageDescriptions: Record<Page, string> = {
   overview: "Sessions, measured play and recorded pointer activity.",
   games: "Manage the games in your workspace.",
   analytics: "Play funnels, traffic sources and player returns.",
+  forever: "Private Forever website visits, game entry, and classified issues.",
   sessions: "Inspect individual player journeys and event sequences.",
   recordings: "Turn recorded gameplay into reusable highlights.",
   content: "Prepare content for review and publication.",
