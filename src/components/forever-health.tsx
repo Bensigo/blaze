@@ -8,7 +8,7 @@ import "./forever-health.css";
 
 const number = (value: number) => value.toLocaleString();
 const label = (value: string) => value.replaceAll("_", " ").replaceAll("-", " ");
-const gameNames: Record<string, string> = { "site": "Website", "last-card": "WHOT", "boxing": "Punching Bag", "paintball": "Battle Royale", "keke-smash": "Tuk Tuk Rush", "dog-chase": "Dog Chase", "rage-football": "Rage Football", "bible-learning": "Bible Journey", "table-soccer": "Table Soccer", "biro-fight": "Biro Fight", "ludo": "Ludo" };
+const gameNames: Record<string, string> = { "site": "Website", "last-card": "WHOT", "boxing": "Punching Bag", "paintball": "Battle Royale", "keke-smash": "Tuk Tuk Rush", "dog-chase": "Dog Chase", "rage-football": "Rage Football", "bible-learning": "Bible Journey", "table-soccer": "Table Soccer", "biro-fight": "Biro Fight", "ludo": "Ludo", "colour-pour": "Colour Pour" };
 const gameName = (value: string) => gameNames[value] ?? label(value);
 const date = (value: string) => new Date(value).toLocaleString();
 const stageLabels: Record<string, string> = { visit: "Website visit", game_view: "Game page viewed", play_click: "Play clicked", game_ready: "Game ready", round_start: "Round started", first_action: "First gameplay action", round_complete: "Round completed" };
