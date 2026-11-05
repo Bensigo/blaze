@@ -66,6 +66,8 @@ export function summarize(
   firstSessions?: Map<string, string>,
   games: Game[] = [],
 ): Analytics {
+  const excludedSessions=new Set(events.filter(e=>e.kind==='agent'||e.properties.test===true||e.properties.fixture===true||e.properties.isTest===true||e.properties.isFixture===true||e.properties.traffic==='test'||e.properties.traffic==='fixture').map(e=>JSON.stringify([e.game_id,e.session_id])));
+  events=events.filter(e=>e.kind==='agent'||!excludedSessions.has(JSON.stringify([e.game_id,e.session_id])));
   const originalSession =
     firstSessions ||
     new Map(

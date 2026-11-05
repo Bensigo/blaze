@@ -22,6 +22,7 @@ const eventSchema = z.object({
     "ui_click",
     "player_action",
     "milestone",
+    "player_profile",
   ]),
   sessionId: z.string().min(8).max(100),
   playerId: z.string().min(8).max(100),
@@ -147,6 +148,12 @@ export async function ingest(
           (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1000000))) continue;
       semantic = value === undefined ? { key } : { key, value: value as number };
     }
+    let profile:Record<string,string>|undefined;
+    if(e.name==='player_profile'){
+      const {age_band,declared_country,interests}=e.properties;
+      if(!['unknown','18-24','25-34','35-44','45-54','55-plus'].includes(String(age_band)) || typeof declared_country!=='string' || !/^(unknown|[A-Z]{2})$/.test(declared_country) || typeof interests!=='string' || interests.length>100 || (interests!=='unknown' && interests.split(',').some(x=>!['action','sports','cards','puzzle','rhythm','trivia','party'].includes(x))))continue;
+      profile={age_band:String(age_band),declared_country,interests};
+    }
     let pointer: { x: number; y: number; surface: "game" | "viewport"; screen: string } | undefined;
     if (e.name === "pointer") {
       const { x, y, surface, screen } = e.properties;
@@ -183,7 +190,7 @@ export async function ingest(
       source: source.slice(0, 100),
       campaign: e.campaign || "",
       page: safePage(e.page),
-      properties: { ...(semantic || pointer || properties(e.properties)), ...(e.properties.test === true ? { test: true } : {}) },
+      properties: { ...(profile || semantic || pointer || properties(e.properties)), ...(e.properties.test === true ? { test: true } : {}) },
     });
   }
   if (!rows.length) return Response.json({ accepted: 0 }, { headers: cors });
@@ -201,7 +208,7 @@ export async function ingest(
     [JSON.stringify(rows), workspace, game.id, synthetic ? "agent" : "human"],
   );
   const accepted = result.accepted;
-  if (accepted > 0 && !synthetic && onAccepted) {
+  if (accepted > 0 && !synthetic && rows.some(row=>(row.properties as Record<string,unknown>).test!==true) && onAccepted) {
     try { await onAccepted(workspace!, game.id); }
     catch (error) { console.error("Human profile refresh deferred", error instanceof Error ? error.name : "UnknownError"); }
   }

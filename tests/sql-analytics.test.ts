@@ -135,3 +135,21 @@ describe("SQL analytics on Postgres",()=>{
  });
 
 });
+
+it('audience links only scoped consented IDs and separates volunteered answers from network country',async()=>{
+ const workspace='audience-proof',player='scoped_forever_browser-one';
+ await add('visit','a',100,{workspace,player_id:player,country:'GB'});
+ await add('round_start','a',200,{workspace,player_id:player});
+ await add('round_start','b',300,{workspace,player_id:player,game_id:'game-b'});
+ await add('player_profile','b',400,{workspace,player_id:player,game_id:'game-b',properties:{age_band:'25-34',declared_country:'NG',interests:'sports,puzzle'}});
+ await add('visit','old',500,{workspace,player_id:'old-key-specific'});
+ await add('visit','test',600,{workspace,player_id:'scoped_forever_test',properties:{test:true}});
+ await add('round_start','test',700,{workspace,player_id:'scoped_forever_test'});
+ const {audience}=await import('../src/lib/audience');const result=await audience(workspace,undefined,14,now);
+ expect(result).toMatchObject({browserIds:1,unlinkedGameBrowserIds:1,profileRespondents:1,countries:[{name:'GB',count:1}],ageBands:[{name:'25-34',count:1}],declaredCountries:[{name:'NG',count:1}]});
+ expect(result.segments).toContainEqual({name:'Multiple games',count:1});
+ expect(result.interests).toEqual([{name:'puzzle',count:1},{name:'sports',count:1}]);
+ await add('player_profile','b',800,{workspace,player_id:player,game_id:'game-b',properties:{age_band:'unknown',declared_country:'unknown',interests:'unknown'}});
+ const removed=await audience(workspace,undefined,14,now);expect(removed.profileRespondents).toBe(0);expect(removed.ageBands).toEqual([]);
+ expect((await audience('unrelated',undefined,14,now)).browserIds).toBe(0);
+});

@@ -1,4 +1,5 @@
 "use client";
+import {AudienceBreakdown} from './audience-breakdown';
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, ChevronRight, Gamepad2, LoaderCircle, Plus, RefreshCw } from "lucide-react";
@@ -41,6 +42,7 @@ export default function PlayerAnalytics(props: Props) {
   </div>;
   return <div className="player-workspace">
     <div className="player-scope"><span className="scope-dot" />{demo ? "Illustrative example data" : "Human player activity"}<span>{a?.lastEventAt ? `Latest event ${when(a.lastEventAt)}` : "No events received"}</span>{detailed?<a href="#pointer-heatmap">Heatmap ↓</a>:<button className="text-action" onClick={props.onAnalytics}>Player analytics <ArrowRight size={14}/></button>}</div>
+
     <div className="player-kpis">
       <Metric label={gameId === "all" ? "Per-game browser IDs" : "Browser IDs"} value={count(a?.players)} detail="Browser-scoped IDs, not people" />
       <Metric label="Visits" value={count(a?.launch?.visits)} detail="Sessions with a visit event" />
@@ -76,6 +78,7 @@ export default function PlayerAnalytics(props: Props) {
     </section><section><div className="analytics-section-title"><div><h2>Sessions without completion</h2><p>Last recorded steps; these do not explain player intent</p></div></div>{a?.dropoffs.length ? <div className="dropoff-rows">{a.dropoffs.map(row=><button key={row.name} disabled={gameId==="all"||demo} onClick={()=>props.onDropoff(row.name)}><span>{row.name}</span><strong>{count(row.count)}</strong><ChevronRight size={14}/></button>)}{gameId==="all"&&<p className="quiet-help">Select one game to open supporting sessions.</p>}</div> : <div className="data-empty compact-empty"><strong>No unfinished sessions recorded</strong><p>Drop-off evidence appears as visits and rounds are measured.</p></div>}</section></div>
     {detailed&&<>
 <section className="cohort-section"><div className="analytics-section-title"><div><h2>Instrumentation coverage</h2><p>Event presence across human sessions in the selected game and date range. Missing events do not prove an action never happened.</p></div></div>{a?.launch?.coverage ? <div className="table-wrap"><table><thead><tr><th>Event</th><th>Sessions reporting event / human sessions</th></tr></thead><tbody>{([['Visit',a.launch.coverage.visit],['Loaded',a.launch.coverage.loaded],['Round start',a.launch.coverage.roundStart],['First action',a.launch.coverage.firstAction],['Round complete',a.launch.coverage.roundComplete],['Exit',a.launch.coverage.exit]] as const).map(([name,n])=><tr key={name}><td>{name}</td><td>{count(n)} / {count(a.launch!.coverage!.sessions)}</td></tr>)}</tbody></table></div> : <p className="quiet-help">Event coverage unavailable.</p>}</section>
+    {a?.audience && <AudienceBreakdown data={a.audience}/>}
     <section className="cohort-section"><div className="analytics-section-title"><div><h2>Launch conversion <InfoHint label="About launch conversion">Meaningful play is a start followed by a completion, or a start with at least 30 seconds of measured active play. Source combines tags and referrer hostnames. Direct means no usable referrer or tag, not proof of direct traffic; Unknown means no stored source. Attribution does not establish causation.</InfoHint></h2><p>Visit sessions by first recorded source and campaign.</p></div></div>
       <p className="quiet-help">Starts and meaningful play use visits as the denominator. Missing active measurement is unknown; meaningful play is an observed lower bound. Attribution is incomplete.</p>
       {a?.launch?.conversion.length ? <div className="table-wrap"><table><thead><tr><th>Source</th><th>Campaign</th><th>Visits</th><th>Starts</th><th>Meaningful play</th><th>Starts with active measurement</th></tr></thead><tbody>{a.launch.conversion.map(r=><tr key={JSON.stringify([r.source,r.campaign])}><td>{r.source}</td><td>{r.campaign}</td><td>{count(r.visits)}</td><td>{count(r.starts)}</td><td>{count(r.meaningful)}</td><td>{count(r.activeMeasured)}</td></tr>)}</tbody></table></div> : <p className="quiet-help">No visit events in this selection.</p>}

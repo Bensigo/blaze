@@ -1,3 +1,4 @@
+import {audience} from './audience';
 import { query } from "./db";
 import type { Analytics, SessionSummary, SessionCapture } from "./types";
 
@@ -7,7 +8,7 @@ WITH window_events AS MATERIALIZED (
  SELECT * FROM events WHERE workspace_id=$1 AND ($2::text IS NULL OR game_id=$2)
    AND NOT EXISTS (SELECT 1 FROM records archived WHERE archived.workspace_id=$1 AND archived.kind='archived_game' AND archived.id=events.game_id)
    AND occurred_at >= $3::timestamptz AND occurred_at <= $4::timestamptz AND received_at <= $4::timestamptz
-), human AS (SELECT * FROM window_events WHERE kind='human'), numbered AS (
+), human AS (SELECT * FROM window_events w WHERE kind='human' AND NOT EXISTS(SELECT 1 FROM window_events t WHERE t.game_id=w.game_id AND t.session_id=w.session_id AND (t.kind='agent' OR t.properties @> '{"test":true}' OR t.properties @> '{"fixture":true}' OR t.properties @> '{"isTest":true}' OR t.properties @> '{"isFixture":true}' OR t.properties->>'traffic' IN ('test','fixture')))), numbered AS (
  SELECT *,row_number() OVER (PARTITION BY game_id,session_id ORDER BY occurred_at,id) seq FROM human
 ), activity AS (
  SELECT *,max(seq) FILTER (WHERE name='round_start') OVER (PARTITION BY game_id,session_id ORDER BY seq ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) last_start,
@@ -155,7 +156,7 @@ export async function sqlAnalytics(workspace:string,gameId?:string,days=14,now=D
  ) data`,[...params,startDay,days]),querySessionPage(workspace,gameId,days,{now}),sqlMostPlayedGames(workspace,gameId,days,now)]);
  const data=result[0].data;
  data.lastEventAt=data.lastEventAt?date(data.lastEventAt):null;
- return {...data,mostPlayedGames,windowEnd:new Date(now).toISOString(),sessionsList:page.sessions,sessionPage:{total:page.total,limit:page.limit,nextCursor:page.nextCursor}} as Analytics;
+ return {...data,audience:await audience(workspace,gameId,days,now),mostPlayedGames,windowEnd:new Date(now).toISOString(),sessionsList:page.sessions,sessionPage:{total:page.total,limit:page.limit,nextCursor:page.nextCursor}} as Analytics;
 }
 
 export type InvestigationFilter =

@@ -10,6 +10,8 @@ export type Provider =
   | "search_console"
   | Channel;
 export interface Game {
+  telemetry?: {humanEvents:number;lastEventAt:string|null};
+  foreverCatalogue?: {state:'listed'|'retired';slug:string;checkedAt:string};
   id: string;
   title: string;
   url: string;
@@ -260,6 +262,7 @@ export interface SessionSummary {
   captureId?: string;
 }
 export interface Analytics {
+  audience?: import('./audience').Audience;
   mostPlayedGames?: {gameId:string;browserIds:number;playedSessions:number;roundStarts:number;activeSeconds:number|null;measuredSessions:number}[];
   launch?: { visits: number; exits: number; coverage?: { sessions: number; visit: number; loaded: number; roundStart: number; firstAction: number; roundComplete: number; exit: number }; conversion: { source: string; campaign: string; visits: number; starts: number; meaningful: number; activeMeasured: number }[]; conversionTotal: number };
   windowEnd?: string;

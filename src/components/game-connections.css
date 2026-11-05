@@ -19,3 +19,5 @@
 .game-connections-secondary { border: 1px solid var(--line); background: #fff; color: inherit; }.game-connections-secondary:hover { background: var(--side); }
 .game-connections-empty { padding: 4px 0 22px; }.game-connections-empty button { margin-top: 14px; }
 @media (max-width: 600px) { .game-connections-list > div { grid-template-columns: 1fr; gap: 5px; }.game-connections-selector { max-width: none; } }
+
+.game-connections-sync{display:grid;justify-items:start;gap:8px;margin:0 0 20px}.game-connections-sync p{margin:0;max-width:72ch;color:var(--muted);font-size:12px;line-height:1.6}.game-connections-sync [role=status]:empty{display:none}

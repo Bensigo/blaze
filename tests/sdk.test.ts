@@ -238,3 +238,13 @@ it("sends only bounded semantic event properties", () => {
   expect(events.map(e => e.name)).toEqual(["ui_click", "player_action", "milestone"]);
   expect(events.map(e => e.properties)).toEqual([{key:"start_button",value:3},{key:"move_left"},{key:"level_2",value:2}]);
 });
+
+it('joins only explicit consented identity scopes across games; default IDs stay game-specific',()=>{
+ const h=harness();h.sdk.init({endpoint:'https://marketing.example',sdkKey:'one',identityScope:'forever',consent:false});
+ expect(h.requests).toHaveLength(0);expect(h.localStorage.items.size).toBe(0);
+ h.sdk.setConsent(true);const first=h.requests[0].events[0].playerId;
+ h.sdk.init({endpoint:'https://marketing.example',sdkKey:'two',identityScope:'forever',consent:true});
+ expect(h.requests.at(-1).events[0].playerId).toBe(first);expect(first).toMatch(/^scoped_forever_/);
+ h.sdk.init({endpoint:'https://marketing.example',sdkKey:'three',consent:true});expect(h.requests.at(-1).events[0].playerId).not.toBe(first);
+ h.sdk.setConsent(false);const before=h.requests.length;h.sdk.track('player_profile',{age_band:'25-34'});expect(h.requests).toHaveLength(before);
+});
