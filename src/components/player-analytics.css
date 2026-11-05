@@ -1,0 +1,2 @@
+
+.audience-breakdowns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 30px}.audience-breakdown p{font-size:12px;line-height:1.6}.audience-breakdowns h3{font-size:13px}.audience-breakdowns ul{font-size:12px;line-height:1.8;padding-left:18px}@media(max-width:640px){.audience-breakdowns{grid-template-columns:1fr}}

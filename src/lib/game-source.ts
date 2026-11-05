@@ -1,4 +1,4 @@
-import { get, transaction } from './db';
+import { get, transaction, type TransactionQuery } from './db';
 import { normalizeNetworkPolicy } from './network-policy';
 import { hash } from './security';
 import { HttpError } from './http-error';
@@ -11,8 +11,8 @@ export function sourceUrl(input: string) {
   try { normalizeNetworkPolicy({resourceOrigins:[u.origin],webSocketOrigins:[]}); } catch { throw new HttpError(400,'Use a public HTTPS game host.'); }
   u.pathname = u.pathname.replace(/\/+$/, '') || '/'; return u.href;
 }
-export async function changeGameSource(workspace: string, gameId: string, input: string, expectedRevision: string) {
-  const prior = await get<Game>(workspace, 'game', gameId);
+export async function changeGameSource(workspace: string, gameId: string, input: string, expectedRevision: string, outerTransaction?: TransactionQuery) {
+  const prior = outerTransaction?(await outerTransaction<{body:Game}>("SELECT body FROM records WHERE workspace_id=$1 AND kind='game' AND id=$2 FOR UPDATE",[workspace,gameId]))[0]?.body:await get<Game>(workspace, 'game', gameId);
   if (!prior) throw new HttpError(404, 'Active game not found.');
   if (gameSourceVersion(prior) !== expectedRevision) throw new HttpError(409, 'Source changed in another tab. Reload before saving.');
   const url = sourceUrl(input);
@@ -20,7 +20,7 @@ export async function changeGameSource(workspace: string, gameId: string, input:
   // Pinned public DNS, bounded body, no redirect following. No AI or worker run.
   const manifest = await readGameManifest(url);
   if (manifest.status !== 'complete') throw new HttpError(400, manifest.status === 'not_applicable' ? 'Use a public game URL with a valid forever.json manifest.' : manifest.detail);
-  return transaction(async sql => {
+  const apply=async (sql:TransactionQuery) => {
     const game = (await sql<{body: Game}>("SELECT body FROM records WHERE workspace_id=$1 AND kind='game' AND id=$2 FOR UPDATE", [workspace, gameId]))[0]?.body;
     if (!game) throw new HttpError(404, 'Active game not found.');
     if (gameSourceVersion(game) !== expectedRevision) throw new HttpError(409, 'Source changed in another tab. Reload before saving.');
@@ -47,5 +47,6 @@ export async function changeGameSource(workspace: string, gameId: string, input:
     await sql("UPDATE records SET body=body || '{\"state\":\"revoked\"}'::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='pilot_grant' AND body->>'gameId'=$2 AND body->>'state'='approved'",[workspace,gameId]);
     await sql("UPDATE records SET body=body || '{\"enabled\":false}'::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='game_automation' AND id=$2",[workspace,gameId]);
     return next;
-  });
+  };
+  return outerTransaction?apply(outerTransaction):transaction(apply);
 }

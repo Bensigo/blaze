@@ -1,8 +1,8 @@
-// Vendored from Forever shared/forever-json.ts at commit b7aafab4; preserve producer validation semantics.
+// Vendored from Forever shared/forever-json.ts at commit 62e4671e; preserve producer validation semantics.
 import {z} from 'zod';
 
 /** The `forever.json` format (version 1): one file per game holding the facts and text of its public page. */
-export const FOREVER_GENRES = ['Action', 'Board', 'Cards', 'Social', 'Sports', 'Trivia'] as const;
+export const FOREVER_GENRES = ['Action', 'Board', 'Cards', 'Puzzle', 'Social', 'Sports', 'Trivia'] as const;
 export const PLAY_MODES = ['solo', 'cpu', 'friends', 'online'] as const;
 export const INPUTS = ['keyboard', 'mouse', 'touch', 'gamepad'] as const;
 

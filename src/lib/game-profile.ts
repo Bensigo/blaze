@@ -33,6 +33,8 @@ export async function queueProfile(workspace: string, gameId: string, appOrigin:
 // Accepted human data starts a refresh, coalesced across requests and limited to
 // once per 24 hours. If an investigation is already running, it gets one follow-up.
 export async function queueHumanProfileRefresh(workspace: string, gameId: string, appOrigin: string) {
+  const game=await get<Game>(workspace,'game',gameId);
+  if(!game?.dailyEnabled)return undefined;
   const jobId = profileJobId(workspace, gameId);
   const body = { gameId, appOrigin, runKey: id("profile") };
   const rows = await withActiveGameWork(workspace, gameId, sql => sql<{ id: string }>(`WITH due AS (

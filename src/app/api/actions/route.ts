@@ -1,4 +1,5 @@
 import {paidJevAllowed,JEV_APPROVAL_REQUIRED} from '@/lib/jev-budget';
+import {syncForeverCatalogue} from '@/lib/forever-catalogue';
 import { resolveAISecret, AccountSettingsError } from "@/lib/ai-settings";
 import { loadAgentHistory } from "@/lib/agent-history";
 import { after } from "next/server";
@@ -120,6 +121,7 @@ export async function POST(request: Request) {
       if (!item) throw new HttpError(404, `${kind} not found.`);
       return item;
     };
+    if(action === 'sync_forever_catalogue') return Response.json(await syncForeverCatalogue(workspace));
     if (action === "inspect_game" || action === "add_game") {
       const v = z.object({ url: z.string().max(2000) }).parse(body);
       const metadata = await gameMetadata(v.url, publicOrigin(request));
