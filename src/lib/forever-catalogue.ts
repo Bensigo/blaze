@@ -34,7 +34,7 @@ export async function syncForeverCatalogue(workspace:string){
    prior?updated++:created++;
   }
   for(const game of games){const slug=foreverSlug(game.url);if(!slug||current.has(slug))continue;
-   await sql("UPDATE records SET body=body || $3::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='game' AND id=$2",[workspace,game.id,JSON.stringify({dailyEnabled:false,foreverCatalogue:{state:'retired',slug,checkedAt:at}})]);retired++;
+   await sql("UPDATE records SET body=body || $3::jsonb,updated_at=now() WHERE workspace_id=$1 AND kind='game' AND id=$2",[workspace,game.id,JSON.stringify({dailyEnabled:false,origins:[...new Set([...game.origins,origin])],foreverCatalogue:{state:'retired',slug,checkedAt:at}})]);retired++;
   }
   return {listed:metadata.length,created,updated,retired,checkedAt:at};
  });

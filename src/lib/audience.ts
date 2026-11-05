@@ -16,7 +16,7 @@ export async function audience(workspace:string,gameId:string|undefined,days:num
  SELECT '5+ rounds',count(*)::int FROM people WHERE starts>=5 UNION ALL
  SELECT 'Multiple games',count(*)::int FROM people WHERE games>=2 UNION ALL
  SELECT 'Completed a round',count(*)::int FROM people WHERE completed UNION ALL
- SELECT 'Returning browser',count(*)::int FROM people p WHERE EXISTS(SELECT 1 FROM events e WHERE e.workspace_id=$1 AND e.kind='human' AND e.player_id=p.player_id AND e.occurred_at<$3::timestamptz AND e.received_at<=$4::timestamptz)
+ SELECT 'Returning browser',count(*)::int FROM people p WHERE EXISTS(SELECT 1 FROM events e WHERE e.workspace_id=$1 AND e.kind='human' AND e.player_id=p.player_id AND e.occurred_at<$3::timestamptz AND e.received_at<=$4::timestamptz AND NOT EXISTS(SELECT 1 FROM events t WHERE t.workspace_id=e.workspace_id AND t.game_id=e.game_id AND t.session_id=e.session_id AND (t.kind='agent' OR t.properties @> '{"test":true}' OR t.properties @> '{"fixture":true}' OR t.properties @> '{"isTest":true}' OR t.properties @> '{"isFixture":true}' OR t.properties->>'traffic' IN ('test','fixture'))))
  ), geo AS(SELECT coalesce(nullif(country,''),'Unknown') name,count(*)::int count FROM people GROUP BY 1),
  ages AS(SELECT properties->>'age_band' name,count(*)::int count FROM profiles WHERE properties->>'age_band' IN ('18-24','25-34','35-44','45-54','55-plus') GROUP BY 1),
  declared AS(SELECT properties->>'declared_country' name,count(*)::int count FROM profiles WHERE properties->>'declared_country' ~ '^[A-Z]{2}$' GROUP BY 1),

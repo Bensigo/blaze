@@ -19,7 +19,7 @@ it('retains keys, historical records and other workspaces; repeating does not du
  await db.put('owner','game',game('r','runners'));await db.put('owner','game',game('old','ludo'));await db.put('other','game',game('r','runners'));
  const first=await syncForeverCatalogue('owner');expect(first).toMatchObject({listed:2,created:1,updated:1,retired:1});
  expect(await db.get('owner','game','r')).toMatchObject({sdkKey:'sdk_keep_r',title:'runners',foreverCatalogue:{state:'listed'}});
- expect(await db.get('owner','game','old')).toMatchObject({sdkKey:'sdk_keep_old',foreverCatalogue:{state:'retired'}});
+ expect(await db.get('owner','game','old')).toMatchObject({sdkKey:'sdk_keep_old',foreverCatalogue:{state:'retired'}});expect((await db.get<any>('owner','game','old')).origins).toContain('https://playforever.app');
  expect(await db.get('other','game','r')).not.toHaveProperty('foreverCatalogue');
  expect(await syncForeverCatalogue('owner')).toMatchObject({created:0,updated:2,retired:1});expect(await db.list('owner','game')).toHaveLength(3);
 });
