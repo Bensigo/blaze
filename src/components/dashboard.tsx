@@ -902,8 +902,9 @@ export default function Dashboard() {
   };
   const games = snapshot?.games || [],
     analytics = snapshot?.analytics;
+  const controlledGame=(game:Game)=>{try{const url=new URL(game.url);return game.metadataStatus==='Controlled fixture manifest'||(url.origin===origin&&url.pathname.startsWith('/fixture/'));}catch{return false;}};
   const filteredGames =
-    selectedGame === "all" ? (page === "games" ? games.filter(g=>g.foreverCatalogue?.state!=="retired") : games) : games.filter((g) => g.id === selectedGame);
+    selectedGame === "all" ? (page === "games" ? games.filter(g=>g.foreverCatalogue?.state!=="retired"&&!controlledGame(g)) : games) : games.filter((g) => g.id === selectedGame);
   const featuredGame = filteredGames[0];
   const records = (snapshot?.recordings || []).filter(
       (x) => selectedGame === "all" || x.gameId === selectedGame,
@@ -1510,7 +1511,7 @@ export default function Dashboard() {
             <>
               <SectionHead
                 title="Your games"
-                detail="Add a public web game URL to begin setup."
+                detail="Current games. Historical entries and controlled fixtures remain available through the game selector."
               />
               {filteredGames.length ? (
                 <div className="games-list">
