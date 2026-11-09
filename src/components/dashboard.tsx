@@ -1,5 +1,4 @@
 "use client";
-import GeneratedContentBank from "./generated-content-bank";
 import GameSourceEditor from "./game-source-editor";
 
 import {
@@ -22,10 +21,8 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleHelp,
-  Clapperboard,
   Clock3,
   ExternalLink,
-  FileText,
   Gamepad2,
   LayoutDashboard,
   Link2,
@@ -39,30 +36,22 @@ import {
   Settings2,
   Sparkles,
   Users,
-  Video,
   X,
 } from "lucide-react";
 import dynamic from "next/dynamic";
-import ManualExportPanel from "./manual-export-panel";
 import GameConnections from "./game-connections";
 import InfoHint from "./info-hint";
 import MostPlayedGames from "./most-played-games";
 import {dashboardHref,readDashboardLocation,type DashboardView} from "@/lib/dashboard-location";
-const ActionsPage = dynamic(() => import("./actions-page"), { loading: () => <p role="status">Loading actions…</p> });
-const ContentStudio = dynamic(() => import("./content-studio"), { loading: () => <p role="status">Loading video studio…</p> });
 const GameArchiveControls = dynamic(() => import("./game-archive-controls"));
 const AccountSettings = dynamic(() => import("./account-settings"), { loading: () => <p role="status">Loading account settings…</p> });
 const DiscoveryReview = dynamic(() => import("./discovery-review").then(module => module.DiscoveryReview), { loading: () => <p role="status">Loading search review…</p> });
 import type {
   Analytics,
-  Channel,
-  Clip,
   Finding,
   Measurement,
   MeasurementMetrics,
   Game,
-  Post,
-  Recording,
   SessionSummary,
   SessionCapture,
   TelemetryEvent,
@@ -78,11 +67,7 @@ type GameImportState = { status: "idle" | "waiting" | "loading" | "ready" | "err
 type Page = DashboardView;
 type Modal =
   | "game"
-  | "recording"
-  | "clip"
-  | "post"
   | "connection"
-  | "review"
   | "measurement"
   | null;
 type InvestigationEvidence = { eventId: string; name: string; timestamp: string; replay?: { captureId: string; offsetSeconds: number; segment?: number } };
@@ -95,12 +80,8 @@ const nav: { id: Page; label: string; icon: typeof Activity }[] = [
   { id: "forever", label: "Forever health", icon: Activity },
   { id: "sessions", label: "Sessions", icon: Users },
   { id: "discovery", label: "SEO & AEO", icon: Search },
-  { id: "recordings", label: "Recordings & clips", icon: Clapperboard },
-  { id: "content", label: "Content studio", icon: FileText },
-  { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "research", label: "Actions", icon: Search },
 ];
-const socialProviders = ["x", "youtube", "instagram", "tiktok"];
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString();
 const shortDate = (v?: string) =>
   v
@@ -119,15 +100,6 @@ const dateTime = (v?: string) =>
         minute: "2-digit",
       })
     : "Not scheduled";
-const dateTimeInZone = (value: string, timeZone?: string) => {
-  try { return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", ...(timeZone ? { timeZone } : {}) }); }
-  catch { return dateTime(value); }
-};
-const validTimeZone = (zone?: string) => {
-  if (!zone) return false;
-  try { new Intl.DateTimeFormat("en", { timeZone: zone }); return true; } catch { return false; }
-};
-const validPlannedTime = (time?: string, zone?: string) => !!time && Number.isFinite(Date.parse(time)) && validTimeZone(zone);
 const captureTime = (v: string) => new Date(v).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" });
 const timecode = (n: number) =>
   `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2, "0")}`;
@@ -143,17 +115,8 @@ function manifestAddress(input: string) {
     return url.href;
   } catch { return ""; }
 }
-const trackingUrl = (post: Post) =>
-  (post as Post & { trackingUrl?: string }).trackingUrl;
 const gameName = (games: Game[], id: string) =>
   games.find((g) => g.id === id)?.title || "Unknown game";
-const dateInput = (v?: string) =>
-  v
-    ? new Date(new Date(v).getTime() - new Date(v).getTimezoneOffset() * 60000)
-        .toISOString()
-        .slice(0, 16)
-    : "";
-
 function captureMessage(status?: SessionCapture["status"], demo = false, missingVideo = false) {
   if (demo) return status === "unsupported"
     ? "Example status: capture unsupported. No player video was recorded."
@@ -411,13 +374,7 @@ export default function Dashboard() {
   const [sessionEvidence, setSessionEvidence] = useState<InvestigationEvidence | null>(null);
   const [evidenceReplayAvailable, setEvidenceReplayAvailable] = useState(false);
   const [chosenFinding, setChosenFinding] = useState<Finding | null>(null);
-  const [seekAt, setSeekAt] = useState<number | undefined>(undefined);
-  const [chosenRecording, setChosenRecording] = useState<Recording | null>(
-      null,
-    ),
-    [chosenClip, setChosenClip] = useState<Clip | null>(null),
-    [chosenPost, setChosenPost] = useState<Post | null>(null),
-    [chosenSession, setChosenSession] = useState<SessionSummary | null>(null),
+  const [chosenSession, setChosenSession] = useState<SessionSummary | null>(null),
     [sessionEvents, setSessionEvents] = useState<TelemetryEvent[]>([]),
     [sessionCapture, setSessionCapture] = useState<SessionCapture | null>(null),
     [sessionCaptures, setSessionCaptures] = useState<SessionCapture[]>([]),
@@ -444,45 +401,17 @@ export default function Dashboard() {
   }, [error, modal]);
   const [origin, setOrigin] = useState("");
   const [localTimeZone, setLocalTimeZone] = useState("");
-  const [advancedSocial, setAdvancedSocial] = useState(false);
-  const [adapterState, setAdapterState] = useState<{ gameId: string; verified: boolean } | null>(null);
-  const [creator, setCreator] = useState<{
-    privacyOptions: string[];
-    commentDisabled: boolean;
-    duetDisabled: boolean;
-    stitchDisabled: boolean;
-    maxDuration: number;
-    username: string;
-  } | null>(null);
-  const [calendarMode, setCalendarMode] = useState<"week" | "month" | "list">(
-      "week",
-    ),
-    [calendarOffset, setCalendarOffset] = useState(0);
   const [draft, setDraft] = useState({
     url: "",
     title: "",
     image: "",
     genre: "",
     gameId: "",
-    mode: "fixture",
-    recordingId: "",
-    start: "0",
-    end: "10",
-    layout: "portrait",
-    clipId: "",
-    channel: "x",
-    deliveryMethod: "native",
-    text: "",
     accountId: "",
-    scheduledAt: "",
-    provider: "x",
+    provider: "search_console",
     token: "",
     refreshToken: "",
-    model: "",
-    workspaceId: "",
     label: "",
-    dailyEnabled: true,
-    competitors: "",
     origins: "",
     resourceOrigins: "",
     webSocketOrigins: "",
@@ -495,11 +424,6 @@ export default function Dashboard() {
     retentionDays: "1",
     maxCapturesPerDay: "25",
     masks: "[]",
-    tiktokPrivacy: "",
-    disableComment: false,
-    disableDuet: false,
-    disableStitch: false,
-    tiktokConsent: false,
     note: "",
     releaseVersion: "", releaseDescription: "", releaseEvidenceUrl: "", releaseEffectiveAt: "",
     baselineStart: "", baselineEnd: "", followupStart: "", followupEnd: "",
@@ -562,19 +486,6 @@ export default function Dashboard() {
     const params = new URLSearchParams(window.location.search);
     initialSearch.current=window.location.search;
     const authResult = params.get("auth");
-    const socialResult = params.get("social");
-    const provider = params.get("provider") || "";
-    if (socialProviders.includes(provider) && socialResult) {
-      const name = provider === "x" ? "X" : label(provider);
-      const messages: Record<string, string> = {
-        connected: `${name} account connected.`,
-        failed: `${name} authorization failed. Try connecting again.`,
-        denied: `${name} authorization was denied.`,
-        account_mismatch: `${name} returned a different account. Reconnect the original account.`,
-      };
-      if (messages[socialResult]) setNotice(messages[socialResult]);
-      window.history.replaceState(null, "", window.location.pathname);
-    }
     if (authResult === "failed") setAuthNotice("Google sign-in did not finish. Please try again.");
     if (authResult === "setup") setAuthNotice("Google sign-in is not available yet.");
     void fetch("/api/auth/config", { cache: "no-store", signal: AbortSignal.timeout(15000) })
@@ -600,49 +511,19 @@ export default function Dashboard() {
     setSessionPageLoading(false);
     setSessionPageError("");
   }, [sessionScope]);
-  const activeJobs =
-    !!snapshot &&
-    !snapshot.demo &&
-    (snapshot.recordings.some((r) =>
-      ["queued", "recording"].includes(r.status),
-    ) ||
-      snapshot.clips.some((c) => c.status === "queued") ||
-      snapshot.posts.some((p) =>
-        ["uploading", "processing"].includes(p.status),
-      ));
   useEffect(() => {
     if (!snapshot || snapshot.demo) return;
     const tick = () => {
       if (document.visibilityState === "visible")
         void refresh(selectedGame, false);
     };
-    const timer = window.setInterval(tick, activeJobs ? 5000 : 30000);
+    const timer = window.setInterval(tick, 30000);
     document.addEventListener("visibilitychange", tick);
     return () => {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [snapshot?.demo, selectedGame, period, activeJobs, refresh]);
-  useEffect(() => {
-    if (!snapshot) return;
-    setChosenRecording((current) =>
-      current
-        ? snapshot.recordings.find((r) => r.id === current.id) || current
-        : null,
-    );
-    setChosenClip((current) =>
-      current
-        ? snapshot.clips.find((c) => c.id === current.id) || current
-        : null,
-    );
-    setChosenPost((current) => {
-      if (!current) return null;
-      const fresh = snapshot.posts.find((p) => p.id === current.id);
-      return fresh
-        ? fresh
-        : current;
-    });
-  }, [snapshot]);
+  }, [snapshot?.demo, selectedGame, period, refresh]);
   const action = async (payload: Record<string, unknown>, close = true) => {
     if (snapshot?.demo) {
       setNotice("Example workspace is read-only. Sign in to make changes.");
@@ -681,26 +562,6 @@ export default function Dashboard() {
     } finally {
       setBusy(false);
     }
-  };
-  const socialAction = async (provider: string, operation: "connect" | "refresh" | "disconnect", connectionId?: string) => {
-    if (snapshot?.demo) { setNotice("Example workspace is read-only. Sign in to connect an account."); return; }
-    setBusy(true); setError("");
-    try {
-      const response = await fetch(`/api/social/${provider}/${operation}`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(connectionId ? { connectionId } : {}),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `Could not ${operation} account`);
-      if (operation === "connect") {
-        if (typeof data.url !== "string") throw new Error("Authorization URL is unavailable.");
-        window.location.assign(data.url);
-        return;
-      }
-      await refresh();
-      setNotice(data.warning || (operation === "refresh" ? "Account refreshed." : "Account disconnected."));
-    } catch (e) { setError(e instanceof Error ? e.message : `Could not ${operation} account`); }
-    finally { setBusy(false); }
   };
   const showDemo = async () => {
     setSelectedGame("all");
@@ -812,33 +673,17 @@ export default function Dashboard() {
     }
   };
   const resetDraft = () => {
-    setCreator(null);
-    setAdvancedSocial(false);
     setDraft({
       url: "",
       title: "",
       image: "",
       genre: "",
       gameId: selectedGame === "all" ? "" : selectedGame,
-      mode: "fixture",
-      recordingId: "",
-      start: "0",
-      end: "10",
-      layout: "portrait",
-      clipId: "",
-      channel: "x",
-      deliveryMethod: "native",
-      text: "",
       accountId: "",
-      scheduledAt: "",
-      provider: "x",
+      provider: "search_console",
       token: "",
       refreshToken: "",
-      model: "",
-      workspaceId: "",
       label: "",
-      dailyEnabled: true,
-      competitors: "",
       origins: "",
       resourceOrigins: "",
       webSocketOrigins: "",
@@ -851,11 +696,6 @@ export default function Dashboard() {
       retentionDays: "1",
       maxCapturesPerDay: "25",
       masks: "[]",
-      tiktokPrivacy: "",
-      disableComment: false,
-      disableDuet: false,
-      disableStitch: false,
-      tiktokConsent: false,
       note: "",
       releaseVersion: "", releaseDescription: "", releaseEvidenceUrl: "", releaseEffectiveAt: "",
       baselineStart: "", baselineEnd: "", followupStart: "", followupEnd: "",
@@ -865,7 +705,6 @@ export default function Dashboard() {
     setError("");
     resetDraft();
     setChosenGame(null);
-    setChosenPost(null);
     setModal(m);
   };
   const startMeasurement = (f: Finding) => {
@@ -883,8 +722,6 @@ export default function Dashboard() {
       title: g.title,
       image: g.image,
       genre: g.genre,
-      dailyEnabled: g.dailyEnabled,
-      competitors: g.competitors.join("\n"),
       origins: g.origins.join("\n"),
       resourceOrigins: (g.networkPolicy?.resourceOrigins || []).join("\n"),
       webSocketOrigins: (g.networkPolicy?.webSocketOrigins || []).join("\n"),
@@ -906,21 +743,9 @@ export default function Dashboard() {
   const filteredGames =
     selectedGame === "all" ? (page === "games" ? games.filter(g=>g.foreverCatalogue?.state!=="retired"&&!controlledGame(g)) : games) : games.filter((g) => g.id === selectedGame);
   const featuredGame = filteredGames[0];
-  const records = (snapshot?.recordings || []).filter(
-      (x) => selectedGame === "all" || x.gameId === selectedGame,
-    ),
-    clips = (snapshot?.clips || []).filter(
-      (x) => selectedGame === "all" || x.gameId === selectedGame,
-    ),
-    posts = (snapshot?.posts || []).filter(
-      (x) => selectedGame === "all" || x.gameId === selectedGame,
-    ),
-    findings = (snapshot?.findings || []).filter(
-      (x) => selectedGame === "all" || x.gameId === selectedGame,
-    ),
-    runs = (snapshot?.runs || []).filter(
-      (x) => selectedGame === "all" || x.gameId === selectedGame,
-    );
+  const findings = (snapshot?.findings || []).filter(
+    (x) => selectedGame === "all" || x.gameId === selectedGame,
+  );
   const sessions = analytics?.sessionsList || [];
   const sessionScopeReady = snapshotScope === sessionScope;
   const activeSessionPage = sessionPageData?.scope === sessionScope && sessionPageIndex > 0 ? sessionPageData : null;
@@ -931,29 +756,6 @@ export default function Dashboard() {
   const coverageLabels: Record<string, string> = { countries: "countries", sources: "traffic sources", devices: "devices", dropoffs: "drop-off points", campaigns: "campaigns", heatmap: "pointer bins" };
   const limitedCoverage = Object.entries(analytics?.coverage || {}).filter(([, value]) => value.shown < value.total);
   const trend = analytics?.trend || [];
-  const latestRecording = [...records].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  const latestRun = [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
-  const currentRecording = records.find((r) => ["queued", "recording"].includes(r.status));
-  const currentRun = runs.find((r) => r.status === "running");
-  const lastRecordingError = [...records].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).find((r) => r.error);
-  const lastRunError = [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).find((r) => r.error);
-  const jev = snapshot?.demo ? undefined : [...(snapshot?.connections || [])].filter((c) => c.provider === "jev").sort((a, b) => (b.checkedAt || "").localeCompare(a.checkedAt || ""))[0];
-  const jevValidation = adapterState?.gameId === selectedGame && adapterState.verified;
-  useEffect(() => {
-    setAdapterState(null);
-    if (!snapshot || snapshot.demo || selectedGame === "all") return;
-    let cancelled = false;
-    const check = async () => {
-      try {
-        const response = await fetch(`/api/games/${encodeURIComponent(selectedGame)}/automation`, { cache: "no-store" });
-        const data = await response.json();
-        if (!cancelled) setAdapterState({ gameId: selectedGame, verified: response.ok && data.adapterVerified === true });
-      } catch { if (!cancelled) setAdapterState(null); }
-    };
-    void check();
-    const timer = setInterval(check, 30000);
-    return () => { cancelled = true; clearInterval(timer); };
-  }, [selectedGame, snapshot?.demo]);
   useEffect(() => { investigationRequest.current++; setInvestigation(null); }, [selectedGame, period, analytics?.windowEnd, snapshot?.demo]);
   const investigate = async (kind: "heatmap" | "dropoff", title: string, filters: Record<string, string>) => {
     if (!snapshot || snapshot.demo || selectedGame === "all" || !analytics?.windowEnd || !sessionScopeReady) return;
@@ -972,74 +774,6 @@ export default function Dashboard() {
   const title =
     nav.find((n) => n.id === page)?.label ||
     (page === "connections" ? "Connections" : page === "account" ? "Account settings" : page === "discovery" ? "Search & answers" : "Setup & help");
-  const editPost = (p: Post) => {
-    const t = (
-      p as Post & {
-        tiktokConsent?: {
-          consent: boolean;
-          privacy: string;
-          disableComment: boolean;
-          disableDuet: boolean;
-          disableStitch: boolean;
-        };
-      }
-    ).tiktokConsent;
-    setCreator(null);
-    setChosenPost(p);
-    setDraft((d) => ({
-      ...d,
-      gameId: p.gameId,
-      clipId: p.clipId || "",
-      channel: p.channel,
-      deliveryMethod: p.deliveryMethod || "native",
-      text: p.text,
-      accountId: p.accountId,
-      scheduledAt: dateInput(p.scheduledAt),
-      tiktokPrivacy: "",
-      disableComment: t?.disableComment || false,
-      disableDuet: t?.disableDuet || false,
-      disableStitch: t?.disableStitch || false,
-      tiktokConsent: false,
-    }));
-    setModal("post");
-  };
-  const reviewPost = (p: Post) => {
-    setChosenPost(p);
-    setModal("review");
-  };
-  const copyTrackedLink = async (p: Post) => {
-    const url = trackingUrl(p);
-    if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
-      setNotice("Tracked link copied.");
-    } catch {
-      setError("Could not copy the tracked link. Select and copy it manually.");
-    }
-  };
-  const openRecordingEvidence = (id: string, at?: number) => {
-    const r = snapshot?.recordings.find((x) => x.id === id);
-    if (!r) {
-      setNotice("This recording is unavailable in the workspace.");
-      return;
-    }
-    setSelectedGame(r.gameId);
-    setChosenRecording(r);
-    setChosenClip(null);
-    setSeekAt(at);
-    changePage("recordings");
-  };
-  const openClip = (r: Recording) => {
-    resetDraft();
-    setChosenRecording(r);
-    setDraft((d) => ({
-      ...d,
-      recordingId: r.id,
-      gameId: r.gameId,
-      end: String(Math.min(r.duration || 10, 10)),
-    }));
-    setModal("clip");
-  };
   const formSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (modal === "game") {
@@ -1071,11 +805,6 @@ export default function Dashboard() {
               title: draft.title,
               image: draft.image,
               genre: draft.genre,
-              dailyEnabled: draft.dailyEnabled,
-              competitors: draft.competitors
-                .split("\n")
-                .map((x) => x.trim())
-                .filter(Boolean),
               origins: draft.origins
                 .split("\n")
                 .map((x) => x.trim())
@@ -1101,21 +830,7 @@ export default function Dashboard() {
               url: draft.url.trim(),
             },
       );
-    } else if (modal === "recording")
-      await action({
-        action: "queue_recording",
-        gameId: draft.gameId,
-        mode: draft.mode,
-      });
-    else if (modal === "clip")
-      await action({
-        action: "create_clip",
-        recordingId: draft.recordingId,
-        title: draft.title,
-        start: Number(draft.start),
-        end: Number(draft.end),
-        layout: draft.layout,
-      });
+    }
     else if (modal === "measurement" && chosenFinding) {
       const values = [draft.releaseEffectiveAt, draft.baselineStart, draft.baselineEnd, draft.followupStart, draft.followupEnd];
       if (values.some((value) => !value || !Number.isFinite(new Date(value).getTime()))) { setError("Enter valid release and comparison times."); return; }
@@ -1129,105 +844,12 @@ export default function Dashboard() {
     else if (modal === "connection")
       await action({
         action: "save_connection",
-        advanced: socialProviders.includes(draft.provider) ? true : undefined,
-        provider: draft.provider,
+        provider: "search_console",
         label: draft.label,
         token: draft.token,
         accountId: draft.accountId || undefined,
-        model: draft.model || undefined,
-        workspaceId:
-          draft.provider === "anthropic"
-            ? draft.workspaceId || undefined
-            : undefined,
         refreshToken: draft.refreshToken || undefined,
       });
-    else if (modal === "post") {
-      const data = {
-        gameId: draft.gameId,
-        clipId: draft.clipId || undefined,
-        channel: draft.channel,
-        deliveryMethod: draft.deliveryMethod,
-        timeZone: localTimeZone || "UTC",
-        text: draft.text,
-        accountId: draft.accountId,
-        scheduledAt: draft.scheduledAt
-          ? new Date(draft.scheduledAt).toISOString()
-          : null,
-        ...(draft.deliveryMethod === "native" && draft.channel === "tiktok" && draft.tiktokPrivacy
-          ? {
-              tiktokConsent: {
-                consent: draft.tiktokConsent,
-                privacy: draft.tiktokPrivacy,
-                disableComment: draft.disableComment,
-                disableDuet: draft.disableDuet,
-                disableStitch: draft.disableStitch,
-              },
-            }
-          : {}),
-      };
-      await action(
-        chosenPost
-          ? { action: "update_post", id: chosenPost.id, ...data }
-          : { action: "create_post", ...data },
-      );
-    }
-  };
-  const loadCreator = async () => {
-    if (snapshot?.demo) {
-      setNotice(
-        "Example workspace is read-only. Sign in to configure a TikTok account.",
-      );
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const r = await fetch("/api/actions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "get_tiktok_creator",
-          accountId: draft.accountId,
-        }),
-      });
-      const data = await r.json();
-      if (!r.ok)
-        throw new Error(data.error || "Could not load creator settings");
-      setCreator(data);
-      setDraft((d) => ({
-        ...d,
-        tiktokPrivacy: "",
-        tiktokConsent: false,
-        disableComment: !!data.commentDisabled,
-        disableDuet: !!data.duetDisabled,
-        disableStitch: !!data.stitchDisabled,
-      }));
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Could not load creator settings",
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-  const generate = async () => {
-    const result = await action(
-      {
-        action: "generate_draft",
-        gameId: draft.gameId,
-        clipId: draft.clipId || undefined,
-        channel: draft.channel,
-      },
-      false,
-    );
-    if (result) {
-      const text = result.text || result.draft?.text || result.draft;
-      if (typeof text === "string") setDraft((d) => ({ ...d, text }));
-      else
-        setNotice(
-          "Draft generated. Refresh or check the response in the content studio.",
-        );
-    }
   };
   if (loading)
     return (
@@ -1254,8 +876,7 @@ export default function Dashboard() {
             after play begins.
           </h1>
           <p>
-            Bring your games, player evidence and content workflow into one
-            place.
+            Bring player analytics and search insights into one place.
           </p>
           {authNotice && <div className="alert error" role="alert">{authNotice}</div>}
           {googleConfigured ? (
@@ -1311,7 +932,7 @@ export default function Dashboard() {
         <nav aria-label="Workspace navigation">
           {[
             { title: "Player evidence", items: nav.slice(0, 5) },
-            { title: "Production", items: nav.slice(5) },
+            { title: "Insights", items: nav.slice(5) },
           ].map((group) => (
             <div className="nav-group" key={group.title}>
               <div className="nav-label">{group.title}</div>
@@ -1324,9 +945,6 @@ export default function Dashboard() {
                 >
                   <n.icon size={17} />
                   <span>{n.label}</span>
-                  {n.id === "content" && posts.filter((p) => p.status === "review").length > 0 && (
-                    <i>{posts.filter((p) => p.status === "review").length}</i>
-                  )}
                 </button>
               ))}
             </div>
@@ -1412,7 +1030,7 @@ export default function Dashboard() {
                 ↻
               </button>
             )}
-            {!["account", "content", "recordings"].includes(page) && <Button variant="primary" onClick={() => openModal("game")}>
+            {page !== "account" && <Button variant="primary" onClick={() => openModal("game")}>
               <Plus size={16} /> Add game
             </Button>}
           </div>
@@ -1536,7 +1154,6 @@ export default function Dashboard() {
                         </span>
                       </div>
                       <div className="game-actions">
-                        <Button onClick={() => { setSelectedGame(g.id); changePage("content"); }}>Scripts &amp; video studio</Button>
                         <Button onClick={() => { setSelectedGame(g.id); changePage("discovery"); }}>Search &amp; answers</Button>
                         <Button
                           onClick={() => {
@@ -1562,7 +1179,7 @@ export default function Dashboard() {
               ) : (
                 <Empty
                   title="No games added"
-                  detail="Add a game to start collecting player activity and creating recordings."
+                  detail="Add a game to start collecting player activity."
                   action={
                     <Button onClick={() => openModal("game")}>
                       <Plus size={15} /> Add game
@@ -1574,7 +1191,7 @@ export default function Dashboard() {
           )}
           {page === "games" && <GameArchiveControls games={games} demo={snapshot.demo} onUpdated={async () => { setSelectedGame("all"); await refresh("all", false); }}/>}
           {page === "discovery" && <>
-            <SectionHead title={games.find(game => game.id === selectedGame)?.title || "Choose a game"} detail="Public SEO/AEO checks and suggested fixes. Gameplay investigation and AI keys are not required." action={<Button onClick={() => changePage("games")}>Back to games</Button>}/>
+            <SectionHead title={games.find(game => game.id === selectedGame)?.title || "Choose a game"} detail="Review public page observations, search visibility and suggested fixes." action={<Button onClick={() => changePage("games")}>Back to games</Button>}/>
             {snapshot.demo ? <Empty title="Sign in to review your game" detail="Public checks are unavailable in the example workspace."/> : selectedGame === "all" ? <Empty title="Choose one game" detail="Select a game above to read its cached observations or run a public-page review."/> : <DiscoveryReview key={selectedGame} gameId={selectedGame}/>}
           </>}
           {page === "sessions" && (
@@ -1608,183 +1225,13 @@ export default function Dashboard() {
               )}
             </>
           )}
-          {page === "recordings" && <GeneratedContentBank
-            gameId={selectedGame} games={games} demo={snapshot.demo} recordings={records} clips={clips}
-            selectedRecording={chosenRecording} seekAt={seekAt}
-            onRecordingSelect={setChosenRecording}
-            onQueueRecording={() => openModal("recording")}
-            onStudio={() => changePage("content")}
-            onCreateClip={(recording, start) => { openClip(recording); if(start !== undefined) setDraft(d => ({...d, start:String(start), end:String(Math.min(recording.duration || start+10,start+10))})); }}
-            onCreatePost={clip => { resetDraft(); setDraft(d => ({...d,gameId:clip.gameId,clipId:clip.id})); setModal("post"); }}
-          />}
-          {page === "content" && (
-            <>
-              <ContentStudio key={selectedGame} games={games} gameId={selectedGame} demo={snapshot.demo}/>
-              {posts.length>0&&<details className="post-drafts-disclosure"><summary>Post drafts · {posts.length}</summary>
-              <SectionHead
-                title="Post drafts"
-                detail="Prepare text for the videos you will post manually."
-                action={posts.length>0?
-                  <Button variant="primary" onClick={() => openModal("post")}>
-                    <Plus size={16} /> New post
-                  </Button>:undefined
-                }
-              />
-              {posts.length ? (
-                <div className="post-list">
-                  {posts.map((p) => (
-                    <PostRow
-                      key={p.id}
-                      post={p}
-                      games={games}
-                      onEdit={() => editPost(p)}
-                      onReview={() => reviewPost(p)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <Empty
-                  title="No posts yet"
-                  detail="Turn a clip or game into a channel draft, then send it for review."
-                  action={
-                    <Button onClick={() => openModal("post")}>
-                      Create a post
-                    </Button>
-                  }
-                />
-              )}
-              </details>}
-            </>
-          )}
-          {page === "calendar" && (
-            <>
-              <ContentStudio key={selectedGame} games={games} gameId={selectedGame} demo={snapshot.demo} calendarOnly/>
-              <div className="calendar-toolbar">
-                <div>
-                  <h2>Post calendar</h2>
-                  <p>Planning only · download and post manually.</p>
-                </div>
-                <div className="calendar-controls">
-                  <div className="segmented">
-                    {(["week", "month", "list"] as const).map((m) => (
-                      <button
-                        key={m}
-                        className={calendarMode === m ? "selected" : ""}
-                        onClick={() => setCalendarMode(m)}
-                      >
-                        {label(m)}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    className="icon-button bordered"
-                    aria-label="Previous period"
-                    onClick={() => setCalendarOffset((x) => x - 1)}
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <button
-                    className="icon-button bordered"
-                    aria-label="Next period"
-                    onClick={() => setCalendarOffset((x) => x + 1)}
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                  <Button onClick={() => setCalendarOffset(0)}>Today</Button>
-                </div>
-              </div>
-              <Calendar
-                posts={posts}
-                games={games}
-                mode={calendarMode}
-                offset={calendarOffset}
-                onSelect={editPost}
-              />
-            </>
-          )}
-          {page === "research" && <><ActionsPage key={selectedGame} games={games} findings={findings} recordings={snapshot.recordings} measurements={snapshot.measurements || []} runs={runs} selectedGame={selectedGame} demo={snapshot.demo} onAction={action} onUpdated={refresh} onMeasure={startMeasurement} onRecording={openRecordingEvidence} onAccount={() => changePage("account")} onGameChange={(id) => setSelectedGame(id || "all")} /><details className="actions-history"><summary>Recorded game changes and comparisons · {(snapshot.measurements || []).length}</summary><Measurements items={(snapshot.measurements || []).filter(m => selectedGame === "all" || m.gameId === selectedGame)} findings={findings}/></details></>}
+          {page === "research" && <><SectionHead title="Actions and measurements" detail="Track findings and compare player activity after a game change."/><Findings findings={findings} action={action} full onMeasure={startMeasurement}/><Measurements items={(snapshot.measurements || []).filter(m => selectedGame === "all" || m.gameId === selectedGame)} findings={findings}/></>}
           {page === "account" && (snapshot.demo ? <Empty title="Sign in to configure your account" detail="The example workspace does not store credentials."/> : <AccountSettings user={snapshot.user} onSaved={async () => { await refresh(); }}/>) }
           {page === "connections" && (
             <>
               <GameConnections games={games} origin={origin} onSynced={async()=>{await refresh();}} onAdd={() => openModal("game")} onSetup={(gameId) => { setSelectedGame(gameId); changePage("help"); }} onSessions={(gameId) => { setSelectedGame(gameId); changePage("sessions"); }}/>
-              <SectionHead
-                title="Social & research integrations"
-                detail="Connect publishing accounts and research sources. Jev and AI provider keys are in Account settings."
-                action={
-                  <Button
-                    variant="primary"
-                    onClick={() => openModal("connection")}
-                  >
-                    <Plus size={16} /> Add connection
-                  </Button>
-                }
-              />
-              <div className="connection-list">
-                {[
-                  "x",
-                  "youtube",
-                  "instagram",
-                  "tiktok",
-                  "reddit",
-                  "brave",
-                  "search_console",
-                ].map((provider) => {
-                  const con = snapshot.connections.filter(
-                    (c) => c.provider === provider,
-                  );
-                  return (
-                    <div className="connection-row" key={provider}>
-                      <div className="provider-icon">
-                        {provider.slice(0, 1).toUpperCase()}
-                      </div>
-                      <div className="provider-copy">
-                        <strong>
-                          {provider === "x" ? "X" : label(provider)}
-                        </strong>
-                        <span>{providerDescriptions[provider]}</span>
-                        {socialProviders.includes(provider) && !snapshot.system.social?.find((item) => item.provider === provider)?.configured && (
-                          <small>OAuth app setup required. Connect to see setup instructions.</small>
-                        )}
-                        {con.map((c) => (
-                          <div className="connection-account" key={c.id}>
-                            <small>{c.accountName || c.label}{c.accountId ? ` · ID: ${c.accountId}` : ""} · {c.authMethod === "oauth" ? "OAuth" : "Manual"}{c.requiresReconnect ? " · Reconnect required" : ""}{c.checkedAt ? ` · Checked ${dateTime(c.checkedAt)}` : " · Not checked"}{c.expiresAt ? ` · Expires ${dateTime(c.expiresAt)}` : ""}{c.scopes?.length ? ` · Scopes: ${c.scopes.join(", ")}` : ""}</small>
-                            {socialProviders.includes(provider) ? <div className="account-actions">
-                              <button onClick={() => void socialAction(provider, "connect", c.id)} disabled={busy}>Reconnect</button>
-                              {c.authMethod === "oauth" && <button onClick={() => void socialAction(provider, "refresh", c.id)} disabled={busy}>Refresh</button>}
-                              <button onClick={() => void socialAction(provider, "disconnect", c.id)} disabled={busy}>Disconnect</button>
-                            </div> : <button className="account-remove" onClick={() => action({ action: "delete_connection", id: c.id })}>Remove</button>}
-                          </div>
-                        ))}
-                      </div>
-                      <Status
-                        value={
-                          con.some((c) => c.connected)
-                            ? "connected"
-                            : "disconnected"
-                        }
-                      />
-                      <Button
-                        onClick={() => {
-                          if (socialProviders.includes(provider)) { void socialAction(provider, "connect"); return; }
-                          resetDraft();
-                          setDraft((d) => ({ ...d, provider }));
-                          setModal("connection");
-                        }}
-                      >
-                        {con.length ? "Add account" : "Connect"}
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="data-note">
-                A saved credential does not guarantee a provider is ready.
-                Verify scopes, native account authorization and any platform
-                review. TikTok public posting may require app audit. Worker:{" "}
-                {snapshot.system.worker ? "connected" : "not connected"};
-                storage:{" "}
-                {snapshot.system.storage ? "configured" : "not configured"}.
-              </div>
+              <SectionHead title="Search Console" detail="Connect an authorized Search Console property to enrich search insights." action={<Button variant="primary" onClick={() => { resetDraft(); setDraft(d => ({ ...d, provider: "search_console" })); setModal("connection"); }}><Plus size={16}/> Add connection</Button>}/>
+              <div className="connection-list">{snapshot.connections.filter(c => c.provider === "search_console").map(c => <div className="connection-row" key={c.id}><div className="provider-copy"><strong>{c.label}</strong><span>{c.accountId || "Property not specified"}</span></div><Status value={c.connected ? "connected" : "disconnected"}/><Button onClick={() => void action({ action: "delete_connection", id: c.id })}>Remove</Button></div>)}</div>
             </>
           )}
           {page === "help" && (
@@ -1921,124 +1368,6 @@ export default function Dashboard() {
           detail={modalDetails[modal]}
           onClose={() => setModal(null)}
         >
-          {modal === "review" && chosenPost ? (
-            <>
-              <div className="review-content">
-                <div className="review-meta">
-                  <span>{label(chosenPost.channel)}</span>
-                  <span>{gameName(games, chosenPost.gameId)}</span>
-                  <Status value={chosenPost.status} />
-                </div>
-                <div className="review-text">{chosenPost.text}</div>
-                <dl>
-                  <dt>Delivery</dt>
-                  <dd>{chosenPost.deliveryMethod === "manual" ? "Manual export" : "Connected account"}</dd>
-                  <dt>Destination account</dt>
-                  <dd>{chosenPost.deliveryMethod === "manual" ? `${chosenPost.accountId || "Not entered"} · Unverified, entered by you` : (() => {
-                    const account = snapshot.connections.find((c) => c.provider === chosenPost.channel && c.accountId === chosenPost.accountId && c.connected && !c.requiresReconnect);
-                    return account?.accountName ? `${account.accountName} · ID: ${chosenPost.accountId}` : `Name not verified · ID: ${chosenPost.accountId || "Not selected"}`;
-                  })()}</dd>
-                  <dt>Clip</dt>
-                  <dd>
-                    {clips.find((c) => c.id === chosenPost.clipId)?.title ||
-                      "None"}
-                  </dd>
-                  <dt>Planned time</dt>
-                  <dd>{chosenPost.scheduledAt ? dateTimeInZone(chosenPost.scheduledAt, chosenPost.timeZone) : "Not scheduled"}{chosenPost.timeZone ? ` · ${chosenPost.timeZone}` : ""}</dd>
-                  {chosenPost.deliveryMethod !== "manual" && chosenPost.channel === "tiktok" && (
-                    <>
-                      <dt>TikTok settings</dt>
-                      <dd>
-                        {chosenPost.tiktokConsent
-                          ? `${chosenPost.tiktokConsent.privacy} · comments ${chosenPost.tiktokConsent.disableComment ? "off" : "on"} · duet ${chosenPost.tiktokConsent.disableDuet ? "off" : "on"} · stitch ${chosenPost.tiktokConsent.disableStitch ? "off" : "on"} · consent ${chosenPost.tiktokConsent.consent ? "given" : "missing"}`
-                          : "Not configured"}
-                      </dd>
-                    </>
-                  )}
-                </dl>
-                {chosenPost.recommendation && <PostRecommendation post={chosenPost} />}
-                {chosenPost.deliveryMethod === "manual" && !validPlannedTime(chosenPost.scheduledAt, chosenPost.timeZone) && <p className="error-text">Set a planned time and time zone in Edit post before approval.</p>}
-                {trackingUrl(chosenPost) && (
-                  <div className="tracked-link">
-                    <strong>Tracked game link</strong>
-                    <a
-                      href={trackingUrl(chosenPost)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {trackingUrl(chosenPost)}
-                    </a>
-                    <Button onClick={() => copyTrackedLink(chosenPost)}>
-                      Copy tracked link
-                    </Button>
-                    {!chosenPost.text.includes(trackingUrl(chosenPost)!) && (
-                      <p className="tracking-warning">
-                        This link is not in the post text. Attribution to this
-                        post will be incomplete unless players use the tracked
-                        link.
-                      </p>
-                    )}
-                  </div>
-                )}
-                {chosenPost.error && (
-                  <div className="alert error">{chosenPost.error}</div>
-                )}
-                <p className="muted">
-                  Approval applies to this exact content, account, media and
-                  planned time. Editing invalidates approval.
-                </p>
-                {chosenPost.deliveryMethod === "manual" && validPlannedTime(chosenPost.scheduledAt, chosenPost.timeZone) && <ManualExportPanel key={chosenPost.id} post={chosenPost} onChanged={() => refresh()} />}
-              </div>
-              <div className="modal-actions">
-                <Button onClick={() => editPost(chosenPost)}>Edit post</Button>
-                {chosenPost.status === "draft" && (
-                  <Button
-                    onClick={() =>
-                      action({ action: "submit_review", id: chosenPost.id })
-                    }
-                  >
-                    Request review
-                  </Button>
-                )}
-                {chosenPost.status === "review" && (
-                  <Button
-                    variant="primary"
-                    disabled={
-                      (chosenPost.deliveryMethod === "manual" && !validPlannedTime(chosenPost.scheduledAt, chosenPost.timeZone)) ||
-                      (chosenPost.deliveryMethod !== "manual" && (!snapshot.connections.some((c) => c.provider === chosenPost.channel && c.accountId === chosenPost.accountId && c.connected && !c.requiresReconnect && !!c.accountName) ||
-                      (chosenPost.channel === "tiktok" &&
-                      (!chosenPost.tiktokConsent?.consent ||
-                        !chosenPost.tiktokConsent?.privacy))))
-                    }
-                    onClick={() =>
-                      action({ action: "approve_post", id: chosenPost.id })
-                    }
-                  >
-                    Approve post
-                  </Button>
-                )}
-                {chosenPost.deliveryMethod !== "manual" && ["approved", "scheduled"].includes(chosenPost.status) && (
-                  <Button
-                    variant="primary"
-                    onClick={() =>
-                      action({ action: "publish_post", id: chosenPost.id })
-                    }
-                  >
-                    Publish now
-                  </Button>
-                )}
-                <Button
-                  variant="danger"
-                  onClick={() => {
-                    if (window.confirm("Delete this post?"))
-                      void action({ action: "delete_post", id: chosenPost.id });
-                  }}
-                >
-                  Delete
-                </Button>
-              </div>
-            </>
-          ) : (
             <form onSubmit={formSubmit}>
               {error && <div ref={formError} className="alert error" role="alert">{error}</div>}
               {modal === "game" && (
@@ -2078,19 +1407,6 @@ export default function Dashboard() {
                         />
                       </Field>
                       <div className="settings-section">
-                        <h3>Browser network permissions</h3>
-                        <p className="muted">Same-origin HTTPS resources work by default. Only verified public destinations are allowed; unknown, private and local destinations are blocked, including redirects. WebSockets require an explicit origin, even on the game host.</p>
-                        <Field label="Additional HTTPS resource origins" hint="Exact origins only, one per line; for example https://cdn.example.com. No paths or wildcards.">
-                          <textarea rows={2} value={draft.resourceOrigins} onChange={(e) => setDraft({ ...draft, resourceOrigins: e.target.value })} />
-                        </Field>
-                        <Field label="Allowed WSS origins" hint="Exact origins only, one per line; for example wss://socket.example.com. Sockets are opt-in.">
-                          <textarea rows={2} value={draft.webSocketOrigins} onChange={(e) => setDraft({ ...draft, webSocketOrigins: e.target.value })} />
-                        </Field>
-                        <Field label="Reviewed game frame URLs" hint="Up to two exact HTTPS game-frame URLs on this game’s origin, one per line. Include the full non-root path; no query, fragment, credentials, or wildcards. Review each frame before adding it.">
-                          <textarea rows={2} value={draft.frameUrls} onChange={(e) => setDraft({ ...draft, frameUrls: e.target.value })} placeholder="https://game.example/play/index.html" />
-                        </Field>
-                      </div>
-                      <div className="settings-section">
                         <h3>Human canvas capture</h3>
                         <p className="muted">Off by default. Capture also requires analytics consent and a separate, explicit recording consent from each player. Only the reviewed canvas is recorded; no audio or DOM content. Limits: 5 fps, up to 960 × 540 and 3 MiB.</p>
                         <label className="checkbox"><input type="checkbox" checked={draft.captureEnabled} onChange={(e) => setDraft({ ...draft, captureEnabled: e.target.checked })} /> Enable capture for this game</label>
@@ -2108,401 +1424,7 @@ export default function Dashboard() {
                           <textarea rows={4} value={draft.masks} onChange={(e) => setDraft({ ...draft, masks: e.target.value })} spellCheck={false} />
                         </Field>
                       </div>
-                      <Field
-                        label="Competitor public URLs"
-                        hint="One public URL per line. Research inspects public pages only."
-                      >
-                        <textarea
-                          rows={3}
-                          value={draft.competitors}
-                          onChange={(e) =>
-                            setDraft({ ...draft, competitors: e.target.value })
-                          }
-                        />
-                      </Field>
-                      <label className="checkbox">
-                        <input
-                          type="checkbox"
-                          checked={draft.dailyEnabled}
-                          onChange={(e) =>
-                            setDraft({
-                              ...draft,
-                              dailyEnabled: e.target.checked,
-                            })
-                          }
-                        />{" "}
-                        Include this game in daily research
-                      </label>
                     </>
-                  )}
-                </>
-              )}
-              {modal === "recording" && (
-                <>
-                  <Field label="Game">
-                    <select
-                      required
-                      value={draft.gameId}
-                      onChange={(e) =>
-                        setDraft({ ...draft, gameId: e.target.value })
-                      }
-                    >
-                      <option value="">Select a game</option>
-                      {games.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.title}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Recording mode">
-                    <select
-                      value={draft.mode}
-                      onChange={(e) =>
-                        setDraft({ ...draft, mode: e.target.value })
-                      }
-                    >
-                      <option value="fixture">Controlled fixture</option>
-                      <option value="jev">Jev agent</option>
-                    </select>
-                  </Field>
-                  <div className="data-note">
-                    Fixture mode exercises the included controlled game; it does
-                    not validate Jev. Jev requires a configured provider, a
-                    compatible game adapter and a running worker.
-                  </div>
-                  {draft.mode === "jev" && <p className="error-text" role="alert">Paid Jev runs are blocked until an enforceable total spending cap and separate paid-run approval are configured.</p>}
-                </>
-              )}
-              {modal === "clip" && (
-                <>
-                  <Field label="Clip title">
-                    <input
-                      required
-                      value={draft.title}
-                      onChange={(e) =>
-                        setDraft({ ...draft, title: e.target.value })
-                      }
-                      placeholder="Name this highlight"
-                    />
-                  </Field>
-                  <div className="form-grid">
-                    <Field label="Start (seconds)">
-                      <input
-                        required
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={draft.start}
-                        onChange={(e) =>
-                          setDraft({ ...draft, start: e.target.value })
-                        }
-                      />
-                    </Field>
-                    <Field label="End (seconds)">
-                      <input
-                        required
-                        type="number"
-                        min="0.1"
-                        step="0.1"
-                        value={draft.end}
-                        onChange={(e) =>
-                          setDraft({ ...draft, end: e.target.value })
-                        }
-                      />
-                    </Field>
-                  </div>
-                  <Field label="Layout">
-                    <select
-                      value={draft.layout}
-                      onChange={(e) =>
-                        setDraft({ ...draft, layout: e.target.value })
-                      }
-                    >
-                      <option value="portrait">Portrait · 9:16</option>
-                      <option value="landscape">Landscape · 16:9</option>
-                      <option value="square">Square · 1:1</option>
-                    </select>
-                  </Field>
-                  <p className="muted">
-                    Use the recording’s timestamped observations to choose a
-                    highlight.
-                  </p>
-                </>
-              )}
-              {modal === "post" && (
-                <>
-                  <Field label="Game">
-                    <select
-                      required
-                      value={draft.gameId}
-                      onChange={(e) =>
-                        setDraft({
-                          ...draft,
-                          gameId: e.target.value,
-                          clipId: "",
-                        })
-                      }
-                    >
-                      <option value="">Select a game</option>
-                      {games.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.title}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <div className="form-grid">
-                    <Field label="Channel">
-                      <select
-                        value={draft.channel}
-                        onChange={(e) => {
-                          setCreator(null);
-                          setDraft({
-                            ...draft,
-                            channel: e.target.value,
-                            accountId: "",
-                            tiktokPrivacy: "",
-                            tiktokConsent: false,
-                          });
-                        }}
-                      >
-                        {["x", "youtube", "instagram", "tiktok"].map((c) => (
-                          <option key={c} value={c}>
-                            {c === "x" ? "X" : label(c)}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label={draft.deliveryMethod === "manual" ? "Ready clip" : "Clip (optional)"}>
-                      <select
-                        required={draft.deliveryMethod === "manual"}
-                        value={draft.clipId}
-                        onChange={(e) =>
-                          setDraft({ ...draft, clipId: e.target.value })
-                        }
-                      >
-                        <option value="">{draft.deliveryMethod === "manual" ? "Select a ready clip" : "No clip"}</option>
-                        {clips
-                          .filter((c) => c.gameId === draft.gameId && (draft.deliveryMethod !== "manual" || c.status === "ready"))
-                          .map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.title}
-                            </option>
-                          ))}
-                      </select>
-                    </Field>
-                  </div>
-                  <Field label="Delivery method">
-                    <select value={draft.deliveryMethod} onChange={(e) => setDraft({ ...draft, deliveryMethod: e.target.value, accountId: "", tiktokConsent: false })}>
-                      <option value="native">Connected account</option>
-                      <option value="manual">Manual export</option>
-                    </select>
-                  </Field>
-                  {draft.deliveryMethod === "manual" ? <Field label="Destination handle or account" hint="Entered by you and not verified with the platform."><input required value={draft.accountId} onChange={(e) => setDraft({ ...draft, accountId: e.target.value })} placeholder="e.g. @youraccount" /></Field> : <>
-                  <Field
-                    label="Account"
-                    hint="Select a saved, authorized account for this channel."
-                  >
-                    <select
-                      required
-                      value={draft.accountId}
-                      onChange={(e) => {
-                        setCreator(null);
-                        setDraft({
-                          ...draft,
-                          accountId: e.target.value,
-                          tiktokPrivacy: "",
-                          tiktokConsent: false,
-                        });
-                      }}
-                    >
-                      <option value="">Select an account</option>
-                      {snapshot.connections
-                        .filter(
-                          (c) =>
-                            c.provider === draft.channel &&
-                            c.connected &&
-                            c.accountId,
-                        )
-                        .map((c) => (
-                          <option key={c.id} value={c.accountId}>
-                            {c.accountName || `${c.label} (name not verified)`} · ID: {c.accountId}
-                          </option>
-                        ))}
-                    </select>
-                  </Field>
-                  {!snapshot.connections.some(
-                    (c) =>
-                      c.provider === draft.channel &&
-                      c.connected &&
-                      c.accountId,
-                  ) && (
-                    <p className="muted">
-                      No account available. Add an authorized account and
-                      account ID in Connections.
-                    </p>
-                  )}
-                  </>}
-                  {draft.deliveryMethod === "native" && draft.channel === "tiktok" && (
-                    <div className="tiktok-settings">
-                      <strong>TikTok creator settings</strong>
-                      <p className="muted">
-                        Load current creator options for this account before
-                        choosing visibility and permissions. TikTok may require
-                        app review for public posting.
-                      </p>
-                      <Button
-                        onClick={loadCreator}
-                        disabled={!draft.accountId || busy}
-                      >
-                        Load creator options
-                      </Button>
-                      {creator && (
-                        <>
-                          <p className="muted">
-                            {creator.username} · maximum duration{" "}
-                            {creator.maxDuration}s
-                          </p>
-                          <Field label="Privacy">
-                            <select
-                              required
-                              value={draft.tiktokPrivacy}
-                              onChange={(e) =>
-                                setDraft({
-                                  ...draft,
-                                  tiktokPrivacy: e.target.value,
-                                  tiktokConsent: false,
-                                })
-                              }
-                            >
-                              <option value="">Select privacy</option>
-                              {creator.privacyOptions.map((o) => (
-                                <option key={o} value={o}>
-                                  {label(o)}
-                                </option>
-                              ))}
-                            </select>
-                          </Field>
-                          {(
-                            [
-                              [
-                                "disableComment",
-                                "Disable comments",
-                                creator.commentDisabled,
-                              ],
-                              [
-                                "disableDuet",
-                                "Disable duet",
-                                creator.duetDisabled,
-                              ],
-                              [
-                                "disableStitch",
-                                "Disable stitch",
-                                creator.stitchDisabled,
-                              ],
-                            ] as const
-                          ).map(([key, text, locked]) => (
-                            <label className="checkbox" key={key}>
-                              <input
-                                type="checkbox"
-                                checked={draft[key]}
-                                disabled={locked}
-                                onChange={(e) =>
-                                  setDraft({
-                                    ...draft,
-                                    [key]: e.target.checked,
-                                    tiktokConsent: false,
-                                  })
-                                }
-                              />
-                              {text}
-                              {locked ? " (required by creator settings)" : ""}
-                            </label>
-                          ))}
-                          <label className="checkbox">
-                            <input
-                              type="checkbox"
-                              checked={draft.tiktokConsent}
-                              onChange={(e) =>
-                                setDraft({
-                                  ...draft,
-                                  tiktokConsent: e.target.checked,
-                                })
-                              }
-                            />{" "}
-                            I consent to publish this post with these TikTok
-                            settings.
-                          </label>
-                        </>
-                      )}
-                    </div>
-                  )}
-                  {chosenPost &&
-                    trackingUrl(chosenPost) &&
-                    draft.gameId === chosenPost.gameId &&
-                    draft.channel === chosenPost.channel && (
-                      <div className="tracked-link">
-                        <strong>Tracked game link</strong>
-                        <a
-                          href={trackingUrl(chosenPost)}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {trackingUrl(chosenPost)}
-                        </a>
-                        <Button onClick={() => copyTrackedLink(chosenPost)}>
-                          Copy tracked link
-                        </Button>
-                        {!draft.text.includes(trackingUrl(chosenPost)!) && (
-                          <p className="tracking-warning">
-                            The link is not in this text. Attribution to this
-                            post will be incomplete unless players use it.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  {chosenPost &&
-                    (draft.gameId !== chosenPost.gameId ||
-                      draft.channel !== chosenPost.channel) && (
-                      <div className="data-note">
-                        Save changes to generate the tracked link for the
-                        selected game and channel, then add it to the text and
-                        request review again.
-                      </div>
-                    )}
-                  <Field label="Post text">
-                    <textarea
-                      required
-                      rows={5}
-                      value={draft.text}
-                      onChange={(e) =>
-                        setDraft({ ...draft, text: e.target.value })
-                      }
-                      placeholder="Write the post…"
-                    />
-                  </Field>
-                  <Button onClick={generate} disabled={!draft.gameId || busy}>
-                    <Sparkles size={15} /> Generate draft
-                  </Button>
-                  <p className="muted">
-                    Generation uses the provider and compatible model saved in Account settings.
-                    Review all generated copy.
-                  </p>
-                  <Field label={draft.deliveryMethod === "manual" ? "Planned time" : "Planned time (optional)"} hint={draft.deliveryMethod === "manual" ? `Required for manual review. Uses your browser time zone (${localTimeZone || "unavailable"}); you can edit this time.` : `Uses your browser time zone (${localTimeZone || "local time"}).`}>
-                    <input
-                      type="datetime-local"
-                      required={draft.deliveryMethod === "manual"}
-                      value={draft.scheduledAt}
-                      onChange={(e) =>
-                        setDraft({ ...draft, scheduledAt: e.target.value })
-                      }
-                    />
-                  </Field>
-                  {chosenPost && (
-                    <div className="data-note">
-                      Saving changes invalidates any existing approval.
-                    </div>
                   )}
                 </>
               )}
@@ -2520,36 +1442,6 @@ export default function Dashboard() {
               )}
               {modal === "connection" && (
                 <>
-                  <Field label="Provider">
-                    <select
-                      value={draft.provider}
-                      onChange={(e) =>
-                        setDraft({ ...draft, provider: e.target.value })
-                      }
-                    >
-                      {[
-                        "x",
-                        "youtube",
-                        "instagram",
-                        "tiktok",
-                        "reddit",
-                        "brave",
-                        "search_console",
-                      ].map((p) => (
-                        <option key={p} value={p}>
-                          {p === "x" ? "X" : label(p)}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  {socialProviders.includes(draft.provider) && !advancedSocial ? (
-                    <div className="data-note">
-                      <p>Connect through the provider to authorize and verify your account.</p>
-                      {!snapshot.system.social?.find((item) => item.provider === draft.provider)?.configured && <p>OAuth app setup is required. Connect for the exact setup error.</p>}
-                      <Button variant="primary" disabled={busy} onClick={() => void socialAction(draft.provider, "connect")}>Connect with {draft.provider === "x" ? "X" : label(draft.provider)}</Button>
-                      <button type="button" className="text-link" onClick={() => setAdvancedSocial(true)}>Advanced: use a manual token</button>
-                    </div>
-                  ) : <>
                   <Field label="Connection label">
                     <input
                       required
@@ -2557,7 +1449,7 @@ export default function Dashboard() {
                       onChange={(e) =>
                         setDraft({ ...draft, label: e.target.value })
                       }
-                      placeholder="e.g. Studio account"
+                      placeholder="e.g. Game property"
                     />
                   </Field>
                   <Field
@@ -2609,7 +1501,6 @@ export default function Dashboard() {
                     use. Saving a token does not complete native OAuth or
                     required platform approval.
                   </div>
-                  </>}
                 </>
               )}
               <div className="modal-actions">
@@ -2618,14 +1509,7 @@ export default function Dashboard() {
                   variant="primary"
                   type="submit"
                   disabled={
-                    busy || (modal === "recording" && draft.mode === "jev") || (modal === "game" && !chosenGame && (gameImport.status !== "ready" || gameImport.input !== draft.url.trim())) ||
-                    (modal === "connection" && socialProviders.includes(draft.provider) && !advancedSocial) ||
-                    (modal === "post" && draft.deliveryMethod === "manual" && (!validTimeZone(localTimeZone) || !draft.scheduledAt || !Number.isFinite(Date.parse(draft.scheduledAt)))) ||
-                    (modal === "post" &&
-                      draft.deliveryMethod === "native" && draft.channel === "tiktok" &&
-                      (!creator ||
-                        !draft.tiktokPrivacy ||
-                        !draft.tiktokConsent))
+                    busy || (modal === "game" && !chosenGame && (gameImport.status !== "ready" || gameImport.input !== draft.url.trim()))
                   }
                 >
                   {busy
@@ -2634,21 +1518,10 @@ export default function Dashboard() {
                       ? chosenGame
                         ? "Save changes"
                         : "Add game"
-                      : modal === "recording"
-                        ? "Queue recording"
-                        : modal === "clip"
-                          ? "Create clip"
-                          : modal === "connection"
-                            ? "Save connection"
-                            : modal === "measurement"
-                              ? "Record change"
-                              : chosenPost
-                                ? "Save changes"
-                                : "Create draft"}
+                      : modal === "connection" ? "Save connection" : "Record change"}
                 </Button>
               </div>
             </form>
-          )}
         </ModalShell>
       )}
     </div>
@@ -2732,60 +1605,9 @@ function GameProfile({ gameId, demo }: { gameId: string; demo: boolean }) {
       <div className="profile-fields">{profileFields.map((field) => <Field key={field} label={field === "audience" ? "Audience hypothesis" : label(field)}><textarea maxLength={1000} rows={2} value={values[field] || ""} onChange={(e) => { dirtyRef.current = true; setDirty(true); setValues((current) => ({ ...current, [field]: e.target.value })); }} /></Field>)}</div>
       <Button type="submit" variant="primary" disabled={busy || !dirty}>Save owner details</Button>
     </form> : <dl className="profile-details">{profileFields.filter((field) => profile?.overrides[field]).map((field) => <div key={field}><dt>{field === "audience" ? "Audience hypothesis" : label(field)} · Owner</dt><dd>{profile?.overrides[field]}</dd></div>)}</dl>}
-    <GameAutomation gameId={gameId} />
     <h3>Observed evidence</h3><p className="muted">Each fact retains its source and observation time. Owner details above are separate overrides; an unavailable source is listed under investigation needs.</p>
     {profile?.facts.length ? <ul className="profile-facts">{profile.facts.map((fact, index) => <li key={`${fact.key}-${index}`}><strong>{fact.label}</strong><span>{fact.value}</span><small>{fact.evidence.source} · {dateTime(fact.evidence.observedAt)}{fact.evidence.formatVersion !== undefined ? ` · Format v${fact.evidence.formatVersion}` : ""}{fact.evidence.sha256 ? ` · SHA-256 ${fact.evidence.sha256}` : ""}{fact.evidence.recordingId ? ` · Recording ${fact.evidence.recordingId}${fact.evidence.at !== undefined ? ` at ${timecode(fact.evidence.at)}` : ""}` : ""}{fact.evidence.url && /^https?:\/\//i.test(fact.evidence.url) && <> · <a href={fact.evidence.url} target="_blank" rel="noreferrer">Source</a></>}</small></li>)}</ul> : <p className="muted">No observed facts available yet.</p>}
   </section>;
-}
-
-type GameAutomationData = {
-  enabled: boolean; intervalHours: number; ready: boolean; reasons: string[];
-  draftReady: boolean; draftReasons: string[]; adapterVerified: boolean;
-  lastQueuedAt: string | null; activeRecordingId: string | null; nextDueAt: string | null;
-};
-function GameAutomation({ gameId }: { gameId: string }) {
-  const [data, setData] = useState<GameAutomationData | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [interval, setIntervalHours] = useState("24");
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const response = await fetch(`/api/games/${encodeURIComponent(gameId)}/automation`, { cache: "no-store" });
-        const next = await response.json();
-        if (!response.ok) throw new Error(next.error || "Could not load automation");
-        if (!cancelled) { setData(next); setIntervalHours(String(next.intervalHours)); setError(""); }
-      } catch (e) { if (!cancelled) setError(e instanceof Error ? e.message : "Could not load automation"); }
-    };
-    setData(null); void load();
-    return () => { cancelled = true; };
-  }, [gameId]);
-  const update = async (changes: { enabled?: boolean; intervalHours?: number }) => {
-    setBusy(true); setError("");
-    try {
-      const response = await fetch(`/api/games/${encodeURIComponent(gameId)}/automation`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes) });
-      const next = await response.json();
-      if (!response.ok) throw new Error(next.error || "Could not update automation");
-      setData(next); setIntervalHours(String(next.intervalHours));
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not update automation"); }
-    finally { setBusy(false); }
-  };
-  return <div className="game-automation">
-    <div className="profile-heading"><div><h3>Automatic recordings</h3><p>{!data ? "Checking readiness…" : !data.enabled ? "Paused" : data.activeRecordingId ? "Recording queued or running" : data.ready ? "Ready" : "Waiting for setup"}</p></div>
-      {data && <Button disabled={busy} onClick={() => void update({ enabled: !data.enabled })}>{data.enabled ? "Pause" : "Enable"}</Button>}</div>
-    {error && <p className="profile-error" role="alert">{error}</p>}
-    {data && <>
-      <p>Adapter: {data.adapterVerified ? "Verified by a Jev recording" : "Not verified"}. A game URL alone does not verify compatibility.</p>
-      {!!data.reasons.length && <ul>{data.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}
-      <p>Content drafts: {data.draftReady ? "Ready" : "Waiting"}{data.draftReasons.length ? ` · ${data.draftReasons.join("; ")}` : ""}. Posts still require approval.</p>
-      <p>Last queued: {data.lastQueuedAt ? dateTime(data.lastQueuedAt) : "Never"} · Next due: {data.nextDueAt ? dateTime(data.nextDueAt) : "Not scheduled"}</p>
-      <form className="automation-interval" onSubmit={(e) => { e.preventDefault(); void update({ intervalHours: Number(interval) }); }}>
-        <Field label="Recording interval (hours)"><input type="number" min="6" max="24" step="1" required value={interval} onChange={(e) => setIntervalHours(e.target.value)} /></Field>
-        <Button type="submit" disabled={busy || Number(interval) === data.intervalHours}>Save interval</Button>
-      </form>
-    </>}
-  </div>;
 }
 
 function Brand() {
@@ -2807,45 +1629,21 @@ const pageDescriptions: Record<Page, string> = {
   analytics: "Play funnels, traffic sources and player returns.",
   forever: "Private Forever website visits, game entry, and classified issues.",
   sessions: "Inspect individual player journeys and event sequences.",
-  recordings: "Turn recorded gameplay into reusable highlights.",
-  content: "Prepare content for review and publication.",
-  calendar: "Plan and manage upcoming posts.",
   research: "Evidence, next steps and the result to check afterward.",
-  connections: "Connect games, publishing accounts and research sources.",
-  account: "Manage your workspace AI provider, model and Jev key.",
+  connections: "Connect games and Search Console.",
+  account: "Manage read-only agent access.",
   discovery: "Review the public page, search setup and answer content for one game.",
   help: "Get your workspace ready and understand the workflow.",
 };
 const modalTitles: Record<Exclude<Modal, null>, string> = {
   game: "Add a game",
-  recording: "Queue a recording",
-  clip: "Create a clip",
-  post: "Post details",
   connection: "Add a connection",
-  review: "Review post",
   measurement: "Record a game change",
 };
 const modalDetails: Record<Exclude<Modal, null>, string> = {
   game: "Start with a public web game URL.",
-  recording: "A worker processes queued recordings.",
-  clip: "Choose a bounded segment from the recording.",
-  post: "Prepare content for a connected channel.",
   connection: "Add an authorized provider credential.",
-  review: "Check the content and publishing details.",
   measurement: "Record what changed, then compare player activity over time.",
-};
-const providerDescriptions: Record<string, string> = {
-  jev: "Agent gameplay decisions",
-  anthropic: "Content drafts and history-informed research",
-  x: "Posting and public research",
-  youtube: "Video publishing",
-  instagram: "Publishing to an authorized account",
-  tiktok: "Video publishing; app review may apply",
-  reddit: "Public-source research",
-  brave:
-    "Optional public web discovery; unconnected sources remain coverage gaps",
-  search_console:
-    "Google Search Console property data; requires an authorized token and property URL",
 };
 function InvestigationResults({ state, onOpen }: { state: InvestigationState; onOpen: (session: SessionSummary, evidence?: InvestigationEvidence) => void }) {
   return <section className="investigation-results" aria-label="Supporting sessions">
@@ -3086,162 +1884,6 @@ function Measurements({
     </div>
   );
 }
-function PostRecommendation({ post }: { post: Post }) {
-  if (!post.recommendation) return null;
-  return <div className="post-recommendation"><strong>{label(post.recommendation.confidence)} confidence starting point</strong><p>{post.recommendation.reason}</p><p>{post.recommendation.time}</p></div>;
-}
-function ManualPostNote({ post }: { post: Post }) {
-  if (post.manualConfirmedAt && post.manualPublishedAt) return <small>Manual · User-confirmed {dateTime(post.manualPublishedAt)} · Not platform verified</small>;
-  if (post.manualExportedAt) return <small>Manual · Export prepared {dateTime(post.manualExportedAt)} · Not published</small>;
-  return <small>Manual · Awaiting export</small>;
-}
-function PostRow({
-  post: p,
-  games,
-  onEdit,
-  onReview,
-}: {
-  post: Post;
-  games: Game[];
-  onEdit: () => void;
-  onReview: () => void;
-}) {
-  return (
-    <div className="post-row">
-      <div className="post-channel">
-        {p.channel === "x" ? "X" : p.channel.slice(0, 1).toUpperCase()}
-      </div>
-      <div className="post-copy">
-        <div className="post-meta">
-          <strong>{p.channel === "x" ? "X" : label(p.channel)}</strong>
-          <span>·</span>
-          <span>{gameName(games, p.gameId)}</span>
-          <span>·</span>
-          <span>{dateTime(p.scheduledAt)}</span>
-        </div>
-        <p>{p.text}</p>
-        {p.deliveryMethod === "manual" && <ManualPostNote post={p} />}
-        {p.recommendation && <PostRecommendation post={p} />}
-        {p.error && <small className="error-text">{p.error}</small>}
-      </div>
-      <Status value={p.status} />
-      <Button onClick={onReview}>Review</Button>
-      <button className="icon-button" aria-label="Edit post" onClick={onEdit}>
-        <MoreHorizontal size={19} />
-      </button>
-    </div>
-  );
-}
-function Calendar({
-  posts,
-  games,
-  mode,
-  offset,
-  onSelect,
-}: {
-  posts: Post[];
-  games: Game[];
-  mode: "week" | "month" | "list";
-  offset: number;
-  onSelect: (p: Post) => void;
-}) {
-  const base = new Date();
-  base.setHours(0, 0, 0, 0);
-  if (mode === "month") {
-    base.setDate(1);
-    base.setMonth(base.getMonth() + offset);
-  } else base.setDate(base.getDate() + offset * 7);
-  const start = new Date(base);
-  if (mode === "week")
-    start.setDate(base.getDate() - ((base.getDay() + 6) % 7));
-  if (mode === "month") start.setDate(1 - ((base.getDay() + 6) % 7));
-  const dates = Array.from({ length: mode === "month" ? 42 : 7 }, (_, i) => {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    return d;
-  });
-  const scheduled = posts
-    .filter((p) => p.scheduledAt)
-    .sort(
-      (a, b) =>
-        new Date(a.scheduledAt!).getTime() - new Date(b.scheduledAt!).getTime(),
-    );
-  return (
-    <>
-      <div className="calendar-label">
-        {mode === "month"
-          ? base.toLocaleDateString(undefined, {
-              month: "long",
-              year: "numeric",
-            })
-          : mode === "week"
-            ? `${shortDate(start.toISOString())} – ${shortDate(dates[6].toISOString())}`
-            : "All scheduled posts"}
-      </div>
-      {mode === "list" ? (
-        <div className="post-list">
-          {scheduled.map((p) => (
-            <PostRow
-              key={p.id}
-              post={p}
-              games={games}
-              onEdit={() => onSelect(p)}
-              onReview={() => onSelect(p)}
-            />
-          ))}
-          {!scheduled.length && (
-            <p className="table-empty">No posts scheduled.</p>
-          )}
-        </div>
-      ) : (
-        <div className={`calendar-grid ${mode}`}>
-          {dates.map((d, i) => {
-            const dayPosts = scheduled.filter(
-              (p) =>
-                new Date(p.scheduledAt!).toDateString() === d.toDateString(),
-            );
-            return (
-              <div
-                className={`calendar-day ${d.toDateString() === new Date().toDateString() ? "today" : ""} ${mode === "month" && d.getMonth() !== base.getMonth() ? "other-month" : ""}`}
-                key={i}
-              >
-                <div className="day-label">
-                  {mode === "week" && (
-                    <span>
-                      {d.toLocaleDateString(undefined, { weekday: "short" })}
-                    </span>
-                  )}
-                  <strong>{d.getDate()}</strong>
-                </div>
-                {dayPosts.map((p) => (
-                  <button
-                    className="calendar-post"
-                    key={p.id}
-                    onClick={() => onSelect(p)}
-                  >
-                    <strong>
-                      {p.channel === "x" ? "X" : label(p.channel)}
-                    </strong>
-                    <span>
-                      {new Date(p.scheduledAt!).toLocaleTimeString(undefined, {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      })}{" "}
-                      · {gameName(games, p.gameId)}
-                    </span>
-                    <Status value={p.status} />
-                    {p.deliveryMethod === "manual" && <ManualPostNote post={p} />}
-                    {p.recommendation && <PostRecommendation post={p} />}
-                  </button>
-                ))}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </>
-  );
-}
 function Help({
   games,
   selectedGame,
@@ -3310,7 +1952,7 @@ function Help({
                   <div><dt>SDK endpoint</dt><dd><code>{origin}</code></dd></div>
                   <div><dt>Allowed origins</dt><dd>{game.origins.map(value => <code key={value}>{value}</code>)}</dd></div>
                 </dl>
-                <p className="data-note">Use the public SDK key in <code>Blaze.init</code>. The Game ID identifies API records. Never place private provider keys, worker tokens or server credentials in game code.</p>
+                <p className="data-note">Use the public SDK key in <code>Blaze.init</code>. The Game ID identifies API records. Never place private tokens or server credentials in game code.</p>
                 <pre>{snippet}</pre>
                 <p className="muted">
                   See the SDK documentation for initialization, consent and
@@ -3328,48 +1970,9 @@ function Help({
         <div className="help-step">
           <span>↗</span>
           <div>
-            <h3>Configure network access and player capture</h3>
-            <p>In Edit game, add exact HTTPS resource origins and opt-in WSS origins needed by the browser worker. Only verified public destinations are allowed; unknown, private and local destinations are blocked.</p>
+            <h3>Configure player capture</h3>
             <p>Player capture is off by default. Review a unique origin-clean canvas and add privacy masks before enabling it. Ask for recording consent separately from analytics consent; call <code>await Blaze.startCapture(&#123;consent:true&#125;)</code> only after both are granted. Stop with <code>await Blaze.stopCapture()</code>, or discard with <code>await Blaze.stopCapture(&#123;discard:true&#125;)</code>. Analytics withdrawal also discards capture.</p>
-            <p>Capture is sampled and limited to up to four 30-second segments at 5 fps, 960 × 540, and 3 MiB each. Gaps and upload failures may leave parts unrecorded. It contains the canvas only, no audio or DOM. Inspect private footage in Sessions; it is separate from agent recordings and content clips.</p>
-          </div>
-        </div>
-        <div className="help-step">
-          <span>03</span>
-          <div>
-            <h3>Connect providers and worker</h3>
-            <p>
-              In Account settings, add Jev for gameplay decisions and choose an AI provider and model for drafts and
-              research suggestions. Each request uses this game's past posts,
-              observed campaign traffic, player trends and measured changes.
-              Missing data and small samples limit conclusions. Run
-              the separate browser worker with authenticated access and
-              configure storage. Jev needs a supported state and action adapter;
-              a URL alone is insufficient.
-            </p>
-          </div>
-        </div>
-        <div className="help-step">
-          <span>04</span>
-          <div>
-            <h3>Record and create clips</h3>
-            <p>
-              Queue a recording, inspect its footage and observations, then
-              choose timestamps and a layout for a clip. Fixture mode tests the
-              controlled sample and is not a Jev validation.
-            </p>
-          </div>
-        </div>
-        <div className="help-step">
-          <span>05</span>
-          <div>
-            <h3>Review before publishing</h3>
-            <p>
-              Connect an authorized channel account, prepare a draft and request
-              review. Approval binds the text, account, clip and planned time.
-              Editing requires another approval. Check provider status for
-              publication or failure.
-            </p>
+            <p>Capture is sampled and limited to up to four 30-second segments at 5 fps, 960 × 540, and 3 MiB each. Gaps and upload failures may leave parts unrecorded. It contains the canvas only, no audio or DOM. Inspect private footage in Sessions.</p>
           </div>
         </div>
         <div className="help-step">
@@ -3411,19 +2014,6 @@ function Help({
           <span>Asset storage</span>
           <Status value={system.storage ? "configured" : "disconnected"} />
         </div>
-        <div className="health-row">
-          <span>Recording worker</span>
-          <Status value={system.worker ? "connected" : "disconnected"} />
-        </div>
-        <div className="health-row">
-          <span>Publishing</span>
-          <Status
-            value={system.publishingEnabled ? "enabled" : "disconnected"}
-          />
-        </div>
-        <p className="muted">
-          Daily schedule: {system.dailySchedule || "Not configured"}
-        </p>
       </aside>
     </div>
   );

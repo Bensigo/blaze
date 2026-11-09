@@ -27,6 +27,7 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "tests/**/*.ts",
+    "mcp/**/*.ts",
     "worker/**/*.ts",
     "netlify/functions/**/*.mts",
     ".next/types/**/*.ts",

@@ -1,4 +1,4 @@
-export const dashboardViews = ["overview","games","analytics","forever","sessions","recordings","content","calendar","research","connections","account","discovery","help"] as const;
+export const dashboardViews = ["overview","games","analytics","forever","sessions","research","connections","account","discovery","help"] as const;
 export type DashboardView = typeof dashboardViews[number];
 export type DashboardLocation = {page:DashboardView;gameId:string;days:string};
 

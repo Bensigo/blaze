@@ -7,10 +7,10 @@ function generate(size='320x180', rate=5, audio=false) {
   const args=['-v','error','-f','lavfi','-i',`color=red:s=${size}:r=${rate}:d=1`];
   if(audio) args.push('-f','lavfi','-i','sine=frequency=1000:duration=1');
   args.push('-c:v','libvpx','-deadline','realtime','-cpu-used','8');
-  if(audio) args.push('-c:a','libvorbis');
+  if(audio) args.push('-c:a','libopus');
   args.push('-shortest','-f','webm','pipe:1');
   const result=spawnSync(ffmpeg!,args,{maxBuffer:2*1024*1024});
-  if(result.status!==0) throw Error(result.stderr.toString());
+  if(result.status!==0) throw result.error || Error(result.stderr?.toString() || 'ffmpeg failed');
   return result.stdout;
 }
 describe('actual capture video inspection',()=>{

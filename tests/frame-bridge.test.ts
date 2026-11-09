@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { webcrypto } from "node:crypto";
 import { MessageChannel, MessagePort } from "node:worker_threads";
-import { validateAdapterSnapshot } from "../worker/adapter";
 
 function harness(agent = false) {
   const requests: any[] = [], fetchCalls: string[] = [], calls:{url:string;request:any}[] = [], handlers = new Map<string, Set<Function>>(), frameHandlers = new Map<string, Set<Function>>(), drawings: string[] = [], timers = new Map<number, Function>(); let timer = 0;
@@ -137,13 +136,5 @@ describe('private frame bridge v1',()=>{
     port.postMessage({v:1,nonce:h.nonce,seq:1,type:'event',name:'round_start'});port.postMessage({v:1,nonce:h.nonce,seq:2,type:'pointer',x:.5,y:.5,screen:'board'});await waitForPort();expect(h.requests).toHaveLength(0);
     h.frameHandlers.get('load')?.forEach(f=>f());expect(h.frameHandlers.get('load')?.size).toBe(0);port.close();
     const x=harness();x.sdk.init({endpoint:'https://marketing.example',sdkKey:'key',consent:true});const second=x.attach();x.sdk.setConsent(false);expect(x.frameHandlers.get('load')?.size).toBe(0);second.port.close();
-  });
-});
-describe('worker adapter terminal handling',()=>{
-  it('accepts empty terminal actions while rejecting empty active or malformed actions',()=>{
-    for(const phase of ['won','complete','completed','lost','gameover','game_over','failed']) expect(validateAdapterSnapshot({phase},[])).toMatchObject({terminal:true,actions:[]});
-    expect(()=>validateAdapterSnapshot({phase:'playing'},[])).toThrow();
-    expect(()=>validateAdapterSnapshot({phase:'won'},[{id:'../escape',label:'bad'}])).toThrow();
-    expect(validateAdapterSnapshot({phase:'playing'},[{id:'play',label:'Play'}])).toMatchObject({terminal:false});
   });
 });

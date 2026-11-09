@@ -3,10 +3,10 @@ import type {Game} from '../src/lib/types';
 const identity=vi.hoisted(()=>({workspace:'ws',authenticated:true}));
 vi.mock('../src/lib/auth',async()=>{const actual=await vi.importActual<typeof import('../src/lib/auth')>('../src/lib/auth');return {...actual,requireIdentity:async()=>{if(!identity.authenticated)throw new actual.HttpError(401,'Sign in');return {workspace_id:identity.workspace};}};});
 const manifest=vi.hoisted(()=>({read:vi.fn()}));vi.mock('../src/lib/game-manifest',()=>({readGameManifest:manifest.read}));
-let db:typeof import('../src/lib/db'),source:typeof import('../src/lib/game-source'),studio:typeof import('../src/lib/content-studio'),scripts:typeof import('../src/lib/content-scripts');
+let db:typeof import('../src/lib/db'),source:typeof import('../src/lib/game-source');
 const game:Game={id:'g',title:'Dog Chase',url:'https://old.example/games/dog',description:'',genre:'',image:'',sdkKey:'keep',origins:['https://old.example'],createdAt:'2026-10-30',dailyEnabled:true,competitors:[],networkPolicy:{resourceOrigins:['https://old.example'],webSocketOrigins:[],frameUrls:['https://old.example/dog.html']}};
 const complete=()=>({status:'complete',source:{url:'https://london.example/games/dog/forever.json',sha256:'new',formatVersion:1,observedAt:'2026-10-30T12:00:00Z'},facts:{name:'Dog Chase',description:'A runner in Lagos.',genre:'Action',controls:{label:'Arrow keys'},howToPlay:['Jump and slide'],about:['Collect puff-puff'],faq:[]}});
-beforeAll(async()=>{delete process.env.DATABASE_URL;delete process.env.VERCEL;process.env.LOCAL_DATABASE_PATH='memory://';db=await import('../src/lib/db');source=await import('../src/lib/game-source');studio=await import('../src/lib/content-studio');scripts=await import('../src/lib/content-scripts');});
+beforeAll(async()=>{delete process.env.DATABASE_URL;delete process.env.VERCEL;process.env.LOCAL_DATABASE_PATH='memory://';db=await import('../src/lib/db');source=await import('../src/lib/game-source');});
 beforeEach(async()=>{identity.workspace='ws';identity.authenticated=true;manifest.read.mockReset().mockResolvedValue(complete());await db.query('DELETE FROM records');await db.query('DELETE FROM jobs');await db.put('ws','game',game);await db.put('ws','game_profile',{id:'g',facts:[{key:'manifest_controls',value:'Old controls',evidence:{source:'Old manifest'}}]});});
 it('owns edits before network IO, validates public URLs and rejects stale writes',async()=>{
  await expect(source.changeGameSource('other','g','https://london.example/games/dog',source.gameSourceVersion(game))).rejects.toThrow('not found');
@@ -25,19 +25,12 @@ it('blocks claimed legacy work, deleted games and uncertain reviews',async()=>{
  await db.put('ws','script_review',{id:'r',gameId:'g',state:'needs_reconciliation'});await expect(source.changeGameSource('ws','g','https://london.example/game',source.gameSourceVersion(game))).rejects.toThrow('active or uncertain');await db.remove('ws','game','g');await expect(source.changeGameSource('ws','g','https://london.example/game',source.gameSourceVersion(game))).rejects.toThrow('not found');
 });
 it('freshens facts and revisions, consumes approvals, retains videos/history, pauses automation and makes old scores stale',async()=>{
- const idea=(await studio.prepareSourceIdeas('ws','g'))[0];const script=await scripts.saveContentScript('ws',idea.id,'Can you outrun the dogs? Show a real jump and its result.');
- const score={overall:79,hook:{score:21,explanation:'Fixture'},pacing:{score:23,explanation:'Fixture'},clarity:{score:22,explanation:'Fixture'},shareability:{score:13,explanation:'Fixture'},improvements:['Fixture suggestion']};
- await db.put('ws','script_review',{id:'review',scriptId:script.id,gameId:'g',scriptRevision:script.revision,sourceRevision:script.sourceRevision,reviewContextRevision:script.reviewContextRevision,referenceSetRevision:script.referenceSetRevision,referenceIds:script.referenceIds,rubricRevision:script.rubricRevision,approvedAt:'2026-10-30',state:'complete',score});
- expect((await studio.studioSnapshot('ws','g')).scripts?.[0].score?.overall).toBe(79);
  for(const [kind,id] of [['video_production','pending'],['script_review','unused'],['pilot_grant','grant']])await db.put('ws',kind,{id,gameId:'g',state:'approved'});
  await db.put('ws','video_production',{id:'finished',gameId:'g',state:'ready',videoUrl:'/owned/video'});await db.put('ws','game_automation',{id:'g',enabled:true});await db.query("INSERT INTO jobs(id,workspace_id,kind,state,body) VALUES('j','ws','recording','queued','{\"gameId\":\"g\"}')");
  const next=await source.changeGameSource('ws','g','https://london.example/games/dog',source.gameSourceVersion(game));
  expect(next).toMatchObject({sdkKey:'keep',origins:game.origins,url:'https://london.example/games/dog',dailyEnabled:false,networkPolicy:{resourceOrigins:[],webSocketOrigins:[],frameUrls:[]}});
  expect(next.sourceUrlRevision).toBeTruthy();expect(await db.get('ws','video_production','finished')).toMatchObject({state:'ready',videoUrl:'/owned/video'});expect(await db.list('ws','game_source_history')).toHaveLength(1);
  expect(await db.get('ws','video_production','pending')).toMatchObject({state:'failed'});expect(await db.get('ws','script_review','unused')).toMatchObject({state:'failed'});expect(await db.get('ws','pilot_grant','grant')).toMatchObject({state:'revoked'});expect(await db.get('ws','game_automation','g')).toMatchObject({enabled:false});
- const stale=await scripts.scriptState('ws',idea.id);expect(stale.sourceStale).toBe(true);expect(stale.review).toBeUndefined();expect(stale.staleReview?.score?.overall).toBe(79);const snapshot=await studio.studioSnapshot('ws','g');expect(snapshot.scripts?.[0]).toMatchObject({sourceStale:true,reviewState:'stale'});expect(snapshot.scripts?.[0].score).toBeUndefined();
- await expect(scripts.reviewedScript('ws',idea.id,(await studio.gameSources('ws','g')).revision)).rejects.toThrow('this script');
- expect((await studio.prepareSourceIdeas('ws','g'))[0].sourceRevision).not.toBe(idea.sourceRevision);
  await expect(source.changeGameSource('ws','g','https://london.example/games/dog',source.gameSourceVersion(game))).rejects.toThrow('another tab');expect(await source.changeGameSource('ws','g',next.url,source.gameSourceVersion(next))).toEqual(next);
 });
 it('blocks post-linked active work and cancels only queued approval paths',async()=>{

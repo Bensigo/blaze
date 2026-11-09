@@ -1,5 +1,4 @@
 import { identity, apiError } from "@/lib/auth";
-import { bearer } from "@/lib/security";
 import { lookupMedia, serveMedia } from "@/lib/media";
 export async function GET(
   request: Request,
@@ -8,7 +7,7 @@ export async function GET(
   try {
     const { id } = await params;
     const user = await identity();
-    if (!user && !bearer(request, "WORKER_TOKEN"))
+    if (!user)
       return new Response(null, { status: 401 });
     const row = await lookupMedia(id);
     if (!row || (user && row.workspace_id !== user.workspace_id))

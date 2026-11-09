@@ -1,0 +1,11 @@
+# Search and answer evidence
+
+The public-page review fetches the registered URL through the public-address safe fetcher, and checks static HTML only. It reports missing metadata and wording as prompts for review, not proof of quality, indexing, or rankings. It does not execute JavaScript. Robots and sitemap responses do not establish crawler access or indexing. Refresh after changing the page; a changed registered URL marks a cached audit stale.
+
+An authorized Search Console connection supplies exact-page finalized Web search observations when available. Rows can be delayed, suppressed or absent; empty is not zero. Average position is an aggregate. Google includes AI Overviews and AI Mode in the Web report, but does not split their citations from other search results. See [Google's AI features guidance](https://developers.google.com/search/docs/appearance/ai-features).
+
+The Bing AI Performance form stores one owner-reported page count and date range per game, transcribed from the owner's Bing report. It is not provider-authenticated or proof of a particular answer. The page must exactly match the registered URL. A later save replaces the prior entry. Bing describes its reports as sampled, aggregated citation activity across supported experiences, not all citations, rankings, or attribution. Its CSV and Excel exports exist, but their column format is not documented in the public guidance; Blaze does not claim to parse or verify an export. See [Bing AI Performance](https://www.bing.com/webmasters/help/ai-performance-9f8e7d6c).
+
+There is no universal AI citation monitor, ranking guarantee, special AI schema requirement, or generated score. Google recommends standard search fundamentals and says eligibility does not guarantee inclusion.
+
+The audit inspects only the registered static page and its origin's robots.txt and sitemap.xml. It resolves a declared canonical against the fetched URL without requesting that canonical. It checks for a document language, viewport hint, Open Graph fields, JSON-LD syntax and declared game/application types; presence does not verify values, mobile rendering, schema eligibility or indexing. Structured Search Console observations include dated numeric rows and explicit request failures when connected; they remain exact-page Web search observations, not AI citation counts.

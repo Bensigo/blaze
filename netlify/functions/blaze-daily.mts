@@ -1,4 +1,9 @@
-import { dispatchDailyRequest } from '../../src/lib/daily-dispatch';
-// Netlify evaluates this schedule in UTC; scheduled functions only run on published deploys.
+import { cleanupCaptures } from '../../src/lib/session-capture';
+import { query } from '../../src/lib/db';
 export const config = { schedule: '0 6 * * *' };
-export default async function () { if (process.env.BLAZE_LEGACY_DAILY_ENABLED !== "true") return Response.json({ paused: true }); await dispatchDailyRequest(); return new Response(null, { status: 204 }); }
+export default async function () {
+  await query(`DELETE FROM rate_windows WHERE expires_at<now()`);
+  await query(`DELETE FROM auth_sessions WHERE expires_at<now()`);
+  await cleanupCaptures();
+  return new Response(null, { status: 204 });
+}

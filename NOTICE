@@ -1,0 +1,7 @@
+Blaze project source is distributed under the MIT license in LICENSE.
+Third-party dependencies retain their own licenses and notices; see their
+installed package directories and package-lock.json for the exact versions.
+The SDK manifest consumer preserves its upstream protocol provenance in
+src/lib/forever-json-consumer.ts.
+The Star Catch game and landing media are supplied as controlled development
+fixtures, not evidence of live player activity or third-party game performance.

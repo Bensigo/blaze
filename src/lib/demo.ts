@@ -76,44 +76,9 @@ export function buildDemo(gameId?: string, days = 30): WorkspaceSnapshot {
         metadataStatus: "illustrative",
       },
     ],
-    recordings: [
-      {
-        id: "example-recording",
-        gameId: fixtureId,
-        title: "Example recording · illustration only",
-        status: "failed",
-        mode: "fixture",
-        createdAt: iso(2),
-        screenshotUrl: "/fixture/cover.svg",
-        error:
-          "This is an illustration. Queue a real fixture run in your own workspace to produce footage.",
-        observations: [
-          {
-            at: 4,
-            text: "Example observation: the player moves toward the falling star.",
-            type: "observation",
-          },
-        ],
-      },
-    ].filter(
-      (x) => !gameId || x.gameId === gameId,
-    ) as WorkspaceSnapshot["recordings"],
+    recordings: [],
     clips: [],
-    posts: [
-      {
-        id: "example-post",
-        gameId: fixtureId,
-        channel: "x",
-        text: "Example draft: Try catching three stars in Star Catch.",
-        accountId: "example-account",
-        status: "review",
-        createdAt: iso(1),
-        scheduledAt: iso(-2),
-        campaignId: "example-campaign",
-      },
-    ].filter(
-      (x) => !gameId || x.gameId === gameId,
-    ) as WorkspaceSnapshot["posts"],
+    posts: [],
     connections: [],
     findings: [
       {

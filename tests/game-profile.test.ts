@@ -1,11 +1,10 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-const context = vi.hoisted(() => ({ workspace: "ws-a", research: "partial" as "partial" | "complete" }));
+const context = vi.hoisted(() => ({ workspace: "ws-a" }));
 vi.mock("../src/lib/auth", async () => {
   const actual = await vi.importActual<typeof import("../src/lib/auth")>("../src/lib/auth");
   return { ...actual, requireIdentity: async () => ({ id: "u", email: "u@example.test", name: "User", workspace_id: context.workspace }) };
 });
 vi.mock("../src/lib/analytics", () => ({ analytics: async () => ({ sessions: 2 }) }));
-vi.mock("../src/lib/research-jobs", () => ({ researchJob: async () => ({ id: "run-1", status: context.research, coverage: [{ source: "AI research agent", status: "disconnected", detail: "Connect Anthropic and configure a model." }] }) }));
 vi.mock("../src/lib/game-manifest", () => ({ readGameManifest: async () => ({ status: "unavailable", detail: "Unavailable" }) }));
 vi.mock("../src/lib/metadata", () => ({ gameMetadata: async () => ({ url: "https://game.example/", title: "Original page title", description: "Page description", image: "", genre: "Cards" as const, metadataStatus: "Forever manifest", manifestSource: { url: "https://game.example/forever.json", observedAt: "2026-01-01T00:00:00Z", sha256: "abc", formatVersion: 1 as const } }) }));
 let db: typeof import("../src/lib/db");
@@ -34,8 +33,8 @@ describe("game profile investigation", () => {
     expect(result.facts).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: "page_title", value: "Original page title", evidence: expect.objectContaining({ url: "https://game.example/forever.json", sha256: "abc" }) }),
       expect.objectContaining({ key: "human_sessions", value: "2" }),
-      expect.objectContaining({ label: "Gameplay observation", value: "A menu is visible" }),
     ]));
+    expect(JSON.stringify(result.facts)).not.toContain("A menu is visible");
     expect(JSON.stringify(result.facts)).not.toContain("Invented claim");
     expect(JSON.stringify(result.facts)).not.toContain("Private");
     expect(result.prerequisites.join(" ")).toContain("unknown");
