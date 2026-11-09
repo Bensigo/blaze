@@ -1,7 +1,6 @@
 name: CI
 on:
   push:
-    branches: [main, refactor/analytics-seo-aeo]
   pull_request:
 permissions:
   contents: read
