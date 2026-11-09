@@ -50,12 +50,10 @@ describe("recoverable game deletion", () => {
   });
   it("rejects new and requeued jobs after archive, while restore permits fresh work", async () => {
     const profile = await import("../src/lib/game-profile");
-    const { enqueue } = await import("../src/lib/jobs");
     await profile.queueProfile("ws", "g", "https://app.example");
     await archive.archiveGame("ws", "g", game.title, "owner");
     await expect(profile.queueProfile("ws", "g", "https://app.example")).rejects.toThrow("Active game not found");
-    await expect(profile.queueHumanProfileRefresh("ws", "g", "https://app.example")).rejects.toThrow("Active game not found");
-    await expect(enqueue("ws", "clip", { id: "new-clip", gameId: "g" } as import("../src/lib/types").Clip)).rejects.toThrow("Active game not found");
+    expect(await profile.queueHumanProfileRefresh("ws", "g", "https://app.example")).toBeUndefined();
     expect(await db.query("SELECT id FROM jobs WHERE workspace_id='ws' AND state='queued'")).toEqual([]);
     await archive.restoreGame("ws", "g");
     await profile.queueProfile("ws", "g", "https://app.example");

@@ -28,4 +28,27 @@ describe("discovery review", () => {
     expect(review.checks.find(c => c.label === "/robots.txt")?.detail).toContain("failed");
     expect(JSON.stringify(review)).not.toContain("secret");
   });
+  it("reports JSON-LD syntax, game schema, canonical differences and static metadata", async () => {
+    const urls: string[] = [];
+    const review = await auditDiscovery(game, async url => { urls.push(url); return response(url, `<html lang="en"><head><meta name="viewport" content="width=device-width"><meta property="og:title" content="Game"><meta property="og:description" content="Play"><meta property="og:image" content="https://example.com/img.png"><link rel="canonical" href="http://127.0.0.1/private?secret=1"><script type="application/ld+json">{broken</script><script type="application/ld+json">{"@graph":[{"@type":["Thing","VideoGame"]}]}</script></head><body>Game</body></html>`); });
+    expect(review.checks.find(c => c.label === "JSON-LD syntax")).toMatchObject({status:"attention",detail:expect.stringContaining("1 could not be parsed")});
+    expect(review.checks.find(c => c.label === "Game structured data")?.status).toBe("passed");
+    expect(review.checks.find(c => c.label === "Canonical link")?.status).toBe("attention");
+    expect(review.checks.find(c => c.label === "Document language")?.status).toBe("passed");
+    expect(review.checks.find(c => c.label === "Viewport hint")?.status).toBe("passed");
+    expect(review.checks.find(c => c.label === "Open Graph image")?.status).toBe("passed");
+    expect(urls).toEqual(["https://example.com/game", "https://example.com/robots.txt", "https://example.com/sitemap.xml"]);
+    expect(JSON.stringify(review)).not.toContain("secret=1");
+  });
+  it("matches relative canonical URLs and does not require game schema", async () => {
+    const review = await auditDiscovery(game, async url => response(url, '<link rel="canonical" href="/game"><script type="application/ld+json">{"@type":"Article"}</script>'));
+    expect(review.checks.find(c => c.label === "Canonical link")?.status).toBe("passed");
+    expect(review.checks.find(c => c.label === "JSON-LD syntax")?.status).toBe("passed");
+    expect(review.checks.find(c => c.label === "Game structured data")?.detail).toContain("not required");
+  });
+  it("rejects a private address using the real public fetcher", async () => {
+    const review = await auditDiscovery({...game,url:"http://127.0.0.1/private"});
+    expect(review.checks.find(c => c.label === "Public game page")?.status).toBe("unmeasured");
+    expect(review.checks.find(c => c.label === "/robots.txt")?.detail).toContain("failed");
+  });
 });

@@ -21,12 +21,12 @@ export default function Landing() {
             <div className="blaze-hero-copy">
               <p className="blaze-kicker"><span /> MADE FOR WEB GAMES</p>
               <h1>See where<br />players stop.</h1>
-              <p className="blaze-lede">Track rounds, review consented sessions and turn gameplay into content.</p>
+              <p className="blaze-lede">Track rounds, review consented sessions and improve search visibility.</p>
               <div className="blaze-hero-actions">
                 <Link href="/app" className="blaze-primary">Open workspace <ArrowRight size={17} /></Link>
                 <a href="#how-it-works" className="blaze-text-link">See how it works <ArrowDown size={15} /></a>
               </div>
-              <p className="blaze-hero-note">For the games you build for the browser.</p>
+              <p className="blaze-hero-note">Open source under the MIT license · Read-only MCP access.</p>
             </div>
             <figure className="blaze-film">
               <div className="blaze-film-top"><span>GAMEPLAY / STAR CATCH</span><span>CONTROLLED TEST</span></div>
@@ -41,13 +41,13 @@ export default function Landing() {
         <section className="blaze-process" id="how-it-works">
           <div className="blaze-section-intro">
             <p className="blaze-kicker">FROM PLAY TO WHAT’S NEXT</p>
-            <h2>From a game session<br />to a reviewed post.</h2>
-            <p>Follow the journey from the first visit to the next thing you share.</p>
+            <h2>From player activity<br />to useful insights.</h2>
+            <p>Understand play and how people find your games.</p>
           </div>
           <div className="blaze-steps">
             <article><span>01 / MEASURE</span><h3>See where play leads.</h3><p>Track visits, round starts, completions and drop-off across your web games. Keep human activity separate from agent sessions.</p></article>
             <article><span>02 / UNDERSTAND</span><h3>Review the moments.</h3><p>Explore session events and, when a player separately consents, review a private capture of the game canvas.</p></article>
-            <article><span>03 / CREATE</span><h3>Turn recordings into drafts.</h3><p>With a connected worker and provider, record agent gameplay, make clips and prepare content informed by your game’s history for approval.</p></article>
+            <article><span>03 / DISCOVER</span><h3>Improve search visibility.</h3><p>Review public pages for search and answer engine issues, and connect Search Console for search data.</p></article>
           </div>
         </section>
         <section className="blaze-finish">

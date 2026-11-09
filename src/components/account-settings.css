@@ -21,3 +21,5 @@
 @media (max-width: 680px) { .account-settings-section { grid-template-columns: 1fr; gap: 18px; padding: 24px 0; } .account-settings-heading h1 { font-size: 24px; } }
 .account-settings-load-error { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .account-settings-load-error button { min-height: 38px; padding: 0 15px; border-radius: 7px; font-size: 13px; font-weight: 600; }
+
+.agent-token, .agent-token code { overflow-wrap: anywhere; word-break: break-word; }

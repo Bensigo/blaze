@@ -1,4 +1,5 @@
 "use client";
+import AudienceGlobe from "./audience-globe";
 import {AudienceBreakdown} from './audience-breakdown';
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -16,6 +17,7 @@ const when = (value: string) => new Date(value).toLocaleString(undefined, { mont
 const contextKey = (c: HeatmapContext) => `${c.surface}:${c.screen}:${c.device}`;
 
 type Props = {
+  view?: "overview" | "engagement" | "acquisition" | "retention" | "audience";
   analytics?: Analytics; games: Game[]; gameId: string; days: string; demo?: boolean; detailed?: boolean;
   onChooseGame: (id: string) => void; onAddGame: () => void; onSetup: () => void;
   onAnalytics?: () => void; onSessions: () => void; onOpenSession: (session: SessionSummary) => void;
@@ -27,23 +29,25 @@ type Props = {
 
 export default function PlayerAnalytics(props: Props) {
   const { analytics: a, games, gameId, days, demo, detailed } = props;
+  const view = props.view || "overview";
+  const engagement = view === "overview" || view === "engagement";
   const cohorts = (a?.retention || []).filter(row => row.players > 0);
   if (!games.length) return <div className="analytics-onboarding">
     <div className="onboarding-title"><Gamepad2 size={26} /><span>No games connected</span></div>
     <h2>Connect your first game</h2>
-    <p>Paste the public game page URL. Blaze imports its <code>forever.json</code> and gives you the SDK setup for that game.</p>
+    <p>Paste the public game page URL. Blaze reads available metadata and gives you the SDK setup for that game.</p>
     <button className="button primary" onClick={props.onAddGame}><Plus size={16} /> Add game</button>
     <ol className="connection-steps">
-      <li><span>1</span><div><strong>Import the game</strong><p>Name, description, artwork and game facts come from its manifest.</p></div></li>
+      <li><span>1</span><div><strong>Import the game</strong><p>Review the available name, description and artwork.</p></div></li>
       <li><span>2</span><div><strong>Install the SDK and consent controls</strong><p>Collect visits, starts, actions, completions and pointer coordinates when players opt in.</p></div></li>
       <li><span>3</span><div><strong>Review the evidence here</strong><p>Charts, sessions and heatmaps appear as your game sends data.</p></div></li>
     </ol>
     <div className="onboarding-foot">Your workspace contains no player activity. Controlled tests and the example workspace are separate.</div>
   </div>;
   return <div className="player-workspace">
-    <div className="player-scope"><span className="scope-dot" />{demo ? "Illustrative example data" : "Human player activity"}<span>{a?.lastEventAt ? `Latest event ${when(a.lastEventAt)}` : "No events received"}</span>{detailed?<a href="#pointer-heatmap">Heatmap ↓</a>:<button className="text-action" onClick={props.onAnalytics}>Player analytics <ArrowRight size={14}/></button>}</div>
+    <div className="player-scope"><span className="scope-dot" />{demo ? "Illustrative example data" : "Human player activity"}<span>{a?.lastEventAt ? `Latest event ${when(a.lastEventAt)}` : "No events received"}</span>{view === "engagement"?<a href="#pointer-heatmap">Heatmap ↓</a>:view === "overview"?<button className="text-action" onClick={props.onAnalytics}>Engagement <ArrowRight size={14}/></button>:null}</div>
 
-    <div className="player-kpis">
+    {engagement && <><div className="player-kpis">
       <Metric label={gameId === "all" ? "Per-game browser IDs" : "Browser IDs"} value={count(a?.players)} detail="Browser-scoped IDs, not people" />
       <Metric label="Visits" value={count(a?.launch?.visits)} detail="Sessions with a visit event" />
       <Metric label="Observed exits" value={count(a?.launch?.exits)} detail="Sessions with an exit event" />
@@ -76,20 +80,26 @@ export default function PlayerAnalytics(props: Props) {
     <div className="player-detail-grid"><section><div className="analytics-section-title"><div><h2>Recent sessions</h2><p>Open a session to inspect its events and consented capture</p></div><button className="text-action" onClick={props.onSessions}>All sessions <ArrowRight size={14}/></button></div>
       {a?.sessionsList.length ? <div className="table-wrap player-session-table"><table><thead><tr><th>Session</th><th>Device</th><th>Active play</th><th>Elapsed</th><th>Last step</th><th>Result</th></tr></thead><tbody>{a.sessionsList.slice(0,6).map(s=><tr key={`${s.gameId}:${s.id}`} onClick={()=>props.onOpenSession(s)}><td><button className="session-link" onClick={e=>{e.stopPropagation();props.onOpenSession(s);}}>{when(s.startedAt)}<small>{s.id.slice(0,10)}</small></button></td><td>{s.device}<small>{s.country}</small></td><td>{duration(s.activePlaySeconds)}</td><td>{duration(s.duration)}</td><td>{s.lastStep.replaceAll("_", " ")}</td><td>{s.completed ? "Completed" : "No completion"}</td></tr>)}</tbody></table></div> : <div className="data-empty compact-empty"><strong>No sessions in this range</strong><p>Consented human sessions will appear here.</p></div>}
     </section><section><div className="analytics-section-title"><div><h2>Sessions without completion</h2><p>Last recorded steps; these do not explain player intent</p></div></div>{a?.dropoffs.length ? <div className="dropoff-rows">{a.dropoffs.map(row=><button key={row.name} disabled={gameId==="all"||demo} onClick={()=>props.onDropoff(row.name)}><span>{row.name}</span><strong>{count(row.count)}</strong><ChevronRight size={14}/></button>)}{gameId==="all"&&<p className="quiet-help">Select one game to open supporting sessions.</p>}</div> : <div className="data-empty compact-empty"><strong>No unfinished sessions recorded</strong><p>Drop-off evidence appears as visits and rounds are measured.</p></div>}</section></div>
-    {detailed&&<>
+    </>}
+    {view === "engagement" && <>
 <section className="cohort-section"><div className="analytics-section-title"><div><h2>Instrumentation coverage</h2><p>Event presence across human sessions in the selected game and date range. Missing events do not prove an action never happened.</p></div></div>{a?.launch?.coverage ? <div className="table-wrap"><table><thead><tr><th>Event</th><th>Sessions reporting event / human sessions</th></tr></thead><tbody>{([['Visit',a.launch.coverage.visit],['Loaded',a.launch.coverage.loaded],['Round start',a.launch.coverage.roundStart],['First action',a.launch.coverage.firstAction],['Round complete',a.launch.coverage.roundComplete],['Exit',a.launch.coverage.exit]] as const).map(([name,n])=><tr key={name}><td>{name}</td><td>{count(n)} / {count(a.launch!.coverage!.sessions)}</td></tr>)}</tbody></table></div> : <p className="quiet-help">Event coverage unavailable.</p>}</section>
-    {a?.audience && <AudienceBreakdown data={a.audience}/>}
-    <section className="cohort-section"><div className="analytics-section-title"><div><h2>Launch conversion <InfoHint label="About launch conversion">Meaningful play is a start followed by a completion, or a start with at least 30 seconds of measured active play. Source combines tags and referrer hostnames. Direct means no usable referrer or tag, not proof of direct traffic; Unknown means no stored source. Attribution does not establish causation.</InfoHint></h2><p>Visit sessions by first recorded source and campaign.</p></div></div>
+    </>}
+    {view === "audience" && <AudienceGlobe countries={a?.audience?.countries ?? a?.countries ?? []} unit={a?.audience ? "browser IDs" : "sessions"}/>}
+    {view === "audience" && a?.audience && <AudienceBreakdown data={a.audience}/>}
+    {view === "acquisition" && <><section className="cohort-section"><div className="analytics-section-title"><div><h2>Launch conversion <InfoHint label="About launch conversion">Meaningful play is a start followed by a completion, or a start with at least 30 seconds of measured active play. Source combines tags and referrer hostnames. Direct means no usable referrer or tag, not proof of direct traffic; Unknown means no stored source. Attribution does not establish causation.</InfoHint></h2><p>Visit sessions by first recorded source and campaign.</p></div></div>
       <p className="quiet-help">Starts and meaningful play use visits as the denominator. Missing active measurement is unknown; meaningful play is an observed lower bound. Attribution is incomplete.</p>
       {a?.launch?.conversion.length ? <div className="table-wrap"><table><thead><tr><th>Source</th><th>Campaign</th><th>Visits</th><th>Starts</th><th>Meaningful play</th><th>Starts with active measurement</th></tr></thead><tbody>{a.launch.conversion.map(r=><tr key={JSON.stringify([r.source,r.campaign])}><td>{r.source}</td><td>{r.campaign}</td><td>{count(r.visits)}</td><td>{count(r.starts)}</td><td>{count(r.meaningful)}</td><td>{count(r.activeMeasured)}</td></tr>)}</tbody></table></div> : <p className="quiet-help">No visit events in this selection.</p>}
       {!!a?.launch && a.launch.conversionTotal > a.launch.conversion.length && <p className="quiet-help">Showing {a.launch.conversion.length} of {a.launch.conversionTotal} source and campaign groups.</p>}
     </section>
 </>}
-    {props.supporting}
-    {detailed&&<LaunchLinks games={games} gameId={gameId}/>}
-    {detailed && <>
-      <div className="player-breakdowns"><Breakdown title="Traffic sources" rows={a?.sources || []}/><Breakdown title="Countries" rows={a?.countries || []}/><Breakdown title="Devices" rows={a?.devices || []}/></div>
+    {engagement && props.supporting}
+    {view === "acquisition" && <LaunchLinks games={games} gameId={gameId}/>}
+    {view === "acquisition" && <div className="player-breakdowns"><Breakdown title="Traffic sources" rows={a?.sources || []}/></div>}
+    {view === "audience" && <div className="player-breakdowns"><Breakdown title="Countries" rows={a?.countries || []}/><Breakdown title="Devices" rows={a?.devices || []}/></div>}
+    {view === "retention" && <>
       <section className="cohort-section"><div className="analytics-section-title"><div><h2>Next-day return <InfoHint label="About next-day return">A visit in a different session at least 24 hours and less than 48 hours after the first observed human event. Cohorts mature after 48 hours.</InfoHint></h2><p>Cohorts mature after 48 hours.</p></div></div>{cohorts.length ? <div className="table-wrap"><table><thead><tr><th>First observed event cohort</th><th>Browser IDs</th><th>Eligible</th><th>Returned</th><th>Return rate</th></tr></thead><tbody>{cohorts.map(r=><tr key={r.date}><td>{r.date}</td><td>{count(r.players)}</td><td>{count(r.eligible)}</td><td>{count(r.returned)}</td><td>{r.rate===null ? "Not mature" : `${Math.round(r.rate*100)}%`}</td></tr>)}</tbody></table></div> : <p className="quiet-help">No browser ID cohorts yet. Return measurement begins with the first observed human event.</p>}</section>
+    </>}
+    {view === "acquisition" && <>
       <section className="cohort-section"><div className="analytics-section-title"><div><h2>Campaign traffic <InfoHint label="About campaign traffic">Returning IDs had a different session at least 24 hours after their first observed event during this window. A returning session need not carry this campaign.</InfoHint></h2><p>Sessions grouped by recorded campaign.</p></div></div>{a?.campaigns.length ? <div className="table-wrap"><table><thead><tr><th>Campaign</th><th>Sessions</th><th>With a start</th><th>With a completion</th><th>Returning browser IDs</th></tr></thead><tbody>{a.campaigns.map(c=><tr key={c.name}><td>{c.name}</td><td>{count(c.visits)}</td><td>{count(c.starts)}</td><td>{count(c.completions)}</td><td>{count(c.returns)}</td></tr>)}</tbody></table></div> : <p className="quiet-help">No attributed campaign sessions in this range. Use the game's tracked links to measure them.</p>}</section>
     </>}
     <div className="analytics-footnote">Human traffic only · {count(a?.syntheticSessions)} synthetic sessions excluded. Missing coordinates or play-time measurements remain unknown.</div>

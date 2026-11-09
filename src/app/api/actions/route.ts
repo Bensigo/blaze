@@ -1,107 +1,21 @@
-import {paidJevAllowed,JEV_APPROVAL_REQUIRED} from '@/lib/jev-budget';
-import {syncForeverCatalogue} from '@/lib/forever-catalogue';
-import { resolveAISecret, AccountSettingsError } from "@/lib/ai-settings";
-import { loadAgentHistory } from "@/lib/agent-history";
+import { syncForeverCatalogue } from "@/lib/forever-catalogue";
 import { after } from "next/server";
 import { createGameWithProfile, drainProfile } from "@/lib/game-profile";
 import { verifyNetworkPolicy } from "@/lib/network-policy";
-import {
-  captureConfigSchema,
-  defaultCaptureConfig,
-  deleteOwnerCapture,
-} from "@/lib/session-capture";
+import { captureConfigSchema, deleteOwnerCapture } from "@/lib/session-capture";
 import { z } from "zod";
 import { requireIdentity, apiError, HttpError } from "@/lib/auth";
-import {
-  get,
-  list,
-  put,
-  comparePut,
-  remove,
-  query,
-  id,
-  rateLimit,
-  transaction,
-} from "@/lib/db";
+import { get, list, put, remove, query, id, rateLimit, transaction } from "@/lib/db";
 import { sameOrigin, publicOrigin } from "@/lib/security";
-import { saveSecret, secretFor } from "@/lib/credentials";
+import { saveSecret } from "@/lib/credentials";
 import { gameMetadata, imageUrl } from "@/lib/metadata";
-import { enqueue } from "@/lib/jobs";
-import { researchJob } from "@/lib/research-jobs";
-import { draftContent, testConnection } from "@/lib/integrations";
-import { approvalHash, dispatch, reconcile } from "@/lib/publishing";
-import type {
-  Game,
-  Post,
-  Clip,
-  Recording,
-  Finding,
-  Connection,
-  Provider,
-  ProviderSecret,
-  Channel,
-} from "@/lib/types";
+import { verifySearchConsole } from "@/lib/integrations/search-console";
+import type { Game, Finding, Connection, ProviderSecret } from "@/lib/types";
 import { createReleaseMeasurement } from "@/lib/measurements";
 import { saveFindingNote, setFindingDecision } from "@/lib/finding-decisions";
 import { validateMeasurementWindows } from "@/lib/measurement-outcomes";
 const str = z.string().trim().min(1).max(500);
 const rid = z.string().max(100);
-const channel = z.enum(["x", "youtube", "instagram", "tiktok"]);
-const tiktokSchema = z.object({
-  consent: z.literal(true),
-  privacy: z.string().max(60),
-  disableComment: z.boolean(),
-  disableDuet: z.boolean(),
-  disableStitch: z.boolean(),
-});
-const postFields = z.object({
-  gameId: rid,
-  clipId: rid.optional(),
-  channel,
-  text: z.string().trim().min(1).max(5000),
-  accountId: z.string().max(200),
-  deliveryMethod: z.enum(["manual", "native"]).optional(),
-  timeZone: z.string().max(100).optional(),
-  scheduledAt: z.iso.datetime().nullish(),
-  tiktokConsent: tiktokSchema.optional(),
-});
-async function creator(workspace: string, accountId: string) {
-  const secret = await secretFor(workspace, "tiktok", accountId);
-  if (!secret) throw new HttpError(400, "Connect this TikTok account first.");
-  const response = await fetch(
-    "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${secret.token}`,
-        "Content-Type": "application/json",
-      },
-      body: "{}",
-      redirect: "error",
-      signal: AbortSignal.timeout(10000),
-    },
-  );
-  if (!response.ok)
-    throw new HttpError(
-      400,
-      "TikTok creator information could not be retrieved. Check the video.publish scope.",
-    );
-  const body = await response.json(),
-    d = body.data;
-  if (body.error?.code !== "ok" || !d?.privacy_level_options)
-    throw new HttpError(
-      400,
-      "TikTok creator publishing permissions are unavailable.",
-    );
-  return {
-    privacyOptions: d.privacy_level_options as string[],
-    commentDisabled: !!d.comment_disabled,
-    duetDisabled: !!d.duet_disabled,
-    stitchDisabled: !!d.stitch_disabled,
-    maxDuration: Number(d.max_video_post_duration_sec),
-    username: String(d.creator_username || ""),
-  };
-}
 export async function POST(request: Request) {
   try {
     if (!sameOrigin(request))
@@ -191,311 +105,23 @@ export async function POST(request: Request) {
       });
       return Response.json({ ok: true });
     }
-    if (action === "queue_recording") {
-      const game = await requireRecord<Game>("game", body.gameId);
-      const mode = z.enum(["jev", "fixture"]).parse(body.mode);
-      if (
-        mode === "fixture" &&
-        (new URL(game.url).pathname !== "/fixture/index.html" ||
-          new URL(game.url).origin !== publicOrigin(request))
-      )
-        throw new HttpError(
-          400,
-          "Fixture decisions are limited to this application’s controlled game. Use Jev for an adapted public game.",
-        );
-      const recording: Recording = {
-        id: id("rec"),
-        gameId: game.id,
-        title: `${game.title} · ${mode === "fixture" ? "fixture" : "Jev"} run`,
-        status: "queued",
-        mode,
-        createdAt: new Date().toISOString(),
-        paidApprovalId: z.string().min(1).max(200).optional().parse(body.paidApprovalId),
-        maxActions: z.number().int().min(1).max(30).optional().parse(body.maxActions) ?? (mode === "jev" ? 1 : undefined),
-        maxDurationSeconds: z.number().int().min(1).max(30).optional().parse(body.maxDurationSeconds) ?? (mode === "jev" ? 30 : undefined),
-      };
-      if (mode === "jev" && (body.confirmModelUsage !== true || !await paidJevAllowed(workspace,recording))) throw new HttpError(400,JEV_APPROVAL_REQUIRED);
-      await enqueue(workspace, "recording", recording);
-      return Response.json({ recording });
-    }
-    if (action === "create_clip") {
-      const recording = await requireRecord<Recording>(
-        "recording",
-        body.recordingId,
-      );
-      const v = z
-        .object({
-          title: str,
-          start: z.number().min(0),
-          end: z.number().positive(),
-          layout: z.enum(["landscape", "portrait", "square"]),
-        })
-        .parse({ ...body, start: Number(body.start), end: Number(body.end) });
-      if (
-        recording.status !== "ready" ||
-        !recording.duration ||
-        v.end > recording.duration ||
-        v.end <= v.start ||
-        v.end - v.start > 60
-      )
-        throw new HttpError(
-          400,
-          "Choose up to 60 seconds within a ready recording.",
-        );
-      const clip: Clip = {
-        ...v,
-        id: id("clip"),
-        gameId: recording.gameId,
-        recordingId: recording.id,
-        status: "queued",
-        createdAt: new Date().toISOString(),
-      };
-      await enqueue(workspace, "clip", clip);
-      return Response.json({ clip });
-    }
-    if (action === "generate_draft") {
-      const game = await requireRecord<Game>("game", body.gameId);
-      const clip = body.clipId
-        ? await requireRecord<Clip>("clip", body.clipId)
-        : undefined;
-      if (clip && clip.gameId !== game.id)
-        throw new HttpError(400, "Choose a clip from this game.");
-      let secret;
-      try { secret = await resolveAISecret(workspace); } catch (error) { if (error instanceof AccountSettingsError) throw new HttpError(400,error.message); throw error; }
-      const recording = clip
-        ? await get<Recording>(workspace, "recording", clip.recordingId)
-        : undefined;
-      const context = JSON.stringify({
-        observations: recording?.observations || [],
-        clip: clip ? { start: clip.start, end: clip.end } : null,
-      });
-      return Response.json({
-        text: await draftContent({
-          game,
-          clip,
-          channel: channel.parse(body.channel),
-          secret,
-          context,
-          history: await loadAgentHistory(workspace, game.id),
-        }),
-      });
-    }
-    if (action === "create_post" || action === "update_post") {
-      const v = postFields.parse(body);
-      if (v.timeZone) {
-        try { new Intl.DateTimeFormat("en", { timeZone: v.timeZone }); }
-        catch { throw new HttpError(400, "Use a valid time zone."); }
-      }
-      if (v.deliveryMethod === "manual" && !v.accountId.trim()) throw new HttpError(400, "Enter the manual destination handle.");
-      const game = await requireRecord<Game>("game", v.gameId);
-      if (v.clipId) {
-        const clip = await requireRecord<Clip>("clip", v.clipId);
-        if (clip.gameId !== game.id)
-          throw new HttpError(400, "Choose a clip from this game.");
-      }
-      let post: Post;
-      let expectedPost: Post | undefined;
-      if (action === "update_post") {
-        post = await requireRecord<Post>("post", body.id);
-        expectedPost = post;
-        if (["uploading", "processing", "published"].includes(post.status))
-          throw new HttpError(
-            409,
-            "This post has entered publication and cannot be edited. Create a new draft.",
-          );
-        post = {
-          ...post,
-          ...v,
-          scheduledAt: v.scheduledAt || undefined,
-          tiktokConsent: v.channel === "tiktok" ? v.tiktokConsent : undefined,
-          status: "draft",
-          approvedAt: undefined,
-          approvedBy: undefined,
-          approvedHash: undefined,
-          error: undefined,
-          providerId: undefined,
-          manualExportedAt: undefined,
-          manualPublishedAt: undefined,
-          manualConfirmedAt: undefined,
-          manualPublishedBy: undefined,
-          manualPublicationUrl: undefined,
-        };
-      } else
-        post = {
-          ...v,
-          scheduledAt: v.scheduledAt || undefined,
-          id: id("post"),
-          status: "draft",
-          createdAt: new Date().toISOString(),
-          campaignId: id("campaign"),
-        };
-      const tracked = new URL(game.url);
-      tracked.searchParams.set("utm_source", post.channel);
-      tracked.searchParams.set("utm_medium", "social");
-      tracked.searchParams.set("utm_campaign", post.campaignId);
-      post.trackingUrl = tracked.href;
-      if (action === "update_post") {
-        const expected = expectedPost!;
-        if (!(await comparePut(workspace, "post", expected, post)))
-          throw new HttpError(409, "The post changed. Reload before editing.");
-      } else await put(workspace, "post", post);
-      return Response.json({ post });
-    }
-    if (action === "get_tiktok_creator")
-      return Response.json(
-        await creator(workspace, z.string().max(200).parse(body.accountId)),
-      );
-    if (
-      [
-        "submit_review",
-        "approve_post",
-        "publish_post",
-        "check_publication",
-        "delete_post",
-      ].includes(action)
-    ) {
-      const post = await requireRecord<Post>("post", body.id);
-      if (action === "delete_post") {
-        if (!["draft", "review"].includes(post.status))
-          throw new HttpError(
-            409,
-            "Only drafts and items awaiting review can be deleted.",
-          );
-        const removed = await query(
-          "DELETE FROM records WHERE workspace_id=$1 AND kind='post' AND id=$2 AND body=$3::jsonb RETURNING id",
-          [workspace, post.id, JSON.stringify(post)],
-        );
-        if (!removed.length)
-          throw new HttpError(409, "The post changed. Reload before deleting.");
-        return Response.json({ ok: true });
-      }
-      if (action === "submit_review") {
-        if (!["draft", "failed"].includes(post.status))
-          throw new HttpError(409, "Only a draft can be submitted for review.");
-        if (
-          !(await comparePut(workspace, "post", post, {
-            ...post,
-            status: "review",
-            approvedAt: undefined,
-            approvedBy: undefined,
-            approvedHash: undefined,
-          }))
-        )
-          throw new HttpError(409, "The post changed. Reload before review.");
-        return Response.json({ ok: true });
-      }
-      if (action === "approve_post") {
-        if (post.status !== "review")
-          throw new HttpError(
-            409,
-            "Submit the current draft for review first.",
-          );
-        if (!post.accountId.trim() || (post.deliveryMethod !== "manual" && !(await secretFor(workspace, post.channel, post.accountId))))
-          throw new HttpError(
-            400,
-            "Connect and verify this destination account before approving.",
-          );
-        if (post.deliveryMethod === "manual") {
-          if (!post.scheduledAt || !Number.isFinite(Date.parse(post.scheduledAt)) || !post.timeZone) throw new HttpError(400, "Set a planned time and time zone before approval.");
-          try { if (/^[+-]/.test(post.timeZone)) throw new Error(); new Intl.DateTimeFormat("en", { timeZone: post.timeZone }); } catch { throw new HttpError(400, "Use a valid IANA time zone."); }
-        }
-        if (post.clipId) {
-          const clip = await requireRecord<Clip>("clip", post.clipId);
-          if (clip.status !== "ready")
-            throw new HttpError(400, "Wait for the selected clip to finish.");
-        } else if (post.channel !== "x" || post.deliveryMethod === "manual")
-          throw new HttpError(400, "This channel requires a video clip.");
-        if (post.channel === "x" && Array.from(post.text).length > 280)
-          throw new HttpError(400, "Keep the X post within 280 characters.");
-        if (post.channel === "tiktok" && post.deliveryMethod !== "manual") {
-          if (!post.tiktokConsent)
-            throw new HttpError(
-              400,
-              "Load TikTok creator settings and confirm consent for this post.",
-            );
-          const info = await creator(workspace, post.accountId),
-            t = post.tiktokConsent;
-          if (
-            !info.privacyOptions.includes(t.privacy) ||
-            (info.commentDisabled && !t.disableComment) ||
-            (info.duetDisabled && !t.disableDuet) ||
-            (info.stitchDisabled && !t.disableStitch)
-          )
-            throw new HttpError(
-              400,
-              "TikTok creator settings changed. Review the options again.",
-            );
-          if (
-            t.privacy === "PUBLIC_TO_EVERYONE" &&
-            process.env.TIKTOK_PUBLIC_POSTING_APPROVED !== "true"
-          )
-            throw new HttpError(
-              400,
-              "TikTok public posting requires an audited application. Use the approved application configuration.",
-            );
-          const clip = await requireRecord<Clip>("clip", post.clipId);
-          if (clip.end - clip.start > info.maxDuration)
-            throw new HttpError(
-              400,
-              "The clip exceeds this TikTok creator’s duration limit.",
-            );
-        }
-        const next = {
-          ...post,
-          status: (post.scheduledAt
-            ? "scheduled"
-            : "approved") as Post["status"],
-          approvedAt: new Date().toISOString(),
-          approvedBy: user.id,
-          approvedHash: approvalHash(post),
-        };
-        if (!(await comparePut(workspace, "post", post, next)))
-          throw new HttpError(
-            409,
-            "The post changed. Review the current version before approving.",
-          );
-        return Response.json({ post: next });
-      }
-      if (action === "publish_post")
-        return Response.json({
-          post: await dispatch(workspace, post.id, true),
-        });
-      return Response.json({ post: await reconcile(workspace, post) });
-    }
     if (action === "save_connection") {
-      if (["jev","anthropic","openrouter"].includes(body.provider)) throw new HttpError(400,"Manage Jev and AI provider keys in Account settings.");
+
       const v = z
         .object({
-          provider: z.enum([
-            "jev",
-            "anthropic",
-            "x",
-            "youtube",
-            "instagram",
-            "tiktok",
-            "reddit",
-            "brave",
-            "search_console",
-          ]),
+          provider: z.literal("search_console"),
           label: str,
           token: z.string().min(8).max(10000),
           accountId: z.string().max(200).optional(),
           refreshToken: z.string().max(10000).optional(),
-          workspaceId: z.string().max(200).optional(),
-          model: z.string().max(100).optional(),
-          advanced: z.boolean().optional(),
         })
         .parse(body);
-      if (["x", "youtube", "instagram", "tiktok"].includes(v.provider) && v.advanced !== true)
-        throw new HttpError(400, "Use official account authorization. Manual tokens require the explicit advanced fallback.");
       const secret: ProviderSecret = {
         token: v.token,
         ...(v.accountId ? { accountId: v.accountId } : {}),
         ...(v.refreshToken ? { refreshToken: v.refreshToken } : {}),
-        ...(v.model ? { model: v.model } : {}),
-        ...(v.workspaceId ? { workspaceId: v.workspaceId } : {}),
       };
-      const checked = await testConnection(v.provider, secret);
+      const checked = await verifySearchConsole(secret);
       if (!checked.connected) throw new HttpError(400, checked.details);
       secret.accountId = checked.accountId || v.accountId;
       const existing = (await list<Connection>(workspace, "connection")).find(
@@ -509,7 +135,6 @@ export async function POST(request: Request) {
         connected: true,
         checkedAt: new Date().toISOString(),
         details: checked.details,
-        model: v.model,
         authMethod: "manual",
       };
       await saveSecret(workspace, connection.id, secret);
@@ -518,6 +143,7 @@ export async function POST(request: Request) {
     }
     if (action === "delete_connection") {
       const connection = await requireRecord<Connection>("connection", body.id);
+      if (connection.provider !== "search_console") throw new HttpError(404, "Connection not found.");
       if (connection.authMethod === "oauth")
         throw new HttpError(400, "Use the account disconnect action so provider revocation is attempted.");
       await query(
@@ -526,22 +152,6 @@ export async function POST(request: Request) {
       );
       await remove(workspace, "connection", connection.id);
       return Response.json({ ok: true });
-    }
-    if (action === "run_research") {
-      const game = await requireRecord<Game>("game", body.gameId);
-      if (!(await rateLimit(`research:${game.id}`, 5, 86400)))
-        throw new HttpError(
-          429,
-          "Manual research is limited to five runs per game per day.",
-        );
-      return Response.json({
-        run: await researchJob(
-          workspace,
-          game,
-          id('manual'),
-          { allowAI: body.confirmAIUsage === true },
-        ),
-      });
     }
     if (action === "delete_session_capture") {
       await deleteOwnerCapture(workspace, rid.parse(body.id));
