@@ -8,6 +8,6 @@ Discovery provides safe static-page audits and dated Search Console Web observat
 
 MCP tools list games and read aggregate analytics or cached SEO/AEO/citation evidence. Tokens are workspace-bound, hashed, revocable and expire after 90 days. No settings, scans, raw identifiers or private recordings are exposed.
 
-The existing repository remains private. Historical internal documents and screenshots remain in its Git history; use a reviewed fresh source snapshot for public publication rather than changing that history's visibility without review. No production database deletion or production deployment accompanies this branch.
+The owner explicitly chose to publish the existing repository and preserve its history. The known historical credential-pattern matches were classified as deliberate fixtures; pattern scans do not prove every historical object is harmless. The current source removes internal historical screenshots and operations documents. Publication state must be verified through GitHub separately from this source decision.
 
 See README.md, PRD.md, CONTEXT.md, MCP.md and SEO-AEO.md for the current setup and behavior. Verification and remaining live-account limits are recorded separately for each release.

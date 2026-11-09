@@ -10,6 +10,7 @@ import { analytics } from "./analytics";
 import { measurementResults } from "./measurements";
 import { googleAvailable } from "./neon-auth";
 import { databaseUsage } from "./db-capacity";
+import { retentionDays } from "./maintenance";
 import { mediaStorageConfigured } from "./media";
 export async function snapshot(
   user: Identity,
@@ -17,6 +18,8 @@ export async function snapshot(
   days = 14,
 ): Promise<WorkspaceSnapshot> {
   const workspace = user.workspace_id;
+  let eventRetentionDays: number | null = null;
+  try { eventRetentionDays = retentionDays(); } catch { /* Maintenance status exposes invalid configuration. */ }
   const [
     games,
     connections,
@@ -52,6 +55,7 @@ export async function snapshot(
     analytics: stats,
     system: {
       database: true,
+      eventRetentionDays,
       databaseUsage: usage,
       google,
       storage: mediaStorageConfigured(),

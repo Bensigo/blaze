@@ -91,7 +91,7 @@ export async function drainProfile(jobId?: string) {
     if (metadata) {
       const evidence = metadata.manifestSource
         ? { source: metadata.metadataStatus === "Controlled fixture manifest" ? "Controlled fixture manifest" : "Forever game manifest", ...metadata.manifestSource }
-        : { source: "Legacy public page metadata", url: metadata.url, observedAt: row.body.metadataAt || now };
+        : metadata.pageSource ? { source: "Public page metadata", ...metadata.pageSource } : { source: "Legacy public page metadata", url: metadata.url, observedAt: row.body.metadataAt || now };
       if (metadata.title && metadata.title !== new URL(metadata.url).hostname) facts.push({ key: "page_title", label: "Imported name", value: metadata.title, evidence });
       if (metadata.description) facts.push({ key: "page_description", label: "Imported description", value: metadata.description, evidence });
     }
@@ -110,7 +110,7 @@ export async function drainProfile(jobId?: string) {
         ...manifest.facts.faq.map((entry, i): [string, string, string] => [`manifest_faq:${i}`, "Manifest FAQ", `${entry.q} ${entry.a}`]),
       ];
       for (const [key, label, value] of values) facts.push({ key, label, value, evidence });
-    } else if (manifest.status !== "not_applicable") prerequisites.push(`Forever game manifest: ${manifest.detail}`);
+    } else if (manifest.status !== "not_applicable" && (metadata?.manifestSource || game.manifestSource)) prerequisites.push(`Game manifest: ${manifest.detail}`);
     const stats = await analytics(workspace, game.id, 30);
     if (stats.sessions) facts.push({ key: "human_sessions", label: "Human sessions, last 30 days", value: String(stats.sessions), evidence: { source: "Human telemetry", observedAt: now } });
     else prerequisites.push("No human telemetry was recorded in the last 30 days.");

@@ -18,3 +18,15 @@ it("canonical URLs contain only UI state and omit auth callback values",()=>{
 it("redirects retired views to the overview",()=>{
   for (const view of ["content", "recordings", "calendar"]) expect(readDashboardLocation(`?view=${view}`).page).toBe("overview");
 });
+
+it("preserves legacy Forever health links while using the canonical Site health URL",()=>{
+  const location=readDashboardLocation("?view=forever&days=14");
+  expect(location).toEqual({page:"site",gameId:"all",days:"14"});
+  expect(dashboardHref(location)).toBe("/app?view=site&days=14");
+});
+it("round-trips focused analytics views",()=>{
+  for (const page of ["analytics", "acquisition", "retention", "audience"] as const) {
+    const location = { page, gameId: "game_one", days: "30" };
+    expect(readDashboardLocation(dashboardHref(location).split("?")[1], ["game_one"])).toEqual(location);
+  }
+});

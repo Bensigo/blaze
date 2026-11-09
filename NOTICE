@@ -5,3 +5,9 @@ The SDK manifest consumer preserves its upstream protocol provenance in
 src/lib/forever-json-consumer.ts.
 The Star Catch game and landing media are supplied as controlled development
 fixtures, not evidence of live player activity or third-party game performance.
+
+Country reference points in src/data/country-locations.json are derived from
+world-countries 5.1.0 (Mohammed Le Doze and contributors), under ODbL-1.0.
+Source: https://github.com/mledoze/countries . The derived reference database
+retains ODbL-1.0; full terms are in src/data/COUNTRY-DATA-LICENSE.
+This data license is separate from Blaze source code's MIT license.

@@ -59,9 +59,9 @@ import type {
 } from "@/lib/types";
 
 const PlayerAnalytics = dynamic(() => import("./player-analytics"), { loading: () => <div className="analytics-loading" role="status">Loading analytics…</div> });
-const ForeverHealth = dynamic(() => import("./forever-health"), { loading: () => <p role="status">Loading Forever diagnostics…</p> });
+const SiteHealth = dynamic(() => import("./forever-health"), { loading: () => <p role="status">Loading site diagnostics…</p> });
 
-type GameImportMetadata = { url: string; title: string; description: string; image: string; genre: string; metadataStatus: string; manifestSource: { url: string; observedAt: string; sha256: string; formatVersion: 1 } };
+type GameImportMetadata = { url: string; title: string; description: string; image: string; genre: string; metadataStatus: string; manifestSource?: { url: string; observedAt: string; sha256: string; formatVersion: 1 }; pageSource?: { url: string; observedAt: string; sha256: string } };
 type GameImportState = { status: "idle" | "waiting" | "loading" | "ready" | "error"; input: string; metadata?: GameImportMetadata; error?: string };
 
 type Page = DashboardView;
@@ -76,11 +76,14 @@ type InvestigationState = { kind: "heatmap" | "dropoff"; title: string; loading:
 const nav: { id: Page; label: string; icon: typeof Activity }[] = [
   { id: "overview", label: "Dashboard", icon: LayoutDashboard },
   { id: "games", label: "Games", icon: Gamepad2 },
-  { id: "analytics", label: "Player analytics", icon: BarChart3 },
-  { id: "forever", label: "Forever health", icon: Activity },
+  { id: "analytics", label: "Engagement", icon: BarChart3 },
+  { id: "acquisition", label: "Acquisition", icon: BarChart3 },
+  { id: "retention", label: "Retention", icon: BarChart3 },
+  { id: "audience", label: "Audience", icon: Users },
+  { id: "site", label: "Site health", icon: Activity },
   { id: "sessions", label: "Sessions", icon: Users },
   { id: "discovery", label: "SEO & AEO", icon: Search },
-  { id: "research", label: "Actions", icon: Search },
+  { id: "research", label: "Findings & changes", icon: Search },
 ];
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString();
 const shortDate = (v?: string) =>
@@ -440,11 +443,11 @@ export default function Dashboard() {
       void fetch("/api/actions", { method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal, body: JSON.stringify({ action: "inspect_game", url: input }) })
         .then(async response => {
           const data = await response.json();
-          if (!response.ok) throw new Error(data.error || "The game manifest could not be imported.");
-          if (!data.metadata?.manifestSource || typeof data.metadata.title !== "string") throw new Error("The import response is incomplete. Try again.");
+          if (!response.ok) throw new Error(data.error || "The game details could not be imported.");
+          if (typeof data.metadata?.title !== "string") throw new Error("The import response is incomplete. Try again.");
           if (!controller.signal.aborted) setGameImport({ status: "ready", input, metadata: data.metadata });
         })
-        .catch(error => { if (!controller.signal.aborted) setGameImport({ status: "error", input, error: error instanceof Error ? error.message : "The game manifest could not be imported." }); });
+        .catch(error => { if (!controller.signal.aborted) setGameImport({ status: "error", input, error: error instanceof Error ? error.message : "The game details could not be imported." }); });
     }, 700);
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [draft.url, modal, chosenGame, importRetry]);
@@ -778,7 +781,7 @@ export default function Dashboard() {
     e.preventDefault();
     if (modal === "game") {
       if (!chosenGame && (gameImport.status !== "ready" || gameImport.input !== draft.url.trim())) {
-        setError("Fetch and validate the game manifest before adding the game.");
+        setError("Load the game details before adding the game.");
         return;
       }
       let masks: { x: number; y: number; width: number; height: number }[] = [];
@@ -931,8 +934,8 @@ export default function Dashboard() {
         </div>
         <nav aria-label="Workspace navigation">
           {[
-            { title: "Player evidence", items: nav.slice(0, 5) },
-            { title: "Insights", items: nav.slice(5) },
+            { title: "Analytics", items: nav.slice(0, 8) },
+            { title: "Discovery", items: nav.slice(8) },
           ].map((group) => (
             <div className="nav-group" key={group.title}>
               <div className="nav-label">{group.title}</div>
@@ -951,6 +954,7 @@ export default function Dashboard() {
           ))}
         </nav>
         <div className="sidebar-bottom">
+          <div className="nav-label">Settings</div>
           <button
             className={`nav-item ${page === "connections" ? "active" : ""}`}
             onClick={() => changePage("connections")}
@@ -1070,11 +1074,12 @@ export default function Dashboard() {
           </div>
         )}
         <main ref={mainWorkspace} tabIndex={-1} className="main-content">
+          {snapshot.system.eventRetentionDays && Number(period) > snapshot.system.eventRetentionDays ? <p className="data-note" role="status">Raw events are retained for {snapshot.system.eventRetentionDays} days. This {period}-day report can be incomplete for earlier dates; first-seen records do not restore deleted activity.</p> : null}
           {page !== "account" && <div className="page-heading">
             <div>
               <div className="page-title-line"><h1>{title}</h1><InfoHint label={`About ${title}`}>{pageDescriptions[page]}</InfoHint></div>
             </div>
-            {page !== "connections" && page !== "help" && page !== "research" && page !== "forever" && (
+            {page !== "connections" && page !== "help" && page !== "research" && page !== "site" && (
               <div className="filters">
                 <label>
                   <span className="sr-only">Filter by game</span>
@@ -1092,7 +1097,7 @@ export default function Dashboard() {
                   </select>
                   <ChevronDown size={14} />
                 </label>
-                {["overview","analytics","sessions"].includes(page) && <label>
+                {["overview","analytics","acquisition","retention","audience","sessions"].includes(page) && <label>
                   <span className="sr-only">Filter by date</span>
                   <CalendarDays size={15} />
                   <select
@@ -1105,13 +1110,14 @@ export default function Dashboard() {
                   </select>
                   <ChevronDown size={14} />
                 </label>}
+                {["overview","analytics","acquisition","retention","audience"].includes(page) && (snapshot.demo ? <button className="button" disabled title="Export is unavailable in the example workspace">Export CSV</button> : <a className="button" href={`/api/analytics/export?${new URLSearchParams({ days: period, ...(selectedGame === "all" ? {} : { gameId: selectedGame }) })}`}>Export CSV</a>)}
               </div>
             )}
           </div>}
-          {page === "forever" && <ForeverHealth demo={snapshot.demo}/>}
+          {page === "site" && <SiteHealth demo={snapshot.demo}/>}
           {page === "overview" && sessionScopeReady && <MostPlayedGames analytics={snapshot.analytics} games={games} />}
-          {(page === "overview" || page === "analytics") && (sessionScopeReady ? <PlayerAnalytics
-            analytics={analytics} games={games} gameId={selectedGame} days={period} demo={snapshot.demo} detailed
+          {(["overview", "analytics", "acquisition", "retention", "audience"].includes(page)) && (sessionScopeReady ? <PlayerAnalytics
+            analytics={analytics} games={games} gameId={selectedGame} days={period} demo={snapshot.demo} detailed view={page === "analytics" ? "engagement" : page === "acquisition" || page === "retention" || page === "audience" ? page : "overview"}
             onChooseGame={setSelectedGame} onAddGame={() => openModal("game")} onSetup={() => changePage("help")}
             onAnalytics={() => changePage("analytics")} onSessions={() => changePage("sessions")} onOpenSession={openSession}
             onDropoff={name => void investigate("dropoff", name, { dropoff: name })}
@@ -1145,7 +1151,7 @@ export default function Dashboard() {
                         </a>
                         <p>{g.description || "No description provided."}</p>
                         {!snapshot.demo && <GameSourceEditor game={g} onSaved={() => { void refresh(); }}/>}
-                        {g.manifestSource && <a className="game-manifest-source" href={g.manifestSource.url} target="_blank" rel="noreferrer">Imported from forever.json <ExternalLink size={11}/></a>}
+                        {g.manifestSource && <a className="game-manifest-source" href={g.manifestSource.url} target="_blank" rel="noreferrer">Imported from manifest <ExternalLink size={11}/></a>}
                         <span className="tag">
                           {g.genre || "Web game"}
                         </span>{" "}
@@ -1372,20 +1378,19 @@ export default function Dashboard() {
               {error && <div ref={formError} className="alert error" role="alert">{error}</div>}
               {modal === "game" && (
                 <>
-                  {chosenGame ? <><p>Main source URL: {chosenGame.url}</p><GameSourceEditor game={chosenGame} onSaved={() => { setModal(null); void refresh(); }}/></> : <Field label="Game page URL" hint="Blaze reads this game page’s /forever.json file and imports its metadata.">
+                  {chosenGame ? <><p>Main source URL: {chosenGame.url}</p><GameSourceEditor game={chosenGame} onSaved={() => { setModal(null); void refresh(); }}/></> : <Field label="Game page URL" hint="Blaze reads available metadata from the public game page.">
                     <input required type="url" placeholder="https://yourgame.com/my/game" value={draft.url} onChange={e => { setError(""); setDraft({ ...draft, url: e.target.value }); }} />
                   </Field>}
                   {!chosenGame && <div className="manifest-import">
-                    {manifestAddress(draft.url) && <div className="manifest-address"><span>Manifest URL</span><code>{manifestAddress(draft.url)}</code></div>}
-                    {(gameImport.status === "waiting" || gameImport.status === "loading") && <p className="manifest-status" role="status"><LoaderCircle className="spin" size={15} /> Fetching and validating the manifest…</p>}
+                    {(gameImport.status === "waiting" || gameImport.status === "loading") && <p className="manifest-status" role="status"><LoaderCircle className="spin" size={15} /> Reading game details…</p>}
                     {gameImport.status === "error" && <div className="manifest-import-error" role="alert"><strong>Game could not be imported</strong><p>{gameImport.error}</p><button type="button" className="text-action" onClick={() => setImportRetry(value => value + 1)}>Try again <ArrowRight size={13}/></button></div>}
                     {gameImport.status === "ready" && gameImport.metadata && <div className="manifest-preview" role="status">
-                      <div className="manifest-preview-head">{gameImport.metadata.image && <img src={gameImport.metadata.image} alt=""/>}<div><span><Check size={13}/> Manifest validated</span><h3>{gameImport.metadata.title}</h3><p>{gameImport.metadata.genre}</p></div></div>
+                      <div className="manifest-preview-head">{gameImport.metadata.image && <img src={gameImport.metadata.image} alt=""/>}<div><span><Check size={13}/> Game details found</span><h3>{gameImport.metadata.title}</h3><p>{gameImport.metadata.genre}</p></div></div>
                       <p className="manifest-description">{gameImport.metadata.description}</p>
-                      <div className="manifest-provenance"><a href={gameImport.metadata.manifestSource.url} target="_blank" rel="noreferrer">View source manifest <ExternalLink size={12}/></a><span>Version {gameImport.metadata.manifestSource.formatVersion} · checked {dateTime(gameImport.metadata.manifestSource.observedAt)}</span></div>
-                      <small>Name, description, genre and artwork come from this manifest. You can edit the game after adding it.</small>
+                      {gameImport.metadata.manifestSource ? <div className="manifest-provenance"><a href={gameImport.metadata.manifestSource.url} target="_blank" rel="noreferrer">View source manifest <ExternalLink size={12}/></a><span>Version {gameImport.metadata.manifestSource.formatVersion} · checked {dateTime(gameImport.metadata.manifestSource.observedAt)}</span></div> : gameImport.metadata.pageSource && <div className="manifest-provenance"><a href={gameImport.metadata.pageSource.url} target="_blank" rel="noreferrer">View source page <ExternalLink size={12}/></a><span>Checked {dateTime(gameImport.metadata.pageSource.observedAt)}</span></div>}
+                      <small>Review these details; you can edit the game after adding it.</small>
                     </div>}
-                    {gameImport.status === "idle" && <p className="quiet-help">The game must publish a valid Forever v1 manifest at the exact URL shown above.</p>}
+                    {gameImport.status === "idle" && <p className="quiet-help">Enter a public game page URL to preview available details.</p>}
                   </div>}
                   {chosenGame && <>
                     <Field label="Title"><input required placeholder="Game title" value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })}/></Field>
@@ -1626,8 +1631,11 @@ function Brand() {
 const pageDescriptions: Record<Page, string> = {
   overview: "Sessions, measured play and recorded pointer activity.",
   games: "Manage the games in your workspace.",
-  analytics: "Play funnels, traffic sources and player returns.",
-  forever: "Private Forever website visits, game entry, and classified issues.",
+  analytics: "Play funnels, sessions and pointer activity.",
+  acquisition: "Traffic sources, campaigns and launch conversion.",
+  retention: "Return cohorts for observed browser IDs.",
+  audience: "Countries, devices and consented audience segments.",
+  site: "Private website visits, game entry, and classified issues.",
   sessions: "Inspect individual player journeys and event sequences.",
   research: "Evidence, next steps and the result to check afterward.",
   connections: "Connect games and Search Console.",
@@ -1907,16 +1915,14 @@ function Help({
       <div>
         <SectionHead
           title="Get started"
-          detail="Follow the workflow from setup to reviewed publication."
+          detail="Connect a game and start collecting consented player activity."
         />
         <div className="help-step">
           <span>01</span>
           <div>
             <h3>Add a game</h3>
             <p>
-              Add a public game-page URL. Blaze reads that path’s /forever.json
-              to import its metadata. Metadata import does not collect gameplay
-              events. Use a separate test workspace for controlled fixtures.
+              Add a public game-page URL to import its available metadata. Metadata import does not collect gameplay events. Use a separate test workspace for controlled fixtures.
             </p>
           </div>
         </div>

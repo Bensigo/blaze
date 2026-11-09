@@ -41,7 +41,7 @@ export function buildDemo(gameId?: string, days = 30): WorkspaceSnapshot {
             occurred_at: new Date(
               new Date(at).getTime() + i * 12000,
             ).toISOString(),
-            country: "Unknown",
+            country: ["NG", "GB", "US", "AE", "JP"][(day+n)%5],
             device: n % 3 === 0 ? "mobile" : "desktop",
             source: n % 3 === 0 ? "social" : "direct",
             campaign: "",

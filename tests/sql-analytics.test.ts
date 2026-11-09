@@ -147,11 +147,23 @@ it('audience links only scoped consented IDs and separates volunteered answers f
  await add('round_start','test',700,{workspace,player_id:'scoped_forever_test'});
  await add('visit','historical-test',0,{workspace,player_id:player,occurred_at:new Date(now-20*86400000).toISOString(),properties:{test:true}});
  const {audience}=await import('../src/lib/audience');const result=await audience(workspace,undefined,14,now);
- expect(result).toMatchObject({browserIds:1,unlinkedGameBrowserIds:1,profileRespondents:1,countries:[{name:'GB',count:1}],ageBands:[{name:'25-34',count:1}],declaredCountries:[{name:'NG',count:1}]});
+ expect(result).toMatchObject({browserIds:2,unlinkedGameBrowserIds:1,profileRespondents:1,countries:[{name:'GB',count:1},{name:'NG',count:1}],ageBands:[{name:'25-34',count:1}],declaredCountries:[{name:'NG',count:1}]});
  expect(result.segments).toContainEqual({name:'Multiple games',count:1});
  expect(result.segments).toContainEqual({name:'Returning browser',count:0});
  expect(result.interests).toEqual([{name:'puzzle',count:1},{name:'sports',count:1}]);
  await add('player_profile','b',800,{workspace,player_id:player,game_id:'game-b',properties:{age_band:'unknown',declared_country:'unknown',interests:'unknown'}});
  const removed=await audience(workspace,undefined,14,now);expect(removed.profileRespondents).toBe(0);expect(removed.ageBands).toEqual([]);
  expect((await audience('unrelated',undefined,14,now)).browserIds).toBe(0);
+});
+
+it('supports any explicit platform scope and never merges unscoped IDs from different games',async()=>{
+ const workspace='generic-platform-proof';
+ await add('round_start','shared-a',100,{workspace,player_id:'scoped_arcade_shared',game_id:'a',country:'NG'});
+ await add('round_start','shared-b',200,{workspace,player_id:'scoped_arcade_shared',game_id:'b',country:'NG'});
+ await add('visit','unlinked-a',300,{workspace,player_id:'same-browser-text',game_id:'a',country:'GB'});
+ await add('visit','unlinked-b',400,{workspace,player_id:'same-browser-text',game_id:'b',country:'GB'});
+ const {audience}=await import('../src/lib/audience');const result=await audience(workspace,undefined,14,now);
+ expect(result.browserIds).toBe(3);expect(result.unlinkedGameBrowserIds).toBe(2);
+ expect(result.segments).toContainEqual({name:'Multiple games',count:1});
+ expect(result.countries).toEqual([{name:'GB',count:2},{name:'NG',count:1}]);
 });

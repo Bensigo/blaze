@@ -1,6 +1,6 @@
-# Import a web game
+# Optional game manifest
 
-Blaze imports a version-1 public game manifest from the entered game URL plus `/forever.json`. The filename is the existing integration protocol; an independent web game can implement it without being hosted on Forever.
+Blaze can import any public game page from its HTML metadata. A compatible version-1 public game manifest is optional; if supplied at the entered game URL plus `/forever.json`, its validated metadata takes precedence. The filename is the existing integration protocol; an independent web game can implement it without being hosted on Forever.
 
 For `https://games.example/my-game`, serve JSON at `https://games.example/my-game/forever.json`. For a file-like game URL ending `/index.html`, serve the manifest at `/index.html/forever.json`. Blaze does not substitute a site-root URL or follow redirects. Use public HTTP/HTTPS without credentials, query strings or fragments. Private addresses are rejected.
 

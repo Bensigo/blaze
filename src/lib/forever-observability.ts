@@ -10,7 +10,7 @@ export const foreverReportSchema = z.object({
   release: z.string().regex(/^[a-f0-9]{40}$/).optional(),
   window: z.object({ days: z.literal(14), since: at, until: at }),
   summary: z.object({ sessions: count, gameViewSessions: count, playClickSessions: count, readySessions: count, startedSessions: count, actionSessions: count, noPlaySessions: count, errorSessions: count, completedSessions: count.optional() }),
-  catalogue: z.array(z.object({ id: label, slug: label, title: z.string().max(120), url: z.string().url() })).max(100).optional(),
+  catalogue: z.array(z.object({ id: label, slug: label, title: z.string().max(120), url: z.string().url().refine(value => { try { const u=new URL(value); return ["http:","https:"].includes(u.protocol) && !u.username && !u.password && !u.search && !u.hash; } catch { return false; } }, "Use a public page URL without credentials, query or fragment") })).max(100).optional(),
   journey: z.object({ startedSessions: count, secondGameSessions: count, secondGameRate: z.number().min(0).max(1).nullable(), transitions: z.array(z.object({from: label,to: label,sessions:count})).max(100) }).optional(),
   funnel: z.array(z.object({ stage: label, sessions: count })).max(10),
   games: z.array(z.object({ game: label, views: count, playClicks: count, ready: count, starts: count, actions: count.nullable(), actionCoverage: z.enum(["live", "finish_only", "unmeasured"]), completed: count, errorSessions: count })).max(100),

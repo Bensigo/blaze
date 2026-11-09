@@ -11,6 +11,8 @@ export default function AccountSettings({ user }: { user: { name: string; email:
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [maintenance, setMaintenance] = useState<{eventRetention: "enabled" | "disabled" | "invalid"; retentionDays: number | null; lastRun: {finishedAt: string; outcome: "succeeded" | "failed"} | null} | null>(null);
+  const [maintenanceError, setMaintenanceError] = useState("");
   const load = useCallback(async () => {
     const response = await fetch("/api/agent/tokens", { cache: "no-store" });
     const data = await response.json();
@@ -18,6 +20,14 @@ export default function AccountSettings({ user }: { user: { name: string; email:
     setTokens(data.tokens);
   }, []);
   useEffect(() => { void load().catch(e => setError(e.message)); }, [load]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/maintenance/status", { cache: "no-store", signal: controller.signal }).then(async response => {
+      if (!response.ok) throw new Error("Maintenance status is unavailable.");
+      return response.json();
+    }).then(setMaintenance).catch(e => { if (!controller.signal.aborted) setMaintenanceError(e instanceof Error ? e.message : "Maintenance status is unavailable."); });
+    return () => controller.abort();
+  }, []);
   async function copyToken() {
     try { await navigator.clipboard.writeText(issued); setCopied(true); setError(""); }
     catch { setError("Could not copy the token. Select and copy it manually."); }
@@ -34,6 +44,8 @@ export default function AccountSettings({ user }: { user: { name: string; email:
     finally { setBusy(false); }
   }
   return <section className="account-settings">
+    <h2>Maintenance</h2>
+    {maintenanceError ? <p role="alert">{maintenanceError}</p> : maintenance ? <><p>Event retention: {maintenance.eventRetention === "enabled" ? `${maintenance.retentionDays} days` : maintenance.eventRetention === "invalid" ? "Invalid configuration" : "Not configured"}.</p><p>Last maintenance: {maintenance.lastRun ? `${maintenance.lastRun.outcome} · ${new Date(maintenance.lastRun.finishedAt).toLocaleString()}` : "No run recorded"}.</p></> : <p role="status">Loading maintenance status…</p>}
     <h2>Read-only agent access</h2>
     <p>Create a token to let an external MCP client read games, analytics and discovery reports for this workspace. It cannot change workspace data.</p>
     {user && <p className="muted">Signed in as {user.email}</p>}

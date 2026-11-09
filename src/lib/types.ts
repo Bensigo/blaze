@@ -26,6 +26,7 @@ export interface Game {
   sourceUrlRevision?: string;
   metadataStatus?: string;
   manifestSource?: { url: string; observedAt: string; sha256: string; formatVersion: 1 };
+  pageSource?: { url: string; observedAt: string; sha256: string };
   networkPolicy?: { resourceOrigins: string[]; webSocketOrigins: string[]; frameUrls?: string[] };
   capture?: CaptureConfig;
 }
@@ -330,6 +331,7 @@ export interface WorkspaceSnapshot {
   analytics: Analytics;
   system: {
     database: boolean;
+    eventRetentionDays?: number | null;
     databaseUsage?: { bytes: number | null; limitBytes: number | null; paused: boolean; measuredAt: string | null; retentionDays: null; reason?: string };
     google: boolean;
     storage: boolean;
