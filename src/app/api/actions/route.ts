@@ -14,6 +14,7 @@ import type { Game, Finding, Connection, ProviderSecret } from "@/lib/types";
 import { createReleaseMeasurement } from "@/lib/measurements";
 import { saveFindingNote, setFindingDecision } from "@/lib/finding-decisions";
 import { validateMeasurementWindows } from "@/lib/measurement-outcomes";
+import { competitorTarget } from "@/lib/competitors";
 const str = z.string().trim().min(1).max(500);
 const rid = z.string().max(100);
 export async function POST(request: Request) {
@@ -53,6 +54,24 @@ export async function POST(request: Request) {
       try { after(async () => { await drainProfile(jobId); }); } catch { /* The durable job remains for the worker or cron. */ }
       return Response.json({ game });
     }
+    if (action === "add_mobile_game") {
+      const v = z.object({ url: z.string().trim().max(2000), title: z.string().trim().min(1).max(120) }).parse(body);
+      const target = competitorTarget(v);
+      if (target.platform === "web") throw new HttpError(400, "Use an App Store or Google Play game link.");
+      const game: Game = {
+        id: "game_store_" + target.id, storePlatform: target.platform,
+        title: target.title, url: target.url, description: "", image: "", genre: "",
+        sdkKey: id("sdk"), origins: [], createdAt: new Date().toISOString(),
+        dailyEnabled: false, competitors: [], metadataStatus: "Store listing",
+      };
+      if (await get(workspace, "archived_game", game.id))
+        throw new HttpError(409, "Restore this game from Archived games.");
+      await query(
+        "INSERT INTO records(workspace_id, kind, id, body) VALUES($1,'game',$2,$3::jsonb) ON CONFLICT DO NOTHING",
+        [workspace, game.id, JSON.stringify(game)],
+      );
+      return Response.json({ game: await get<Game>(workspace, "game", game.id) });
+    }
     if (action === "update_game") {
       const game = await requireRecord<Game>("game", body.id);
       const v = z
@@ -68,6 +87,8 @@ export async function POST(request: Request) {
           capture: captureConfigSchema.optional(),
         })
         .parse(body);
+      if (game.storePlatform && (v.origins !== undefined || v.networkPolicy !== undefined || v.capture !== undefined))
+        throw new HttpError(400, "Browser telemetry settings are available for web games.");
       if ((typeof body.expectedSourceUrl === "string" && body.expectedSourceUrl !== game.url) || (game.sourceUrlRevision && body.expectedSourceRevision !== game.sourceUrlRevision)) throw new HttpError(409,"Game source changed since these settings were opened. Reload before editing.");
       let networkPolicy = game.networkPolicy;
       if (body.networkPolicy !== undefined) {

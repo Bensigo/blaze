@@ -1,6 +1,6 @@
 # Blaze
 
-Open-source analytics, SEO and AEO for web games. MIT licensed.
+Open-source web-game analytics, SEO, AEO and competitor intelligence. MIT licensed.
 
 Blaze helps developers understand visits, meaningful play, completion, return cohorts, errors, sources and player friction. Its browser SDK collects bounded, consented events. SEO/AEO reports pair public-page checks with authorized search observations and explicitly labeled citation evidence. External agents can read reports through MCP; Blaze requires no AI model or inference key.
 
@@ -23,6 +23,10 @@ Open http://127.0.0.1:3000. Local development sign-in works only in development/
 3. Verify actual events before interpreting analytics. Empty reports mean absent evidence, not proof that a game has no players.
 4. Refresh SEO/AEO under the game's Search & answers view. Connect an authorized Search Console property for real search observations. See [SEO/AEO evidence and limitations](docs/SEO-AEO.md).
 5. Create a revocable read-only token in Account to [connect an external MCP agent](docs/MCP.md).
+
+## Competitor intelligence
+
+Open **Games → Competitors** to track web pages, App Store listings and Google Play listings for a game. For mobile-only games, choose **Add game → Mobile game**. The watchlist works without a provider. Optional DataForSEO reports show observed web rank, estimated search visits and store keyword coverage. See [setup and metric definitions](docs/COMPETITORS.md).
 
 ## What is measured
 

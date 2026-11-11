@@ -24,6 +24,7 @@ import {
   Clock3,
   ExternalLink,
   Gamepad2,
+  GitCompareArrows,
   LayoutDashboard,
   Link2,
   LoaderCircle,
@@ -34,6 +35,7 @@ import {
   Plus,
   Search,
   Settings2,
+  Smartphone,
   Sparkles,
   Users,
   X,
@@ -42,10 +44,12 @@ import dynamic from "next/dynamic";
 import GameConnections from "./game-connections";
 import InfoHint from "./info-hint";
 import MostPlayedGames from "./most-played-games";
+import { competitorPlatforms } from "@/lib/competitor-types";
 import {dashboardHref,readDashboardLocation,type DashboardView} from "@/lib/dashboard-location";
 const GameArchiveControls = dynamic(() => import("./game-archive-controls"));
 const AccountSettings = dynamic(() => import("./account-settings"), { loading: () => <p role="status">Loading account settings…</p> });
 const DiscoveryReview = dynamic(() => import("./discovery-review").then(module => module.DiscoveryReview), { loading: () => <p role="status">Loading search review…</p> });
+const Competitors = dynamic(() => import("./competitor-view"), { loading: () => <p role="status">Loading watchlist…</p> });
 import type {
   Analytics,
   Finding,
@@ -83,6 +87,7 @@ const nav: { id: Page; label: string; icon: typeof Activity }[] = [
   { id: "site", label: "Site health", icon: Activity },
   { id: "sessions", label: "Sessions", icon: Users },
   { id: "discovery", label: "SEO & AEO", icon: Search },
+  { id: "competitors", label: "Competitors", icon: GitCompareArrows },
   { id: "research", label: "Findings & changes", icon: Search },
 ];
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString();
@@ -321,6 +326,7 @@ export default function Dashboard() {
     [mobileNav, setMobileNav] = useState(false),
     [modal, setModal] = useState<Modal>(null);
   const [chosenGame, setChosenGame] = useState<Game | null>(null);
+  const [gameType, setGameType] = useState<"web" | "mobile">("web");
   const mainWorkspace=useRef<HTMLElement>(null);
   const initialSearch=useRef("");
   const availableGameIds=useRef<string[]>([]);
@@ -435,7 +441,7 @@ export default function Dashboard() {
   const [importRetry, setImportRetry] = useState(0);
   useEffect(() => {
     const input = draft.url.trim();
-    if (modal !== "game" || chosenGame || !manifestAddress(input)) { setGameImport({ status: "idle", input }); return; }
+    if (modal !== "game" || chosenGame || gameType === "mobile" || !manifestAddress(input)) { setGameImport({ status: "idle", input }); return; }
     const controller = new AbortController();
     setGameImport({ status: "waiting", input });
     const timer = window.setTimeout(() => {
@@ -450,7 +456,7 @@ export default function Dashboard() {
         .catch(error => { if (!controller.signal.aborted) setGameImport({ status: "error", input, error: error instanceof Error ? error.message : "The game details could not be imported." }); });
     }, 700);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [draft.url, modal, chosenGame, importRetry]);
+  }, [draft.url, modal, chosenGame, importRetry, gameType]);
   const refresh = useCallback(
     async (game = selectedGame, demo = snapshot?.demo, days = period) => {
       const request = ++workspaceRequest.current;
@@ -553,7 +559,11 @@ export default function Dashboard() {
       if (!res.ok) throw new Error(data.error || "Action failed");
       if (close) setModal(null);
       await refresh();
-      if (payload.action === "add_game" && typeof data.game?.id === "string") {
+      if (payload.action === "add_mobile_game" && typeof data.game?.id === "string") {
+        setSelectedGame(data.game.id);
+        setPage("competitors");
+        setNotice("Mobile game added.");
+      } else if (payload.action === "add_game" && typeof data.game?.id === "string") {
         setSelectedGame(data.game.id);
         setPage("overview");
         setNotice("Game imported. Install its SDK to start receiving player events.");
@@ -708,6 +718,7 @@ export default function Dashboard() {
     setError("");
     resetDraft();
     setChosenGame(null);
+    setGameType("web");
     setModal(m);
   };
   const startMeasurement = (f: Finding) => {
@@ -746,6 +757,8 @@ export default function Dashboard() {
   const filteredGames =
     selectedGame === "all" ? (page === "games" ? games.filter(g=>g.foreverCatalogue?.state!=="retired"&&!controlledGame(g)) : games) : games.filter((g) => g.id === selectedGame);
   const featuredGame = filteredGames[0];
+  const selectedRecord = games.find(game => game.id === selectedGame);
+  const selectedStoreGame = selectedRecord?.storePlatform;
   const findings = (snapshot?.findings || []).filter(
     (x) => selectedGame === "all" || x.gameId === selectedGame,
   );
@@ -780,6 +793,14 @@ export default function Dashboard() {
   const formSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (modal === "game") {
+      if (!chosenGame && gameType === "mobile") {
+        await action({ action: "add_mobile_game", title: draft.title.trim(), url: draft.url.trim() });
+        return;
+      }
+      if (chosenGame?.storePlatform) {
+        await action({ action: "update_game", id: chosenGame.id, title: draft.title.trim() });
+        return;
+      }
       if (!chosenGame && (gameImport.status !== "ready" || gameImport.input !== draft.url.trim())) {
         setError("Load the game details before adding the game.");
         return;
@@ -1074,7 +1095,7 @@ export default function Dashboard() {
           </div>
         )}
         <main ref={mainWorkspace} tabIndex={-1} className="main-content">
-          {snapshot.system.eventRetentionDays && Number(period) > snapshot.system.eventRetentionDays ? <p className="data-note" role="status">Raw events are retained for {snapshot.system.eventRetentionDays} days. This {period}-day report can be incomplete for earlier dates; first-seen records do not restore deleted activity.</p> : null}
+          {["overview","analytics","acquisition","retention","audience","sessions"].includes(page) && snapshot.system.eventRetentionDays && Number(period) > snapshot.system.eventRetentionDays ? <div className="data-note" role="status">Partial window · {snapshot.system.eventRetentionDays} days retained <InfoHint label="About event retention">This {period}-day report can be incomplete for earlier dates. First-seen records do not restore deleted events.</InfoHint></div> : null}
           {page !== "account" && <div className="page-heading">
             <div>
               <div className="page-title-line"><h1>{title}</h1><InfoHint label={`About ${title}`}>{pageDescriptions[page]}</InfoHint></div>
@@ -1088,7 +1109,7 @@ export default function Dashboard() {
                     value={selectedGame}
                     onChange={(e) => setSelectedGame(e.target.value)}
                   >
-                    <option value="all">All games</option>
+                    <option value="all">{page === "competitors" ? "Choose a game" : "All games"}</option>
                     {games.map((g) => (
                       <option key={g.id} value={g.id}>
                         {g.title}
@@ -1115,8 +1136,8 @@ export default function Dashboard() {
             )}
           </div>}
           {page === "site" && <SiteHealth demo={snapshot.demo}/>}
-          {page === "overview" && sessionScopeReady && <MostPlayedGames analytics={snapshot.analytics} games={games} />}
-          {(["overview", "analytics", "acquisition", "retention", "audience"].includes(page)) && (sessionScopeReady ? <PlayerAnalytics
+          {page === "overview" && !selectedStoreGame && sessionScopeReady && <MostPlayedGames analytics={snapshot.analytics} games={games.filter(game => !game.storePlatform)} />}
+          {(["overview", "analytics", "acquisition", "retention", "audience"].includes(page)) && (selectedStoreGame ? <Empty title="Mobile store listing" detail="Native gameplay data is unavailable." action={<Button onClick={() => changePage("competitors")}>View competitors <ArrowRight size={14}/></Button>}/> : sessionScopeReady ? <PlayerAnalytics
             analytics={analytics} games={games} gameId={selectedGame} days={period} demo={snapshot.demo} detailed view={page === "analytics" ? "engagement" : page === "acquisition" || page === "retention" || page === "audience" ? page : "overview"}
             onChooseGame={setSelectedGame} onAddGame={() => openModal("game")} onSetup={() => changePage("help")}
             onAnalytics={() => changePage("analytics")} onSessions={() => changePage("sessions")} onOpenSession={openSession}
@@ -1133,54 +1154,48 @@ export default function Dashboard() {
           /> : <div className="analytics-loading" role="status">Loading this game and date range…</div>)}
           {page === "games" && (
             <>
-              <SectionHead
-                title="Your games"
-                detail="Current games. Historical entries and controlled fixtures remain available through the game selector."
-              />
+              <SectionHead title="Your games"/>
               {filteredGames.length ? (
                 <div className="games-list">
                   {filteredGames.map((g) => (
-                    <div className="game-row" key={g.id}>
+                    <div className={"game-row" + (g.storePlatform ? " is-store" : "")} key={g.id}>
                       <div className="game-art">
-                        <Media src={g.image} title={g.title} />
+                        {g.storePlatform ? <div className="game-store-art" aria-hidden><Smartphone size={22}/></div> : <Media src={g.image} title={g.title} />}
                       </div>
                       <div className="game-info">
                         <h3>{g.title}</h3>
-                        <a href={g.url} target="_blank" rel="noreferrer">
-                          {g.url} <ExternalLink size={12} />
+                        <a href={g.url} target="_blank" rel="noreferrer" title={g.url}>
+                          {g.storePlatform ? competitorPlatforms[g.storePlatform] : "Game page"} <ExternalLink size={12} />
                         </a>
-                        <p>{g.description || "No description provided."}</p>
-                        {!snapshot.demo && <GameSourceEditor game={g} onSaved={() => { void refresh(); }}/>}
-                        {g.manifestSource && <a className="game-manifest-source" href={g.manifestSource.url} target="_blank" rel="noreferrer">Imported from manifest <ExternalLink size={11}/></a>}
-                        <span className="tag">
-                          {g.genre || "Web game"}
-                        </span>{" "}
-                        <span className="muted">
-                          Added {shortDate(g.createdAt)}
-                        </span>
+                        <div className="game-row-meta"><span className="tag">{g.storePlatform ? "Mobile" : g.genre || "Web"}</span>
+                          {(g.description || g.manifestSource) && <details><summary>Details</summary>
+                            {g.description && <p>{g.description}</p>}
+                            {g.manifestSource && <a href={g.manifestSource.url} target="_blank" rel="noreferrer">Source manifest <ExternalLink size={11}/></a>}
+                          </details>}
+                        </div>
                       </div>
                       <div className="game-actions">
-                        <Button onClick={() => { setSelectedGame(g.id); changePage("discovery"); }}>Search &amp; answers</Button>
-                        <Button
+                        <Button onClick={() => { setSelectedGame(g.id); changePage("competitors"); }}><GitCompareArrows size={15}/> Competitors</Button>
+                        {!g.storePlatform && <Button
                           onClick={() => {
                             setSelectedGame(g.id);
                             changePage("analytics");
                           }}
                         >
                           Analytics <ArrowRight size={14} />
-                        </Button>
-                        <details className="game-more-actions"><summary>More actions</summary><div><Button onClick={() => editGame(g)}>Edit</Button><Button onClick={() => setSelectedGame(g.id)}>Game profile</Button><Button
+                        </Button>}
+                        <details className="game-more-actions"><summary className="button" aria-label={"More actions for " + g.title}><MoreHorizontal size={17} aria-hidden/></summary><div><Button onClick={() => editGame(g)}>Edit</Button>{!g.storePlatform && <><Button onClick={() => setSelectedGame(g.id)}>Game profile</Button><Button onClick={() => { setSelectedGame(g.id); changePage("discovery"); }}>SEO &amp; AEO</Button><Button
                           onClick={() => {
                             setSelectedGame(g.id);
                             changePage("help");
                           }}
                         >
                           SDK setup
-                        </Button></div></details>
+                        </Button></>}</div></details>
                       </div>
                     </div>
                   ))}
-                  {selectedGame !== "all" && <GameProfile gameId={selectedGame} demo={snapshot.demo} />}
+                  {selectedGame !== "all" && !selectedStoreGame && <GameProfile gameId={selectedGame} demo={snapshot.demo} />}
                 </div>
               ) : (
                 <Empty
@@ -1197,9 +1212,13 @@ export default function Dashboard() {
           )}
           {page === "games" && <GameArchiveControls games={games} demo={snapshot.demo} onUpdated={async () => { setSelectedGame("all"); await refresh("all", false); }}/>}
           {page === "discovery" && <>
-            <SectionHead title={games.find(game => game.id === selectedGame)?.title || "Choose a game"} detail="Review public page observations, search visibility and suggested fixes." action={<Button onClick={() => changePage("games")}>Back to games</Button>}/>
-            {snapshot.demo ? <Empty title="Sign in to review your game" detail="Public checks are unavailable in the example workspace."/> : selectedGame === "all" ? <Empty title="Choose one game" detail="Select a game above to read its cached observations or run a public-page review."/> : <DiscoveryReview key={selectedGame} gameId={selectedGame}/>}
+            {selectedRecord && <SectionHead title={selectedRecord.title} action={<Button onClick={() => changePage("games")}>Back to games</Button>}/>}
+            {snapshot.demo ? <Empty title="Sign in to review your game" detail="Public checks are unavailable in the example workspace."/> : selectedGame === "all" ? <Empty title="Choose a game" detail="Select a game above to open its review."/> : selectedStoreGame ? <Empty title="Mobile store listing" detail="Compare store search for this game." action={<Button onClick={() => changePage("competitors")}>View competitors</Button>}/> : <DiscoveryReview key={selectedGame} gameId={selectedGame}/>}
           </>}
+          {page === "competitors" && (snapshot.demo
+            ? <Empty title="Sign in to compare games" detail="Watchlists are saved to your workspace."/>
+            : selectedRecord ? <Competitors key={selectedRecord.id} gameId={selectedRecord.id} title={selectedRecord.title}/>
+            : <Empty title="Choose a game" detail="Select a game to open its watchlist." action={<Button onClick={() => changePage("games")}>Browse games <ArrowRight size={14}/></Button>}/>)}
           {page === "sessions" && (
             <>
               <SectionHead
@@ -1235,14 +1254,14 @@ export default function Dashboard() {
           {page === "account" && (snapshot.demo ? <Empty title="Sign in to configure your account" detail="The example workspace does not store credentials."/> : <AccountSettings user={snapshot.user} onSaved={async () => { await refresh(); }}/>) }
           {page === "connections" && (
             <>
-              <GameConnections games={games} origin={origin} onSynced={async()=>{await refresh();}} onAdd={() => openModal("game")} onSetup={(gameId) => { setSelectedGame(gameId); changePage("help"); }} onSessions={(gameId) => { setSelectedGame(gameId); changePage("sessions"); }}/>
-              <SectionHead title="Search Console" detail="Connect an authorized Search Console property to enrich search insights." action={<Button variant="primary" onClick={() => { resetDraft(); setDraft(d => ({ ...d, provider: "search_console" })); setModal("connection"); }}><Plus size={16}/> Add connection</Button>}/>
+              <GameConnections games={games.filter(game => !game.storePlatform)} origin={origin} onSynced={async()=>{await refresh();}} onAdd={() => openModal("game")} onSetup={(gameId) => { setSelectedGame(gameId); changePage("help"); }} onSessions={(gameId) => { setSelectedGame(gameId); changePage("sessions"); }}/>
+              <SectionHead title="Search Console" action={<Button variant="primary" onClick={() => { resetDraft(); setDraft(d => ({ ...d, provider: "search_console" })); setModal("connection"); }}><Plus size={16}/> Add connection</Button>}/>
               <div className="connection-list">{snapshot.connections.filter(c => c.provider === "search_console").map(c => <div className="connection-row" key={c.id}><div className="provider-copy"><strong>{c.label}</strong><span>{c.accountId || "Property not specified"}</span></div><Status value={c.connected ? "connected" : "disconnected"}/><Button onClick={() => void action({ action: "delete_connection", id: c.id })}>Remove</Button></div>)}</div>
             </>
           )}
           {page === "help" && (
             <Help
-              games={games}
+              games={games.filter(game => !game.storePlatform)}
               selectedGame={selectedGame}
               system={snapshot.system}
               origin={origin}
@@ -1376,9 +1395,17 @@ export default function Dashboard() {
         >
             <form onSubmit={formSubmit}>
               {error && <div ref={formError} className="alert error" role="alert">{error}</div>}
-              {modal === "game" && (
+              {modal === "game" && !chosenGame && <div className="game-type-picker" role="group" aria-label="Game platform">
+                <button type="button" className="button" aria-pressed={gameType === "web"} onClick={() => { setGameType("web"); setError(""); }}><Gamepad2 size={16}/> Web game</button>
+                <button type="button" className="button" aria-pressed={gameType === "mobile"} onClick={() => { setGameType("mobile"); setError(""); }}><Smartphone size={16}/> Mobile game</button>
+              </div>}
+              {modal === "game" && (chosenGame?.storePlatform || (!chosenGame && gameType === "mobile")) && <>
+                <Field label="Game name"><input required maxLength={120} value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })}/></Field>
+                {!chosenGame && <Field label="App Store or Google Play URL"><input required type="url" maxLength={2000} placeholder="https://…" value={draft.url} onChange={e => setDraft({ ...draft, url: e.target.value })}/></Field>}
+              </>}
+              {modal === "game" && !chosenGame?.storePlatform && (chosenGame || gameType === "web") && (
                 <>
-                  {chosenGame ? <><p>Main source URL: {chosenGame.url}</p><GameSourceEditor game={chosenGame} onSaved={() => { setModal(null); void refresh(); }}/></> : <Field label="Game page URL" hint="Blaze reads available metadata from the public game page.">
+                  {chosenGame ? <GameSourceEditor game={chosenGame} onSaved={() => { setModal(null); void refresh(); }}/> : <Field label="Game page URL">
                     <input required type="url" placeholder="https://yourgame.com/my/game" value={draft.url} onChange={e => { setError(""); setDraft({ ...draft, url: e.target.value }); }} />
                   </Field>}
                   {!chosenGame && <div className="manifest-import">
@@ -1386,11 +1413,11 @@ export default function Dashboard() {
                     {gameImport.status === "error" && <div className="manifest-import-error" role="alert"><strong>Game could not be imported</strong><p>{gameImport.error}</p><button type="button" className="text-action" onClick={() => setImportRetry(value => value + 1)}>Try again <ArrowRight size={13}/></button></div>}
                     {gameImport.status === "ready" && gameImport.metadata && <div className="manifest-preview" role="status">
                       <div className="manifest-preview-head">{gameImport.metadata.image && <img src={gameImport.metadata.image} alt=""/>}<div><span><Check size={13}/> Game details found</span><h3>{gameImport.metadata.title}</h3><p>{gameImport.metadata.genre}</p></div></div>
-                      <p className="manifest-description">{gameImport.metadata.description}</p>
-                      {gameImport.metadata.manifestSource ? <div className="manifest-provenance"><a href={gameImport.metadata.manifestSource.url} target="_blank" rel="noreferrer">View source manifest <ExternalLink size={12}/></a><span>Version {gameImport.metadata.manifestSource.formatVersion} · checked {dateTime(gameImport.metadata.manifestSource.observedAt)}</span></div> : gameImport.metadata.pageSource && <div className="manifest-provenance"><a href={gameImport.metadata.pageSource.url} target="_blank" rel="noreferrer">View source page <ExternalLink size={12}/></a><span>Checked {dateTime(gameImport.metadata.pageSource.observedAt)}</span></div>}
-                      <small>Review these details; you can edit the game after adding it.</small>
+                      {(gameImport.metadata.description || gameImport.metadata.manifestSource || gameImport.metadata.pageSource) && <details><summary>Source details</summary>
+                        {gameImport.metadata.description && <p className="manifest-description">{gameImport.metadata.description}</p>}
+                        {gameImport.metadata.manifestSource ? <div className="manifest-provenance"><a href={gameImport.metadata.manifestSource.url} target="_blank" rel="noreferrer">View source manifest <ExternalLink size={12}/></a><span>Version {gameImport.metadata.manifestSource.formatVersion} · checked {dateTime(gameImport.metadata.manifestSource.observedAt)}</span></div> : gameImport.metadata.pageSource && <div className="manifest-provenance"><a href={gameImport.metadata.pageSource.url} target="_blank" rel="noreferrer">View source page <ExternalLink size={12}/></a><span>Checked {dateTime(gameImport.metadata.pageSource.observedAt)}</span></div>}
+                      </details>}
                     </div>}
-                    {gameImport.status === "idle" && <p className="quiet-help">Enter a public game page URL to preview available details.</p>}
                   </div>}
                   {chosenGame && <>
                     <Field label="Title"><input required placeholder="Game title" value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })}/></Field>
@@ -1514,7 +1541,7 @@ export default function Dashboard() {
                   variant="primary"
                   type="submit"
                   disabled={
-                    busy || (modal === "game" && !chosenGame && (gameImport.status !== "ready" || gameImport.input !== draft.url.trim()))
+                    busy || (modal === "game" && !chosenGame && (gameType === "mobile" ? !draft.url.trim() || !draft.title.trim() : gameImport.status !== "ready" || gameImport.input !== draft.url.trim()))
                   }
                 >
                   {busy
@@ -1641,6 +1668,7 @@ const pageDescriptions: Record<Page, string> = {
   connections: "Connect games and Search Console.",
   account: "Manage read-only agent access.",
   discovery: "Review the public page, search setup and answer content for one game.",
+  competitors: "Compare public search and store data for a game’s watchlist.",
   help: "Get your workspace ready and understand the workflow.",
 };
 const modalTitles: Record<Exclude<Modal, null>, string> = {
@@ -1649,7 +1677,7 @@ const modalTitles: Record<Exclude<Modal, null>, string> = {
   measurement: "Record a game change",
 };
 const modalDetails: Record<Exclude<Modal, null>, string> = {
-  game: "Start with a public web game URL.",
+  game: "",
   connection: "Add an authorized provider credential.",
   measurement: "Record what changed, then compare player activity over time.",
 };

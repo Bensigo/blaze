@@ -1,6 +1,6 @@
 # Workspace UI
 
-Blaze uses light neutral surfaces, strong ink text, readable charts, actual game artwork and one restrained green accent. Navigation groups player evidence (dashboard, games, analytics, sessions and optional Forever diagnostics) and insights (SEO/AEO and tracked findings/measurements). Connections are Search Console only; Account manages read-only agent access.
+Blaze uses light neutral surfaces, strong ink text, readable charts, game artwork and one green accent. Navigation groups player evidence (dashboard, games, analytics, sessions and Site health) and insights (SEO/AEO, Competitors and findings). Main views favor chart labels, status badges and tables; longer explanations sit in accessible help controls and disclosures.
 
 Preserve explicit empty, unavailable, fixture and read-only demo states. The example workspace must never write records or count as real traffic. Charts distinguish missing coverage from zero activity, elapsed session span from measured active play, and immature cohorts from returned players.
 

@@ -9,6 +9,7 @@ Help web-game developers find player friction, understand acquisition and return
 3. Owner creates token → external stdio MCP client lists games and reads aggregate analytics/cached search evidence → owner revokes token → next request is denied. No agent mutations or raw player identifiers/footage.
 4. Optional owner-enabled player canvas capture → separate affirmative player consent → bounded private capture → owner playback only until retention expiry → cleanup. No AI gameplay recording.
 5. Record an already-shipped release and explicit before/after windows → show denominators, coverage, cohort maturity and caveats. No causal claim.
+6. Select a web or mobile game → manage its watchlist → optionally refresh web and app-store comparisons using a licensed provider → view dated, scoped observations and clearly marked estimates. Store-only registration does not claim native telemetry.
 
 ## Acceptance
 

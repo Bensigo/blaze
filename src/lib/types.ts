@@ -10,6 +10,7 @@ export type Provider =
   | "search_console"
   | Channel;
 export interface Game {
+  storePlatform?: "ios" | "android";
   telemetry?: {humanEvents:number;lastEventAt:string|null};
   foreverCatalogue?: {state:'listed'|'retired';slug:string;checkedAt:string};
   id: string;

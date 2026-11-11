@@ -47,7 +47,7 @@ export default function AccountSettings({ user }: { user: { name: string; email:
     <h2>Maintenance</h2>
     {maintenanceError ? <p role="alert">{maintenanceError}</p> : maintenance ? <><p>Event retention: {maintenance.eventRetention === "enabled" ? `${maintenance.retentionDays} days` : maintenance.eventRetention === "invalid" ? "Invalid configuration" : "Not configured"}.</p><p>Last maintenance: {maintenance.lastRun ? `${maintenance.lastRun.outcome} · ${new Date(maintenance.lastRun.finishedAt).toLocaleString()}` : "No run recorded"}.</p></> : <p role="status">Loading maintenance status…</p>}
     <h2>Read-only agent access</h2>
-    <p>Create a token to let an external MCP client read games, analytics and discovery reports for this workspace. It cannot change workspace data.</p>
+    <p>Tokens grant read-only access to this workspace.</p>
     {user && <p className="muted">Signed in as {user.email}</p>}
     {error && <p className="error-text" role="alert">{error}</p>}
     <form onSubmit={e => { e.preventDefault(); void change("POST", { name: name.trim() }); }}>
@@ -57,8 +57,8 @@ export default function AccountSettings({ user }: { user: { name: string; email:
     {issued && <div className="data-note" role="status"><strong>Copy this token now. It will not be shown again.</strong><p className="agent-token"><code>{issued}</code></p><button className="button" onClick={() => void copyToken()}>{copied ? "Copied" : "Copy token"}</button> <button className="button" onClick={() => setIssued("")}>Dismiss</button></div>}
     <h3>Active tokens</h3>
     {tokens.length ? <ul>{tokens.map(token => <li key={token.id}>{token.name} · {new Date(token.createdAt).toLocaleDateString()} · Expires {new Date(token.expiresAt).toLocaleDateString()} {" "}<button className="button" disabled={busy} onClick={() => void change("DELETE", { id: token.id })}>Revoke</button></li>)}</ul> : <p className="muted">No active tokens.</p>}
-    <h3>Connect an MCP client</h3>
+    <details><summary>Connect an MCP client</summary>
     <p>Install Node 22+, clone Blaze and install dependencies. Configure your MCP host to run <code>npm run --silent mcp</code> from the Blaze project, with <code>BLAZE_URL</code> set to your HTTPS Blaze origin and <code>BLAZE_TOKEN</code> set to the token through your host’s secret settings. HTTP is supported only for localhost. Tokens expire after 90 days.</p>
-    <p>Available tools: <code>games_list</code>, <code>analytics_report</code>, and <code>discovery_report</code>.</p>
+    <p>Available tools: <code>games_list</code>, <code>analytics_report</code>, and <code>discovery_report</code>.</p></details>
   </section>;
 }

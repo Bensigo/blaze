@@ -30,8 +30,8 @@ export default function GameConnections({ games, origin, onAdd, onSetup, onSessi
   const game = games.find((item) => item.id === selectedId) || games[0];
   const source=game&&externalUrl(game.url),sourceOrigin=source?new URL(source).origin:undefined;
   return <section className="game-connections" aria-labelledby="game-connections-title">
-    <div className="game-connections-heading"><div><h2 id="game-connections-title">Game connections</h2><p>SDK details for your registered games.</p></div></div>
-    <div className="game-connections-sync"><button type="button" className="game-connections-secondary" disabled={syncing} onClick={()=>void syncCatalogue()}>{syncing?'Syncing Forever…':'Sync Forever catalogue'}</button><p role="status">{syncStatus}</p><p>Update game URLs, metadata and allowed tracking origins from Forever’s current catalogue. Historical records and keys stay available.</p></div>
+    <div className="game-connections-heading"><div><h2 id="game-connections-title">Game connections</h2></div></div>
+    <div className="game-connections-sync"><button type="button" className="game-connections-secondary" disabled={syncing} onClick={()=>void syncCatalogue()}>{syncing?'Syncing Forever…':'Sync Forever catalogue'}</button><p role="status">{syncStatus}</p><InfoHint label="About catalogue sync">Update URLs, metadata and tracking origins from Forever’s catalogue. Historical records and keys are retained.</InfoHint></div>
     {!game ? <div className="game-connections-empty"><p>No games added yet.</p><button type="button" className="game-connections-primary" onClick={onAdd}>Add a game</button></div> : <>
       <label className="game-connections-selector">Game<select value={game.id} onChange={(event) => setSelectedId(event.target.value)}>{games.map((item) => <option key={item.id} value={item.id}>{item.title}{item.foreverCatalogue?.state==='retired'?' (historical)':''}</option>)}</select></label>
       <div className="game-connections-detail">
@@ -40,7 +40,7 @@ export default function GameConnections({ games, origin, onAdd, onSetup, onSessi
         <div className="game-connections-intro"><h3>{game.title}</h3><p><span className="game-connections-status">{game.telemetry?.lastEventAt?'Events received':'No recent SDK events'}</span> <InfoHint label="About SDK verification">{game.telemetry?.lastEventAt?`${game.telemetry.humanEvents.toLocaleString()} non-test human-protocol events in the last 14 days. Latest: ${observedDate(game.telemetry.lastEventAt)}.`:'Check origins and a consented visit. Metadata import alone does not verify tracking.'}</InfoHint></p></div>
         <dl className="game-connections-list">
           <div><dt>Public game URL</dt><dd><Address value={game.url} /></dd></div>
-          <div><dt>Manifest provenance</dt><dd>{game.manifestSource ? <><span>Metadata imported · version {game.manifestSource.formatVersion} · checked {observedDate(game.manifestSource.observedAt)}</span><Address value={game.manifestSource.url} /><span className="game-connections-hash">SHA-256: {game.manifestSource.sha256}</span></> : <span>Legacy record · manifest source unavailable</span>}</dd></div>
+          <div><dt>Metadata source</dt><dd>{game.manifestSource ? <details><summary>Imported · {observedDate(game.manifestSource.observedAt)}</summary><span>Version {game.manifestSource.formatVersion}</span><Address value={game.manifestSource.url} /><span className="game-connections-hash">SHA-256: {game.manifestSource.sha256}</span></details> : <span>Unavailable</span>}</dd></div>
           <div><dt>Game ID</dt><dd><code>{game.id}</code></dd></div>
           <div><dt>Public SDK key</dt><dd><code>{game.sdkKey || "Unavailable"}</code></dd></div>
           <div><dt>SDK endpoint</dt><dd><code>{origin || "Unavailable"}</code></dd></div>
