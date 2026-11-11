@@ -2482,6 +2482,20 @@ button:disabled{opacity:1;color:#747780;background-color:var(--surface-soft);bor
 @media(max-width:440px){.topbar-right .button{font-size:13px;gap:6px;width:auto;padding:9px 12px}.topbar-left strong{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.topbar-right{gap:4px}}
 .player-visuals.overview-visuals{display:block;max-width:none}.overview-visuals .activity-column{display:block}.overview-visuals .activity-chart,.overview-visuals .chart-data-empty{height:250px}.player-kpis>div>span{display:flex;align-items:center;min-height:28px}.player-kpis [data-info-hint]{width:24px;height:24px}.player-scope>.text-action{margin-left:auto;font-size:13px}@media(max-width:600px){.player-kpis [data-info-hint]{width:32px;height:44px}.player-kpis>div>span{min-height:44px}.player-scope>.text-action{margin-left:0}}
 .main-content:focus{outline:none}
+.game-type-picker{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.game-type-picker .button[aria-pressed=true]{color:var(--accent-dark);border-color:var(--accent);background:var(--soft)}
+.game-row-meta{display:flex;align-items:flex-start;flex-wrap:wrap;gap:7px 10px;margin-top:8px;font-size:12px}
+.game-row-meta details{flex:1;min-width:70px;color:var(--muted)}
+.game-row-meta summary,.manifest-preview summary{cursor:pointer}
+.game-row-meta details p{margin:6px 0 2px}
+.game-more-actions{position:relative}
+.game-more-actions summary.button{list-style:none;cursor:pointer;padding-inline:10px}
+.game-more-actions summary::-webkit-details-marker{display:none}
+.game-more-actions>div{position:absolute;right:0;top:calc(100% + 5px);z-index:4;display:grid;gap:4px;min-width:155px;padding:6px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);box-shadow:0 4px 16px #20212615}
+.game-more-actions>div .button{justify-content:flex-start;border-color:transparent}
+.game-row.is-store .game-art{width:52px}
+.game-store-art{display:grid;place-items:center;width:52px;height:52px;border-radius:10px;background:var(--soft);color:var(--accent)}
+@media(max-width:760px){.game-row.is-store .game-info{min-width:0}.game-row.is-store .game-actions{padding-left:0}.game-actions{flex-wrap:wrap}}
 
 /* Deliberate workspace density; keep mobile targets generous. */
 @media(min-width:761px){

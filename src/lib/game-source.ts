@@ -15,6 +15,7 @@ export function sourceUrl(input: string) {
 export async function changeGameSource(workspace: string, gameId: string, input: string, expectedRevision: string, outerTransaction?: TransactionQuery) {
   const prior = outerTransaction?(await outerTransaction<{body:Game}>("SELECT body FROM records WHERE workspace_id=$1 AND kind='game' AND id=$2 FOR UPDATE",[workspace,gameId]))[0]?.body:await get<Game>(workspace, 'game', gameId);
   if (!prior) throw new HttpError(404, 'Active game not found.');
+  if (prior.storePlatform) throw new HttpError(400, 'This game uses an App Store or Google Play listing.');
   if (gameSourceVersion(prior) !== expectedRevision) throw new HttpError(409, 'Source changed in another tab. Reload before saving.');
   const url = sourceUrl(input);
   if (url === prior.url) return prior;
