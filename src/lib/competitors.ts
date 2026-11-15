@@ -8,11 +8,19 @@ import type { Game } from "./types";
 import {
   competitorCountries, competitorLimit,
   type CompetitorEntry, type CompetitorMarket, type CompetitorPlatform,
-  type CompetitorReport, type CompetitorTarget, type CompetitorView, type CompetitorWatchlist,
+  type CompetitorReport, type CompetitorTarget, type CompetitorView, type CompetitorWatchlist, type ManualObservation,
 } from "./competitor-types";
 
 const WATCHLIST = "competitor_watchlist";
 const REPORT = "competitor_report";
+const OBSERVATIONS = "competitor_manual_observations";
+type SavedObservations = { id: string; items: ManualObservation[] };
+export const observationInput = z.strictObject({
+  targetId: z.string().regex(/^[a-f0-9]{32}$/),
+  metric: z.enum(["likes", "portal_rank"]),
+  value: z.number().int().min(0).max(1_000_000_000),
+  sourceUrl: z.string().trim().max(2000).optional(),
+}).refine(value => value.metric === "portal_rank" ? value.value > 0 && !!value.sourceUrl : value.sourceUrl === undefined);
 type SavedReports = { id: string; latest: CompetitorReport; previous: CompetitorReport | null };
 
 const entrySchema = z.strictObject({
@@ -109,14 +117,16 @@ function emptyWatchlist(gameId: string): CompetitorWatchlist {
 
 export async function readCompetitors(workspace: string, game: Game): Promise<CompetitorView> {
   const providerConnected = !!credentialsFor(workspace);
-  const [saved, reports] = await Promise.all([
+  const [saved, reports, observations] = await Promise.all([
     readWatchlist(workspace, game.id),
     providerConnected ? get<SavedReports>(workspace, REPORT, game.id) : undefined,
+    get<SavedObservations>(workspace, OBSERVATIONS, game.id),
   ]);
   const watchlist = saved || emptyWatchlist(game.id);
   const targets = targetsFor(game, watchlist);
   return {
     watchlist, targets, providerConnected,
+    observations: (observations?.items || []).filter(item => watchlist.entries.some(target => target.id === item.targetId && target.platform === "web")),
     latest: reports?.latest || null,
     previous: reports?.previous || null,
     stale: !!reports && reports.latest.targetsKey !== targetsKey(targets),
@@ -186,4 +196,35 @@ export async function refreshCompetitors(workspace: string, game: Game, market: 
   const active = await get<Game>(workspace, "game", game.id);
   if (!active) throw new HttpError(404, "Game not found.");
   return readCompetitors(workspace, active);
+}
+
+export async function saveObservation(workspace: string, game: Game, input: z.infer<typeof observationInput>) {
+  const view = await readCompetitors(workspace, game);
+  const target = view.watchlist.entries.find(entry => entry.id === input.targetId && entry.platform === "web");
+  if (!target) throw new HttpError(400, "Choose a saved web listing.");
+  let sourceUrl = target.url;
+  if (input.metric === "portal_rank") {
+    let url: URL;
+    try { url = new URL(input.sourceUrl!); } catch { throw new HttpError(400, "Enter a public chart URL."); }
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.port ||
+        !hostname.includes(".") || isIP(hostname) || /\.(?:local|localhost|internal|test|invalid)$/.test(hostname))
+      throw new HttpError(400, "Enter a public chart URL on a standard port.");
+    url.hostname = hostname;
+    url.hash = "";
+    sourceUrl = url.href;
+  }
+  const item: ManualObservation = { targetId: input.targetId, metric: input.metric, value: input.value, sourceUrl, observedAt: new Date().toISOString() };
+  const stored = await get<SavedObservations>(workspace, OBSERVATIONS, game.id);
+  // Keep the latest two comparable observations per target and metric.
+  const items = [...(stored?.items || []), item].filter((entry, index, all) =>
+    all.slice(index + 1).filter(later => later.targetId === entry.targetId && later.metric === entry.metric && later.sourceUrl === entry.sourceUrl).length < 2
+  ).slice(-100);
+  const next = { id: game.id, items };
+  const saved = stored ? await comparePut(workspace, OBSERVATIONS, stored, next) : (await query(
+    "INSERT INTO records(workspace_id, kind, id, body) VALUES($1,$2,$3,$4::jsonb) ON CONFLICT DO NOTHING RETURNING id",
+    [workspace, OBSERVATIONS, game.id, JSON.stringify(next)],
+  )).length > 0;
+  if (!saved) throw new HttpError(409, "Observations changed. Reload before retrying.");
+  return readCompetitors(workspace, game);
 }

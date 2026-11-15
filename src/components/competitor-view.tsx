@@ -55,9 +55,10 @@ export default function CompetitorView({ gameId, title }: { gameId: string; titl
   const [section, setSection] = useState<Section>("watchlist");
   const [editing, setEditing] = useState<EditEntry | null>(null);
   const [market, setMarket] = useState<CompetitorMarket>({ country: "US", device: "desktop", keyword: "" });
-  const [request, setRequest] = useState<"save" | "refresh" | null>(null);
+  const [request, setRequest] = useState<"save" | "refresh" | "observation" | null>(null);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
+  const [observation, setObservation] = useState({ targetId: "", metric: "likes", value: "", sourceUrl: "" });
   useEffect(() => {
     const controller = new AbortController();
     setError("");
@@ -69,9 +70,9 @@ export default function CompetitorView({ gameId, title }: { gameId: string; titl
     return () => controller.abort();
   }, [url, reload]);
 
-  async function send(method: "PUT" | "POST", payload: unknown) {
+  async function send(method: "PUT" | "POST" | "PATCH", payload: unknown) {
     setError("");
-    setRequest(method === "PUT" ? "save" : "refresh");
+    setRequest(method === "PUT" ? "save" : method === "PATCH" ? "observation" : "refresh");
     try {
       const response = await fetch(url, {
         method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
@@ -153,6 +154,35 @@ export default function CompetitorView({ gameId, title }: { gameId: string; titl
           <button type="submit" className="button primary" disabled={!!request}>{request === "save" ? "Saving…" : editing.id ? "Save listing" : "Add to watchlist"}</button>
         </div>
       </form>}
+      {data.watchlist.entries.some(target => target.platform === "web") && <div className="ci-editor">
+        <strong>Manual public observations</strong>
+        <p className="ci-muted">Record a number visible on a saved web page. These entries do not measure competitor traffic and are not checked automatically.</p>
+        <form onSubmit={async event => {
+          event.preventDefault();
+          if (await send("PATCH", { targetId: observation.targetId, metric: observation.metric, value: Number(observation.value), ...(observation.metric === "portal_rank" ? { sourceUrl: observation.sourceUrl } : {}) }))
+            setObservation({ ...observation, value: "" });
+        }}>
+          <div className="ci-editor-fields">
+            <label>Saved web listing<select required value={observation.targetId} onChange={event => setObservation({ ...observation, targetId: event.target.value })}>
+              <option value="">Choose a listing</option>
+              {data.watchlist.entries.filter(target => target.platform === "web").map(target => <option key={target.id} value={target.id}>{target.title}</option>)}
+            </select></label>
+            <label>Metric<select value={observation.metric} onChange={event => setObservation({ ...observation, metric: event.target.value })}><option value="likes">Likes count</option><option value="portal_rank">Portal rank</option></select></label>
+            {observation.metric === "portal_rank" && <label>Chart URL<input required type="url" maxLength={2000} placeholder="https://…" value={observation.sourceUrl} onChange={event => setObservation({ ...observation, sourceUrl: event.target.value })}/></label>}
+            <label>Value<input required type="number" min={observation.metric === "portal_rank" ? 1 : 0} max="1000000000" step="1" value={observation.value} onChange={event => setObservation({ ...observation, value: event.target.value })}/></label>
+          </div>
+          <button className="button" type="submit" disabled={!!request}>{request === "observation" ? "Saving…" : "Record observation"}</button>
+        </form>
+        {data.observations.length > 0 && <ul>{data.watchlist.entries.filter(target => target.platform === "web").flatMap(target => {
+          const items = data.observations.filter(item => item.targetId === target.id);
+          const groups = Array.from(new Set(items.map(item => item.metric + "|" + item.sourceUrl)));
+          return groups.map(group => {
+            const entries = items.filter(item => item.metric + "|" + item.sourceUrl === group).slice(-2).reverse();
+            const latest = entries[0], previous = entries[1];
+            return <li key={target.id + group}>{target.title} · <a href={latest.sourceUrl} target="_blank" rel="noreferrer">{latest.metric === "likes" ? "Likes count" : "Portal rank"} source</a>: <strong>{format(latest.value)}</strong> (recorded {new Date(latest.observedAt).toLocaleString()}){previous && <> · Previous: {format(previous.value)} (recorded {new Date(previous.observedAt).toLocaleString()}) · Change: {latest.value - previous.value > 0 ? "+" : ""}{format(latest.value - previous.value)}{latest.metric === "portal_rank" && " (lower rank is better)"}</>}</li>;
+          });
+        })}</ul>}
+      </div>}
       {data.targets.length > 0 && <ul className="ci-watchlist">
         {data.targets.map(target => {
           const editable = data.watchlist.entries.some(entry => entry.id === target.id);

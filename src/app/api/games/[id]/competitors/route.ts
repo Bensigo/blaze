@@ -1,7 +1,7 @@
 import { apiError, HttpError, requireIdentity } from "@/lib/auth";
 import { get, rateLimit } from "@/lib/db";
 import {
-  marketInput, readCompetitors, refreshCompetitors, saveCompetitors, watchlistInput,
+  marketInput, readCompetitors, refreshCompetitors, saveCompetitors, watchlistInput, observationInput, saveObservation,
 } from "@/lib/competitors";
 import { sameOrigin } from "@/lib/security";
 import type { Game } from "@/lib/types";
@@ -75,5 +75,17 @@ export async function POST(request: Request, context: Context) {
     const parsed = marketInput.safeParse(await input(request));
     if (!parsed.success) throw new HttpError(400, "Choose a supported market and enter a plain search phrase (up to 80 characters).");
     return response(await refreshCompetitors(workspace, game, parsed.data));
+  } catch (error) { return failure(error); }
+}
+
+export async function PATCH(request: Request, context: Context) {
+  try {
+    if (!sameOrigin(request)) throw new HttpError(403, "Use this workspace to record observations.");
+    const { workspace, game } = await scope(context);
+    if (!await rateLimit("competitor-observation:" + workspace, 30))
+      throw new HttpError(429, "Too many observations. Try again shortly.");
+    const parsed = observationInput.safeParse(await input(request));
+    if (!parsed.success) throw new HttpError(400, "Choose a listing, metric and valid whole-number value.");
+    return response(await saveObservation(workspace, game, parsed.data));
   } catch (error) { return failure(error); }
 }

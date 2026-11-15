@@ -50,7 +50,9 @@ export type CompetitorReport = {
   market: CompetitorMarket;
   evidence: CompetitorEvidence;
 };
+export type ManualObservation = { targetId: string; sourceUrl: string; metric: "likes" | "portal_rank"; value: number; observedAt: string };
 export type CompetitorView = {
+  observations: ManualObservation[];
   watchlist: CompetitorWatchlist;
   targets: CompetitorTarget[];
   providerConnected: boolean;
