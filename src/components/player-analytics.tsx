@@ -45,7 +45,7 @@ export default function PlayerAnalytics(props: Props) {
 
   </div>;
   return <div className="player-workspace">
-    <div className="player-scope"><span className="scope-dot" />{demo ? "Illustrative example data" : "Human player activity"}<span>{a?.lastEventAt ? `Latest event ${when(a.lastEventAt)}` : "No events received"}</span>{view === "engagement"?<a href="#pointer-heatmap">Heatmap ↓</a>:view === "overview"?<button className="text-action" onClick={props.onAnalytics}>Engagement <ArrowRight size={14}/></button>:null}</div>
+    <div className="player-scope"><span className="scope-dot" />{demo ? "Illustrative example data" : "Human player activity"}<span>{a?.lastEventAt ? `Latest event ${when(a.lastEventAt)}` : "No events received"}</span>{view === "engagement"&&!demo?<a href="#pointer-heatmap">Heatmap ↓</a>:view === "overview"?<button className="text-action" onClick={props.onAnalytics}>Engagement <ArrowRight size={14}/></button>:null}</div>
 
     {engagement && <><div className="player-kpis">
       <Metric label={gameId === "all" ? "Per-game browser IDs" : "Browser IDs"} value={count(a?.players)} detail="Browser-scoped IDs, not people" />
@@ -56,7 +56,7 @@ export default function PlayerAnalytics(props: Props) {
       <Metric label="Active play" value={duration(a?.activePlay?.totalSeconds)} detail={a?.activePlay ? `${a.activePlay.measuredSessions} / ${a.activePlay.eligibleSessions} play sessions measured` : "Measurement unavailable"} />
     </div>
     {!a?.sessions && <div className="instrumentation-note"><div><strong>Waiting for consented player events</strong><p>{a?.lastEventAt ? "No human sessions fall in this date range. Change the game or dates to inspect other activity." : "Connect the SDK, opt in during a test visit, and start a round. Missing data stays empty."}</p></div><button className="text-action" onClick={props.onSetup}>SDK setup <ArrowRight size={14}/></button></div>}
-    <div className={`player-visuals${detailed?"":" overview-visuals"}`}>
+    <div className={`player-visuals${detailed ? demo ? " example-visuals" : "" : " overview-visuals"}`}>
       <div className="activity-column">
         <section className="activity-panel"><div className="analytics-section-title"><div><h2>Sessions over time</h2><p>Daily UTC counts · last {days} days</p></div><span className="chart-unit">Sessions</span></div>
           {a?.sessions ? <><div className="activity-chart"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={a.trend} margin={{top:12,right:10,left:-25,bottom:0}}>
@@ -74,7 +74,7 @@ export default function PlayerAnalytics(props: Props) {
           <div className="progression-observation"><span>Sessions reporting progression</span><strong>{count(a?.progressionSessions)}</strong></div>
         </section>}
       </div>
-      {detailed&&<PointerHeatmap games={games} gameId={gameId} days={days} end={a?.windowEnd} demo={demo} onChooseGame={props.onChooseGame} onSetup={props.onSetup} onBin={props.onBin} onClearEvidence={props.onClearEvidence}/>}
+      {detailed&&!demo&&<PointerHeatmap games={games} gameId={gameId} days={days} end={a?.windowEnd} demo={demo} onChooseGame={props.onChooseGame} onSetup={props.onSetup} onBin={props.onBin} onClearEvidence={props.onClearEvidence}/>}
     </div>
     {detailed&&<section className="play-measurement"><div><h2>Measured play time <InfoHint label="About measured play time">Foreground time with recent input after a round starts. Idle tabs and agent sessions are excluded. Only sessions supplying active_play measurements contribute to these statistics.</InfoHint></h2><p>Active foreground play · idle time excluded</p></div><dl><div><dt>Average active play</dt><dd>{duration(a?.activePlay?.averageSeconds)}</dd></div><div><dt>Median active play</dt><dd>{duration(a?.activePlay?.medianSeconds)}</dd></div><div><dt>Coverage</dt><dd>{a?.activePlay ? `${a.activePlay.measuredSessions} / ${a.activePlay.eligibleSessions}` : "—"}</dd></div></dl><p className="quiet-help">{a?.activePlay?.measuredSessions ? "Statistics include measured sessions only; elapsed time is not active play." : "No active_play measurements yet. Elapsed session time is not a play-time measurement."}</p></section>}
     <div className="player-detail-grid"><section><div className="analytics-section-title"><div><h2>Recent sessions</h2><p>Open a session to inspect its events and consented capture</p></div><button className="text-action" onClick={props.onSessions}>All sessions <ArrowRight size={14}/></button></div>

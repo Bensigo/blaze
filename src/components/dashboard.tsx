@@ -310,7 +310,8 @@ function Field({
   );
 }
 
-export default function Dashboard() {
+export default function Dashboard({ demoMode = false }: { demoMode?: boolean }) {
+  const routeHref = (location: Parameters<typeof dashboardHref>[0]) => dashboardHref(location).replace(/^\/app/, demoMode ? "/demo" : "/app");
   const [googleConfigured, setGoogleConfigured] = useState<boolean | null>(null);
   const [authNotice, setAuthNotice] = useState("");
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -337,21 +338,21 @@ export default function Dashboard() {
     if(locationReady)return;
     const location=readDashboardLocation(initialSearch.current,availableGameIds.current);
     setPage(location.page);setSelectedGame(location.gameId);setPeriod(location.days);
-    window.history.replaceState(null,"",dashboardHref(location));
+    window.history.replaceState(null,"",routeHref(location));
     setLocationReady(true);
   },[snapshot,locationReady]);
   useEffect(()=>{
     if(!locationReady)return;
-    const href=dashboardHref({page,gameId:selectedGame,days:period});
+    const href=routeHref({page,gameId:selectedGame,days:period});
     if(window.location.pathname+window.location.search+window.location.hash!==href)window.history.pushState(null,"",href);
   },[page,selectedGame,period,locationReady]);
   useEffect(()=>{
     const back=()=>{
-      if(window.location.pathname!=="/app")return;
+      if(window.location.pathname!==(demoMode ? "/demo" : "/app"))return;
       initialSearch.current=window.location.search;
       if(!locationReady)return;
       const location=readDashboardLocation(window.location.search,availableGameIds.current);
-      window.history.replaceState(null,"",dashboardHref(location));
+      window.history.replaceState(null,"",routeHref(location));
       setPage(location.page);setSelectedGame(location.gameId);setPeriod(location.days);setMobileNav(false);
     };
     window.addEventListener("popstate",back);
@@ -504,7 +505,7 @@ export default function Dashboard() {
         setGoogleConfigured(config.googleConfigured === true);
       })
       .catch(() => setGoogleConfigured(null));
-    void refresh();
+    void refresh("all", demoMode, "7");
   }, []); // Initial workspace or sign-in state.
   useEffect(() => {
     if (snapshot) void refresh(selectedGame, snapshot.demo);
@@ -576,15 +577,6 @@ export default function Dashboard() {
       setBusy(false);
     }
   };
-  const showDemo = async () => {
-    setSelectedGame("all");
-    setPeriod("7");
-    setPage("overview");
-    setMobileNav(false);
-    setChosenSession(null);
-    setLoading(true);
-    await refresh("all", true, "7");
-  };
   const loginDev = async () => {
     setBusy(true);
     try {
@@ -621,11 +613,12 @@ export default function Dashboard() {
     pendingSegmentSeek.current = null;
     setSessionError("");
     setEventsTruncated(false);
-    if (snapshot?.demo) { setSessionLoading(false); return; }
     setSessionLoading(true);
     try {
       const query = new URLSearchParams({ gameId: s.gameId });
-      const r = await fetch(`/api/sessions/${encodeURIComponent(s.id)}?${query}`, { cache: "no-store" });
+      if (snapshot?.demo) { query.set("sessionId", s.id); query.set("days", period); }
+      const endpoint = snapshot?.demo ? `/api/demo?${query}` : `/api/sessions/${encodeURIComponent(s.id)}?${query}`;
+      const r = await fetch(endpoint, { cache: "no-store" });
       if (r.status === 401) {
         if (request === sessionRequest.current) { workspaceRequest.current++; sessionPageRequest.current++; setChosenSession(null); setSnapshot(null); }
         return;
@@ -715,6 +708,7 @@ export default function Dashboard() {
     });
   };
   const openModal = (m: Modal) => {
+    if (snapshot?.demo) { setNotice("Example workspace is read-only. Sign in to make changes."); return; }
     setError("");
     resetDraft();
     setChosenGame(null);
@@ -882,7 +876,7 @@ export default function Dashboard() {
       </div>
     );
   if (!snapshot && error)
-    return <main className="workspace-unavailable"><Brand/><h1>Workspace could not load</h1><p role="alert">{error}</p><Button variant="primary" onClick={()=>{setError("");setLoading(true);void refresh();}}>Retry loading</Button></main>;
+    return <main className="workspace-unavailable"><Brand/><h1>Workspace could not load</h1><p role="alert">{error}</p><Button variant="primary" onClick={()=>{setError("");setLoading(true);void refresh("all", demoMode, "7");}}>Retry loading</Button></main>;
   if (!snapshot)
     return (
       <div className="signin">
@@ -922,9 +916,9 @@ export default function Dashboard() {
               Local development sign in
             </Button>
           )}
-          <button className="text-link" onClick={showDemo}>
+          <a className="text-link" href="/demo">
             Explore an example workspace <ArrowRight size={14} />
-          </button>
+          </a>
           {error && <div className="alert error">{error}</div>}
           <div className="signin-note">
             Google sign-in requires a configured application. The example
@@ -954,10 +948,12 @@ export default function Dashboard() {
           </div>
         </div>
         <nav aria-label="Workspace navigation">
-          {[
+          {(snapshot.demo ? [
+            { title: "Analytics", items: nav.filter(item => ["overview", "analytics", "acquisition", "retention", "audience", "sessions"].includes(item.id)) },
+          ] : [
             { title: "Analytics", items: nav.slice(0, 8) },
             { title: "Discovery", items: nav.slice(8) },
-          ].map((group) => (
+          ]).map((group) => (
             <div className="nav-group" key={group.title}>
               <div className="nav-label">{group.title}</div>
               {group.items.map((n) => (
@@ -975,6 +971,10 @@ export default function Dashboard() {
           ))}
         </nav>
         <div className="sidebar-bottom">
+          {snapshot.demo ? <>
+            <a className="nav-item" href="/">Back to Blaze</a>
+            <a className="nav-item" href="/app">Sign in / Connect a game</a>
+          </> : <>
           <div className="nav-label">Settings</div>
           <button
             className={`nav-item ${page === "connections" ? "active" : ""}`}
@@ -1000,8 +1000,7 @@ export default function Dashboard() {
               aria-label="Sign out"
               onClick={async () => {
                 if (snapshot.demo) {
-                  workspaceRequest.current++;
-                  setSnapshot(null);
+                  window.location.assign("/app");
                   return;
                 }
                 await fetch("/api/auth/logout", { method: "POST" });
@@ -1013,6 +1012,7 @@ export default function Dashboard() {
               <LogOut size={16} />
             </button>
           </div>
+          </>}
         </div>
       </aside>
       {mobileNav && (
@@ -1055,7 +1055,7 @@ export default function Dashboard() {
                 ↻
               </button>
             )}
-            {page !== "account" && <Button variant="primary" onClick={() => openModal("game")}>
+            {snapshot.demo ? <a className="button primary" href="/app">Connect a game</a> : page !== "account" && <Button variant="primary" onClick={() => openModal("game")}>
               <Plus size={16} /> Add game
             </Button>}
           </div>
@@ -1068,13 +1068,10 @@ export default function Dashboard() {
         )}
         {snapshot.demo && (
           <div className="demo-banner">
-            <strong>Example workspace</strong>
-            <span>
-              Illustrative data, not your games or analytics. Changes are
-              disabled.
-            </span>
-            <button onClick={() => { workspaceRequest.current++; setSnapshot(null); }}>
-              Sign in <ArrowRight size={14} />
+            <strong>Example data</strong>
+            <span>Illustrative and read-only.</span>
+            <button onClick={() => window.location.assign("/app")}>
+              Sign in / Open workspace <ArrowRight size={14} />
             </button>
           </div>
         )}
@@ -1252,13 +1249,13 @@ export default function Dashboard() {
           )}
           {page === "research" && <><SectionHead title="Actions and measurements" detail="Track findings and compare player activity after a game change."/><Findings findings={findings} action={action} full onMeasure={startMeasurement}/><Measurements items={(snapshot.measurements || []).filter(m => selectedGame === "all" || m.gameId === selectedGame)} findings={findings}/></>}
           {page === "account" && (snapshot.demo ? <Empty title="Sign in to configure your account" detail="The example workspace does not store credentials."/> : <AccountSettings user={snapshot.user} onSaved={async () => { await refresh(); }}/>) }
-          {page === "connections" && (
+          {page === "connections" && (snapshot.demo ? <Empty title="Sign in to connect your games" detail="Connections are unavailable in the example workspace."/> : (
             <>
               <GameConnections games={games.filter(game => !game.storePlatform)} origin={origin} onSynced={async()=>{await refresh();}} onAdd={() => openModal("game")} onSetup={(gameId) => { setSelectedGame(gameId); changePage("help"); }} onSessions={(gameId) => { setSelectedGame(gameId); changePage("sessions"); }}/>
               <SectionHead title="Search Console" action={<Button variant="primary" onClick={() => { resetDraft(); setDraft(d => ({ ...d, provider: "search_console" })); setModal("connection"); }}><Plus size={16}/> Add connection</Button>}/>
               <div className="connection-list">{snapshot.connections.filter(c => c.provider === "search_console").map(c => <div className="connection-row" key={c.id}><div className="provider-copy"><strong>{c.label}</strong><span>{c.accountId || "Property not specified"}</span></div><Status value={c.connected ? "connected" : "disconnected"}/><Button onClick={() => void action({ action: "delete_connection", id: c.id })}>Remove</Button></div>)}</div>
             </>
-          )}
+          ))}
           {page === "help" && (
             <Help
               games={games.filter(game => !game.storePlatform)}
