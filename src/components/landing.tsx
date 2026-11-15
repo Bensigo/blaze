@@ -66,7 +66,7 @@ export default function Landing() {
             <Link href="/demo?view=analytics" className="launch-product-shot" aria-label="Open the example Engagement dashboard">
               <picture>
                 <source media="(max-width: 600px)" srcSet="/landing/engagement-mobile.webp" />
-                <Image src="/landing/engagement-desktop.webp" alt="The Blaze Engagement dashboard showing visits, round starts, completions, and the first-session funnel." width={1320} height={780} unoptimized fetchPriority="high" />
+                <Image src="/landing/engagement-desktop.webp" alt="The Blaze Engagement dashboard showing visits, round starts, completions, and the first-session funnel." width={1320} height={780} unoptimized loading="eager" fetchPriority="high" />
               </picture>
               <span className="launch-shot-open"><ArrowUpRight size={18} aria-hidden="true" /></span>
             </Link>

@@ -1,11 +1,12 @@
 .launch-site {
   --launch-paper: #faf9f6;
-  --launch-ink: #231e2d;
-  --launch-muted: #615b6b;
-  --launch-line: #e2dde7;
-  --launch-accent: #5137a7;
-  --launch-accent-hover: #422989;
-  --launch-tint: #f0ebfa;
+  --launch-ink: #202922;
+  --launch-muted: #566256;
+  --launch-line: #dce3da;
+  --launch-accent: var(--accent);
+  --launch-accent-hover: var(--accent-dark);
+  --launch-tint: var(--soft);
+  --launch-frame: #22352b;
   min-height: 100svh;
   background: var(--launch-paper);
   color: var(--launch-ink);
@@ -55,7 +56,7 @@
 
 .launch-hero {
   padding: clamp(45px, 5vw, 70px) 0 0;
-  background: radial-gradient(ellipse 67% 69% at 50% 100%, #e9defa, transparent), var(--launch-paper);
+  background: radial-gradient(ellipse 67% 69% at 50% 100%, #e2eee3, transparent), var(--launch-paper);
   border-bottom: 1px solid var(--launch-line);
 }
 .launch-copy { text-align: center; animation: launch-appear .45s ease-out both; }
@@ -103,26 +104,26 @@
 .launch-site .launch-button:hover { background: var(--launch-accent-hover); }
 .launch-site .launch-button-quiet {
   background: transparent;
-  border-color: #d7cfdf;
+  border-color: #cfd9cf;
   color: var(--launch-ink);
 }
 .launch-site .launch-button-quiet:hover {
-  background: #f6f2fb;
-  border-color: #a894c7;
+  background: var(--launch-tint);
+  border-color: #92a799;
   color: var(--launch-accent);
 }
 
 .launch-showcase {
   position: relative;
-  border: 1px solid #4b3b67;
+  border: 1px solid #42594c;
   border-radius: 13px 13px 0 0;
   margin-block: clamp(34px, 3.5vw, 49px) 0;
-  background: #282238;
+  background: var(--launch-frame);
   padding: 12px 12px 0;
-  box-shadow: 0 20px 60px #50407b31;
+  box-shadow: 0 20px 60px #294f3130;
 }
 .launch-showcase-caption {
-  color: #ebe4f7;
+  color: #eaf2e9;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -131,7 +132,7 @@
   font-size: 12px;
   font-weight: 660;
 }
-.launch-caption-separator { color: #b6a6ce; padding-inline: 2px; }
+.launch-caption-separator { color: #a7bcae; padding-inline: 2px; }
 .launch-product-shot {
   display: block;
   position: relative;
@@ -149,9 +150,9 @@
   bottom: 11px;
   width: 36px;
   height: 36px;
-  background: #282238;
+  background: var(--launch-frame);
   color: #fff;
-  border: 1px solid #655681;
+  border: 1px solid #60776a;
   border-radius: 7px;
   transition: transform .16s, background .16s;
 }
