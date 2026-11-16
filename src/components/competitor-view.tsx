@@ -8,11 +8,13 @@ import {
   type CompetitorMarket, type CompetitorTarget, type CompetitorView as ViewData,
 } from "@/lib/competitor-types";
 import InfoHint from "./info-hint";
+import PortalGaps from "./portal-gaps";
 import "./competitor-view.css";
 
 const sections = [
   { id: "watchlist", title: "Watchlist", icon: List },
   { id: "web", title: "Web search", icon: Search },
+  { id: "portals", title: "Portal gaps", icon: Globe },
   { id: "stores", title: "App stores", icon: Store },
 ] as const;
 type Section = typeof sections[number]["id"];
@@ -49,15 +51,16 @@ function Delta({ value, label }: { value: number | undefined; label: string }) {
   </small>;
 }
 
-export default function CompetitorView({ gameId, title }: { gameId: string; title: string }) {
+export default function CompetitorView({ gameId, title, webGame = true }: { gameId: string; title: string; webGame?: boolean }) {
   const url = "/api/games/" + encodeURIComponent(gameId) + "/competitors";
   const [data, setData] = useState<ViewData | null>(null);
   const [section, setSection] = useState<Section>("watchlist");
   const [editing, setEditing] = useState<EditEntry | null>(null);
   const [market, setMarket] = useState<CompetitorMarket>({ country: "US", device: "desktop", keyword: "" });
-  const [request, setRequest] = useState<"save" | "refresh" | null>(null);
+  const [request, setRequest] = useState<"save" | "refresh" | "observation" | null>(null);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
+  const [observation, setObservation] = useState({ targetId: "", metric: "likes", value: "", sourceUrl: "" });
   useEffect(() => {
     const controller = new AbortController();
     setError("");
@@ -69,9 +72,9 @@ export default function CompetitorView({ gameId, title }: { gameId: string; titl
     return () => controller.abort();
   }, [url, reload]);
 
-  async function send(method: "PUT" | "POST", payload: unknown) {
+  async function send(method: "PUT" | "POST" | "PATCH", payload: unknown) {
     setError("");
-    setRequest(method === "PUT" ? "save" : "refresh");
+    setRequest(method === "PUT" ? "save" : method === "PATCH" ? "observation" : "refresh");
     try {
       const response = await fetch(url, {
         method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
@@ -124,9 +127,9 @@ export default function CompetitorView({ gameId, title }: { gameId: string; titl
     <div className="ci-head">
       <div><h2>{title}</h2><span className="ci-muted">{rivals} / {competitorLimit} competitors</span></div>
       <div className="ci-head-actions">
-        <span className={"ci-badge " + (data.providerConnected ? "ci-connected" : "")}>
+        {section !== "portals" && <span className={"ci-badge " + (data.providerConnected ? "ci-connected" : "")}>
           <span className="ci-dot" aria-hidden/>{data.providerConnected ? "DataForSEO connected" : "Data source off"}
-        </span>
+        </span>}
         <InfoHint label="About competitor data">
           Watchlists work without a data provider. A refresh updates all tracked sources for the selected market. Estimated visits and keyword demand are not player counts or downloads.
         </InfoHint>
@@ -136,7 +139,7 @@ export default function CompetitorView({ gameId, title }: { gameId: string; titl
       </div>
     </div>
     <nav className="ci-tabs" aria-label="Competitor views">
-      {sections.map(({ id, title: label, icon: Icon }) => <button type="button" key={id}
+      {sections.filter(section => webGame || section.id !== "portals").map(({ id, title: label, icon: Icon }) => <button type="button" key={id}
         aria-pressed={section === id} className={section === id ? "active" : ""}
         onClick={() => setSection(id)}><Icon size={16} aria-hidden/>{label}</button>)}
     </nav>
@@ -153,6 +156,35 @@ export default function CompetitorView({ gameId, title }: { gameId: string; titl
           <button type="submit" className="button primary" disabled={!!request}>{request === "save" ? "Saving…" : editing.id ? "Save listing" : "Add to watchlist"}</button>
         </div>
       </form>}
+      {data.watchlist.entries.some(target => target.platform === "web") && <div className="ci-editor">
+        <strong>Manual public observations</strong>
+        <p className="ci-muted">Record a number visible on a saved web page. These entries do not measure competitor traffic and are not checked automatically.</p>
+        <form onSubmit={async event => {
+          event.preventDefault();
+          if (await send("PATCH", { targetId: observation.targetId, metric: observation.metric, value: Number(observation.value), ...(observation.metric === "portal_rank" ? { sourceUrl: observation.sourceUrl } : {}) }))
+            setObservation({ ...observation, value: "" });
+        }}>
+          <div className="ci-editor-fields">
+            <label>Saved web listing<select required value={observation.targetId} onChange={event => setObservation({ ...observation, targetId: event.target.value })}>
+              <option value="">Choose a listing</option>
+              {data.watchlist.entries.filter(target => target.platform === "web").map(target => <option key={target.id} value={target.id}>{target.title}</option>)}
+            </select></label>
+            <label>Metric<select value={observation.metric} onChange={event => setObservation({ ...observation, metric: event.target.value })}><option value="likes">Likes count</option><option value="portal_rank">Portal rank</option></select></label>
+            {observation.metric === "portal_rank" && <label>Chart URL<input required type="url" maxLength={2000} placeholder="https://…" value={observation.sourceUrl} onChange={event => setObservation({ ...observation, sourceUrl: event.target.value })}/></label>}
+            <label>Value<input required type="number" min={observation.metric === "portal_rank" ? 1 : 0} max="1000000000" step="1" value={observation.value} onChange={event => setObservation({ ...observation, value: event.target.value })}/></label>
+          </div>
+          <button className="button" type="submit" disabled={!!request}>{request === "observation" ? "Saving…" : "Record observation"}</button>
+        </form>
+        {data.observations.length > 0 && <ul>{data.watchlist.entries.filter(target => target.platform === "web").flatMap(target => {
+          const items = data.observations.filter(item => item.targetId === target.id);
+          const groups = Array.from(new Set(items.map(item => item.metric + "|" + item.sourceUrl)));
+          return groups.map(group => {
+            const entries = items.filter(item => item.metric + "|" + item.sourceUrl === group).slice(-2).reverse();
+            const latest = entries[0], previous = entries[1];
+            return <li key={target.id + group}>{target.title} · <a href={latest.sourceUrl} target="_blank" rel="noreferrer">{latest.metric === "likes" ? "Likes count" : "Portal rank"} source</a>: <strong>{format(latest.value)}</strong> (recorded {new Date(latest.observedAt).toLocaleString()}){previous && <> · Previous: {format(previous.value)} (recorded {new Date(previous.observedAt).toLocaleString()}) · Change: {latest.value - previous.value > 0 ? "+" : ""}{format(latest.value - previous.value)}{latest.metric === "portal_rank" && " (lower rank is better)"}</>}</li>;
+          });
+        })}</ul>}
+      </div>}
       {data.targets.length > 0 && <ul className="ci-watchlist">
         {data.targets.map(target => {
           const editable = data.watchlist.entries.some(entry => entry.id === target.id);
@@ -176,7 +208,8 @@ export default function CompetitorView({ gameId, title }: { gameId: string; titl
         <button type="button" className="button" onClick={() => setSection(web.length ? "web" : "stores")}>View comparison</button>
       </div>}
     </>}
-    {section !== "watchlist" && <>
+    {section === "portals" && <PortalGaps gameId={gameId} title={title}/>}
+    {(section === "web" || section === "stores") && <>
       <form className="ci-market" onSubmit={submitMarket}>
         <label>Market<select value={market.country} onChange={event => setMarket({ ...market, country: event.target.value })}>
           {Object.entries(competitorCountries).map(([code, name]) => <option key={code} value={code}>{name}</option>)}

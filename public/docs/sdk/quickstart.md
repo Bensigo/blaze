@@ -12,7 +12,7 @@ Instrument my web game for Blaze. Read https://blaze-bensigo.netlify.app/docs/sd
 
 ## 1. Register your game
 
-In Blaze, add the game by its public game URL. Blaze requests that URL with `/forever.json` appended, validates the manifest and imports its metadata; a missing or invalid manifest is an error. This import is separate from analytics and does not install the SDK or establish consent. Select the game in the dashboard, then open **Setup & help → Get started → Install the SDK**. The configuration lists its **Game ID**, **Public SDK key**, **SDK endpoint** and **Allowed origins**, followed by its install snippet. The Game ID identifies dashboard/API records; `Blaze.init` uses the public SDK key, not the Game ID.
+In Blaze, add the game by its public game URL. Blaze can import the game from the public page’s HTML metadata. A valid version 1 manifest at the game URL plus `/forever.json` is optional and takes precedence when available. This import is separate from analytics and does not install the SDK or establish consent. Select the game in the dashboard, then open **Setup & help → Get started → Install the SDK**. The configuration lists its **Game ID**, **Public SDK key**, **SDK endpoint** and **Allowed origins**, followed by its install snippet. The Game ID identifies dashboard/API records; `Blaze.init` uses the public SDK key, not the Game ID.
 
 Register the exact browser origin serving the game, including scheme and port (for example, `http://localhost:3001`). The game URL's origin is registered on import; use Edit game to update the origin list if gameplay runs elsewhere. Never put provider credentials, worker tokens, account tokens or server secrets in a game page. A public SDK key identifies a game and is not a secret; origin checks are not authentication against a malicious visitor. For a separately configured development/test Blaze instance, replace **both** the script URL origin and `endpoint` with that instance's origin and use its own test-game public key.
 
@@ -60,7 +60,7 @@ For a sandboxed game, the trusted parent owns the SDK; use the reviewed [Frame v
 
 ## Troubleshooting
 
-- A manifest import error concerns the game URL and its `/forever.json` response. Check that the public manifest exists, is valid version 1 and is served without redirects; do not substitute the Blaze game ID or SDK key for that URL.
+- If the game cannot be imported, check that its public URL returns an HTML page. If you provide a manifest, check that it is valid version 1 and is served without redirects.
 - A 403 or CORS/preflight failure from `/api/collect` can mean the public key is unknown or the request Origin does not exactly match a registered game origin, including scheme and port. A rejected origin may fail OPTIONS before POST; JavaScript cannot always read the underlying response. Check DevTools Network, the dashboard install snippet and origin list.
 - If no requests appear, confirm the game loaded the script, called `init`, and received affirmative consent. A content blocker, storage restriction, network failure, untrusted game origin, rate limit, or temporary ingestion pause can also interfere.
 - A `200` with `accepted: 0` means no event was newly stored, for example because it was filtered or duplicated. Check event names, keys, timestamps and the Network response. Do not count a controlled test or fixture as audience activity.

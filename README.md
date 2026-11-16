@@ -26,7 +26,7 @@ Open http://127.0.0.1:3000. Local development sign-in works only in development/
 
 ## Competitor intelligence
 
-Open **Games → Competitors** to track web pages, App Store listings and Google Play listings for a game. For mobile-only games, choose **Add game → Mobile game**. The watchlist works without a provider. Optional DataForSEO reports show observed web rank, estimated search visits and store keyword coverage. See [setup and metric definitions](docs/COMPETITORS.md).
+Open **Games → Competitors** to track web pages, App Store listings and Google Play listings for a game. The watchlist works without a provider: record public likes or chart positions for a saved web listing and compare it with your previous observation. For mobile-only games, choose **Add game → Mobile game**. Optional DataForSEO reports include web search rank, estimated search visits and store keyword coverage. See [setup and metric definitions](docs/COMPETITORS.md).
 
 ## What is measured
 

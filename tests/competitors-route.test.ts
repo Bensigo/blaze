@@ -90,6 +90,29 @@ describe("per-game competitors", () => {
     expect((await (await routes.GET(request(), context)).json()).watchlist.entries).toEqual([]);
   });
 
+  it("records bounded public observations offline, scoped to a saved web listing and game", async () => {
+    const view = await (await save([web, ios])).json();
+    const targetId = view.watchlist.entries[0].id;
+    const record = (payload: object, origin = base) => routes.PATCH(request("PATCH", payload, origin), context);
+    expect((await record({ targetId, metric: "likes", value: 1 }, "https://elsewhere.example")).status).toBe(403);
+    expect((await record({ targetId: view.watchlist.entries[1].id, metric: "likes", value: 1 })).status).toBe(400);
+    expect((await record({ targetId, metric: "portal_rank", value: 0 })).status).toBe(400);
+    expect((await record({ targetId, metric: "likes", value: 5, sourceUrl: "https://evil.example" })).status).toBe(400);
+    for (const value of [5, 7, 9]) expect((await record({ targetId, metric: "likes", value })).status).toBe(200);
+    expect((await record({ targetId, metric: "portal_rank", value: 3, sourceUrl: "http://127.0.0.1/chart" })).status).toBe(400);
+    expect((await record({ targetId, metric: "portal_rank", value: 3, sourceUrl: "https://portal.example/chart#top" })).status).toBe(200);
+    expect((await record({ targetId, metric: "portal_rank", value: 2, sourceUrl: "https://portal.example/other" })).status).toBe(200);
+    const result = await (await routes.GET(request(), context)).json();
+    expect(result.observations.filter((item: { metric: string }) => item.metric === "portal_rank").map((item: { sourceUrl: string }) => item.sourceUrl)).toEqual(["https://portal.example/chart", "https://portal.example/other"]);
+    expect(result.observations.filter((item: { metric: string }) => item.metric === "likes").map((item: { value: number }) => item.value)).toEqual([7, 9]);
+    expect(result.observations[0]).toMatchObject({ targetId, sourceUrl: web.url, metric: "likes", observedAt: expect.any(String) });
+    expect((await (await routes.GET(request(), { params: Promise.resolve({ id: "another" }) })).json()).observations).toEqual([]);
+    await db.put("owner-b", "game", game);
+    state.workspace = "owner-b";
+    expect((await (await routes.GET(request(), context)).json()).observations).toEqual([]);
+    expect(state.collect).not.toHaveBeenCalled();
+  });
+
   it("rejects duplicate listings, unsafe URLs, oversized lists and stale edits", async () => {
     expect((await save([ios, { ...ios, url: "https://apps.apple.com/us/app/id123456789" }])).status).toBe(400);
     expect((await save([{ title: "Private URL", url: "http://127.0.0.1/admin" }])).status).toBe(400);

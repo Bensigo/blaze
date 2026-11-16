@@ -4,7 +4,23 @@ Open **Games → Competitors**, or choose **Competitors** in the navigation and 
 
 Use **Add game → Mobile game** for a game that only has a store listing. This gives it a workspace and watchlist without web SDK settings. Blaze does not collect native gameplay events through this flow.
 
-## Enable reports
+## Find portal gaps
+
+Select a browser game and open **Competitors → Portal gaps**. Blaze groups individual listing links from your watchlist by CrazyGames, Poki, itch.io and GameDistribution. Use a portal’s search link to look up your game or a saved rival in your browser. When you find an additional browser game listing, save its URL from that portal’s row.
+
+A portal becomes a **Confirmed gap** when a rival has a saved listing and you mark your own game as **Confirmed unlisted**. Leave your status **Unchecked** until you know it. An empty search result can miss real listings. Use **Listed** with the listing URL when you already publish there. Open a rival’s source link or the portal’s publishing page from the report.
+
+Portal gaps use the links and checks saved to your workspace. Searches run in your browser when you open them. The report requires no data provider or paid API.
+
+## Record public observations
+
+In the **Watchlist**, save a web listing, then record a visible likes count or a position on a public chart. Likes use the saved listing as their source. For a rank, enter the exact chart page and use the same chart, sort and region for follow-up observations. Blaze keeps the two most recent entries for each listing, metric and source (up to 100 entries per game). It records the time you save the observation.
+
+For example, start with a [Poki popularity chart](https://poki.com/en/popular), [itch.io’s top-rated browser games](https://itch.io/games/top-rated/platform-web), or the likes shown on an individual [CrazyGames listing](https://www.crazygames.com/game/color-match-amg). Use these numbers as signals about the listing. They cannot tell you the competitor’s sessions, retention or revenue. If a source does not show a comparable value, leave it unrecorded.
+
+Public observations are entered by hand. They do not require an account with a data provider, trigger a fetch, or verify the reported number.
+
+## Enable optional DataForSEO reports
 
 Watchlist changes do not make provider calls. To enable **Refresh data**, set these server environment variables:
 

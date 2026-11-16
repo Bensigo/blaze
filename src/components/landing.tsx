@@ -1,63 +1,112 @@
-import { ArrowDown, ArrowRight, ArrowUpRight } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Github } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
+import "./launch-landing.css";
+
+const reports = [
+  {
+    title: "See which links lead to play",
+    description: "Compare visits and round starts by traffic source. Tag your launch links to measure each campaign.",
+    label: "Open Acquisition",
+    href: "/demo?view=acquisition",
+  },
+  {
+    title: "Find where players stop",
+    description: "Follow visits, first actions, round starts, and completions. Change the date range to see how the funnel shifts.",
+    label: "Open Engagement",
+    href: "/demo?view=analytics",
+  },
+  {
+    title: "Follow a session event by event",
+    description: "Open a session to see the order of events and the last action Blaze recorded.",
+    label: "Open Sessions",
+    href: "/demo?view=sessions",
+  },
+];
+
+function Wordmark() {
+  return (
+    <Link href="/" className="launch-logo" aria-label="Blaze home">
+      <Image src="/icon.svg" width={32} height={32} alt="" unoptimized />
+      <span>blaze</span>
+    </Link>
+  );
+}
 
 export default function Landing() {
   return (
-    <div className="blaze-landing">
-      <header className="blaze-header">
-        <Link href="/" className="blaze-wordmark" aria-label="Blaze home">
-          <span className="blaze-mark" aria-hidden="true"><i /><i /><i /><i /></span>
-          <span>blaze<span className="blaze-period">.</span></span>
-        </Link>
-        <nav aria-label="Landing navigation">
-          <a className="blaze-nav-link" href="#how-it-works">How it works</a>
-          <Link className="blaze-developer-link" href="/developers">Developers</Link>
-          <Link className="blaze-signin" href="/app">Sign in <ArrowUpRight size={15} /></Link>
-        </nav>
+    <div className="launch-site">
+      <header className="launch-header">
+        <div className="launch-width launch-header-inner">
+          <Wordmark />
+          <nav aria-label="Main navigation">
+            <Link href="/demo" className="launch-nav-demo">Demo</Link>
+            <Link href="/developers">SDK docs</Link>
+            <Link href="/app" className="launch-sign-in">Sign in <ArrowUpRight size={14} aria-hidden="true" /></Link>
+          </nav>
+        </div>
       </header>
+
       <main>
-        <section className="blaze-hero">
-          <div className="blaze-hero-inner">
-            <div className="blaze-hero-copy">
-              <p className="blaze-kicker"><span /> MADE FOR WEB GAMES</p>
-              <h1>See where<br />players stop.</h1>
-              <p className="blaze-lede">Track rounds, review consented sessions and improve search visibility.</p>
-              <div className="blaze-hero-actions">
-                <Link href="/app" className="blaze-primary">Open workspace <ArrowRight size={17} /></Link>
-                <a href="#how-it-works" className="blaze-text-link">See how it works <ArrowDown size={15} /></a>
-              </div>
-              <p className="blaze-hero-note">Open source under the MIT license · Read-only MCP access.</p>
+        <section className="launch-hero" aria-labelledby="launch-title">
+          <div className="launch-width launch-copy">
+            <p className="launch-kicker">Analytics for browser games</p>
+            <h1 id="launch-title">See what happens after players hit <em>Play.</em></h1>
+            <p className="launch-lede">Blaze tracks where players come from, which rounds they finish, and whether they come back.</p>
+            <div className="launch-actions">
+              <Link href="/demo?view=analytics" className="launch-button">Try the dashboard <ArrowRight size={17} aria-hidden="true" /></Link>
+              <Link href="/app" className="launch-button launch-button-quiet">Connect a game</Link>
             </div>
-            <figure className="blaze-film">
-              <div className="blaze-film-top"><span>GAMEPLAY / STAR CATCH</span><span>CONTROLLED TEST</span></div>
-              <video controls muted playsInline preload="metadata" poster="/landing/fixture-screenshot.png" aria-label="Controlled Star Catch fixture gameplay">
-                <source src="/landing/fixture-gameplay.webm" type="video/webm" />
-                Your browser does not support this video.
-              </video>
-              <figcaption><span>Controlled test game</span><span>Fixture footage · not a live agent session</span></figcaption>
-            </figure>
+          </div>
+          <figure className="launch-width launch-showcase">
+            <figcaption className="launch-showcase-caption">
+              <span>Blaze workspace <span className="launch-caption-separator">/</span> Engagement</span>
+              <span>Sample data</span>
+            </figcaption>
+            <Link href="/demo?view=analytics" className="launch-product-shot" aria-label="Open the example Engagement dashboard">
+              <picture>
+                <source media="(max-width: 600px)" srcSet="/landing/engagement-mobile.webp" />
+                <Image src="/landing/engagement-desktop.webp" alt="The Blaze Engagement dashboard showing visits, round starts, completions, and the first-session funnel." width={1320} height={780} unoptimized loading="eager" fetchPriority="high" />
+              </picture>
+              <span className="launch-shot-open"><ArrowUpRight size={18} aria-hidden="true" /></span>
+            </Link>
+          </figure>
+        </section>
+
+        <section className="launch-width launch-reports" aria-labelledby="launch-reports-title">
+          <div className="launch-reports-intro">
+            <h2 id="launch-reports-title">Explore the reports.</h2>
+            <p>Each report opens in a read-only workspace with an example game and sample events.</p>
+          </div>
+          <div className="launch-report-links">
+            {reports.map((report) => (
+              <article key={report.href}>
+                <h3>{report.title}</h3>
+                <p>{report.description}</p>
+                <Link href={report.href}>{report.label} <ArrowUpRight size={15} aria-hidden="true" /></Link>
+              </article>
+            ))}
           </div>
         </section>
-        <section className="blaze-process" id="how-it-works">
-          <div className="blaze-section-intro">
-            <p className="blaze-kicker">FROM PLAY TO WHAT’S NEXT</p>
-            <h2>From player activity<br />to useful insights.</h2>
-            <p>Understand play and how people find your games.</p>
+
+        <section className="launch-setup">
+          <div className="launch-width launch-setup-inner">
+            <div>
+              <h2>Connect your own game.</h2>
+              <p>Add the game URL, install the Blaze SDK, and play a round to check that events arrive. In Competitors, compare public listings and identify portals you’re missing.</p>
+            </div>
+            <div className="launch-actions">
+              <Link href="/app" className="launch-button">Connect a game <ArrowRight size={17} aria-hidden="true" /></Link>
+              <a href="/docs/sdk/quickstart.md" className="launch-button launch-button-quiet">Read the SDK quickstart</a>
+            </div>
           </div>
-          <div className="blaze-steps">
-            <article><span>01 / MEASURE</span><h3>See where play leads.</h3><p>Track visits, round starts, completions and drop-off across your web games. Keep human activity separate from agent sessions.</p></article>
-            <article><span>02 / UNDERSTAND</span><h3>Review the moments.</h3><p>Explore session events and, when a player separately consents, review a private capture of the game canvas.</p></article>
-            <article><span>03 / DISCOVER</span><h3>Improve search visibility.</h3><p>Review public pages for search and answer engine issues, and connect Search Console for search data.</p></article>
-          </div>
-        </section>
-        <section className="blaze-finish">
-          <p className="blaze-kicker">YOUR GAMES. YOUR WORKSPACE.</p>
-          <h2>Connect your first game.</h2>
-          <p>Sign in, connect a game and install the Blaze SDK to get started.</p>
-          <Link href="/app" className="blaze-primary">Open workspace <ArrowRight size={17} /></Link>
         </section>
       </main>
-      <footer className="blaze-footer"><span>blaze<span className="blaze-period">.</span></span><span>Made for games on the web.</span><Link href="/developers">Developer guide</Link><Link href="/app">Open workspace <ArrowUpRight size={14} /></Link></footer>
+
+      <footer className="launch-width launch-footer">
+        <Wordmark />
+        <a href="https://github.com/Bensigo/blaze"><Github size={16} aria-hidden="true" /> Open source · MIT license</a>
+      </footer>
     </div>
   );
 }
