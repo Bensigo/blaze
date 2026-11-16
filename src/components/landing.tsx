@@ -93,7 +93,7 @@ export default function Landing() {
           <div className="launch-width launch-setup-inner">
             <div>
               <h2>Connect your own game.</h2>
-              <p>Add the game URL, install the Blaze SDK, and play through a round to check that events arrive. In your workspace you can also save similar games and compare public likes and chart positions you record.</p>
+              <p>Add the game URL, install the Blaze SDK, and play a round to check that events arrive. In Competitors, compare public listings and identify portals you’re missing.</p>
             </div>
             <div className="launch-actions">
               <Link href="/app" className="launch-button">Connect a game <ArrowRight size={17} aria-hidden="true" /></Link>

@@ -1,0 +1,30 @@
+.pg-view { padding: 22px 0; }
+.pg-intro h3 { margin: 0 0 6px; }
+.pg-intro p, .pg-count, .pg-meta { color: var(--muted, #798c82); font-size: .88rem; }
+.pg-intro p { margin: 0 0 18px; max-width: 680px; line-height: 1.5; }
+.pg-notice { padding: 14px; margin-bottom: 16px; border: 1px solid #315746; border-radius: 10px; font-size: .88rem; }
+.pg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 14px; }
+.pg-card { min-width: 0; padding: 18px; border: 1px solid var(--line, #dce8e1); border-radius: 12px; background: var(--surface, #fff); }
+.pg-card-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.pg-card h4 { margin: 0; font-size: 1rem; }
+.pg-status { border-radius: 999px; padding: 4px 9px; background: #29433a; color: #d7eee1; font-size: .72rem; font-weight: 700; }
+.pg-status.gap { background: #135c3c; color: #a5f3c7; }
+.pg-status.check { background: #5d4c1c; color: #f5db91; }
+.pg-count { margin: 9px 0; }
+.pg-links { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.pg-view a { display: inline-flex; align-items: center; gap: 3px; overflow-wrap: anywhere; }
+.pg-meta { margin: 10px 0; }
+.pg-rivals { list-style: none; padding: 0; margin: 14px 0; }
+.pg-rivals li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line, #dce8e1); }
+.pg-rivals span { color: var(--muted, #798c82); font-size: .75rem; }
+.pg-rivals button { margin-left: auto; color: inherit; background: none; border: 0; text-decoration: underline; cursor: pointer; }
+.pg-card details { border-top: 1px solid var(--line, #dce8e1); margin-top: 12px; padding-top: 12px; }
+.pg-card summary { cursor: pointer; font-weight: 600; font-size: .88rem; }
+.pg-card form { display: grid; gap: 10px; margin-top: 12px; }
+.pg-card label { display: grid; gap: 5px; font-size: .82rem; }
+.pg-card input, .pg-card select { width: 100%; min-width: 0; min-height: 40px; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; color: var(--ink); background: var(--surface); font: inherit; font-size: 14px; }
+.pg-card form .button { justify-self: start; }
+@media (max-width: 480px) { .pg-card { padding: 14px; } .pg-card-head { align-items: flex-start; } }
+
+.ci-tabs { overflow-x: auto; }
+.ci-tabs button { white-space: nowrap; }

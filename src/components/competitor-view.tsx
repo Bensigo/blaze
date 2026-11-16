@@ -8,11 +8,13 @@ import {
   type CompetitorMarket, type CompetitorTarget, type CompetitorView as ViewData,
 } from "@/lib/competitor-types";
 import InfoHint from "./info-hint";
+import PortalGaps from "./portal-gaps";
 import "./competitor-view.css";
 
 const sections = [
   { id: "watchlist", title: "Watchlist", icon: List },
   { id: "web", title: "Web search", icon: Search },
+  { id: "portals", title: "Portal gaps", icon: Globe },
   { id: "stores", title: "App stores", icon: Store },
 ] as const;
 type Section = typeof sections[number]["id"];
@@ -49,7 +51,7 @@ function Delta({ value, label }: { value: number | undefined; label: string }) {
   </small>;
 }
 
-export default function CompetitorView({ gameId, title }: { gameId: string; title: string }) {
+export default function CompetitorView({ gameId, title, webGame = true }: { gameId: string; title: string; webGame?: boolean }) {
   const url = "/api/games/" + encodeURIComponent(gameId) + "/competitors";
   const [data, setData] = useState<ViewData | null>(null);
   const [section, setSection] = useState<Section>("watchlist");
@@ -125,9 +127,9 @@ export default function CompetitorView({ gameId, title }: { gameId: string; titl
     <div className="ci-head">
       <div><h2>{title}</h2><span className="ci-muted">{rivals} / {competitorLimit} competitors</span></div>
       <div className="ci-head-actions">
-        <span className={"ci-badge " + (data.providerConnected ? "ci-connected" : "")}>
+        {section !== "portals" && <span className={"ci-badge " + (data.providerConnected ? "ci-connected" : "")}>
           <span className="ci-dot" aria-hidden/>{data.providerConnected ? "DataForSEO connected" : "Data source off"}
-        </span>
+        </span>}
         <InfoHint label="About competitor data">
           Watchlists work without a data provider. A refresh updates all tracked sources for the selected market. Estimated visits and keyword demand are not player counts or downloads.
         </InfoHint>
@@ -137,7 +139,7 @@ export default function CompetitorView({ gameId, title }: { gameId: string; titl
       </div>
     </div>
     <nav className="ci-tabs" aria-label="Competitor views">
-      {sections.map(({ id, title: label, icon: Icon }) => <button type="button" key={id}
+      {sections.filter(section => webGame || section.id !== "portals").map(({ id, title: label, icon: Icon }) => <button type="button" key={id}
         aria-pressed={section === id} className={section === id ? "active" : ""}
         onClick={() => setSection(id)}><Icon size={16} aria-hidden/>{label}</button>)}
     </nav>
@@ -206,7 +208,8 @@ export default function CompetitorView({ gameId, title }: { gameId: string; titl
         <button type="button" className="button" onClick={() => setSection(web.length ? "web" : "stores")}>View comparison</button>
       </div>}
     </>}
-    {section !== "watchlist" && <>
+    {section === "portals" && <PortalGaps gameId={gameId} title={title}/>}
+    {(section === "web" || section === "stores") && <>
       <form className="ci-market" onSubmit={submitMarket}>
         <label>Market<select value={market.country} onChange={event => setMarket({ ...market, country: event.target.value })}>
           {Object.entries(competitorCountries).map(([code, name]) => <option key={code} value={code}>{name}</option>)}

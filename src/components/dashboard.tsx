@@ -1214,7 +1214,7 @@ export default function Dashboard({ demoMode = false }: { demoMode?: boolean }) 
           </>}
           {page === "competitors" && (snapshot.demo
             ? <Empty title="Sign in to compare games" detail="Watchlists are saved to your workspace."/>
-            : selectedRecord ? <Competitors key={selectedRecord.id} gameId={selectedRecord.id} title={selectedRecord.title}/>
+            : selectedRecord ? <Competitors key={selectedRecord.id} gameId={selectedRecord.id} title={selectedRecord.title} webGame={!selectedRecord.storePlatform}/>
             : <Empty title="Choose a game" detail="Select a game to open its watchlist." action={<Button onClick={() => changePage("games")}>Browse games <ArrowRight size={14}/></Button>}/>)}
           {page === "sessions" && (
             <>
