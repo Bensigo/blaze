@@ -44,6 +44,7 @@ import dynamic from "next/dynamic";
 import GameConnections from "./game-connections";
 import InfoHint from "./info-hint";
 import MostPlayedGames from "./most-played-games";
+import WorkspaceSwitcher from "./workspace-switcher";
 import { competitorPlatforms } from "@/lib/competitor-types";
 import {dashboardHref,readDashboardLocation,type DashboardView} from "@/lib/dashboard-location";
 const GameArchiveControls = dynamic(() => import("./game-archive-controls"));
@@ -940,13 +941,7 @@ export default function Dashboard({ demoMode = false }: { demoMode?: boolean }) 
             <X size={19} />
           </button>
         </div>
-        <div className="workspace-switch">
-          <div className="workspace-avatar">W</div>
-          <div>
-            <strong>{snapshot.workspace.name}</strong>
-            <span>{snapshot.demo ? "Example workspace" : "Workspace"}</span>
-          </div>
-        </div>
+        <WorkspaceSwitcher name={snapshot.workspace.name} demo={!!snapshot.demo} />
         <nav aria-label="Workspace navigation">
           {(snapshot.demo ? [
             { title: "Analytics", items: nav.filter(item => ["overview", "analytics", "acquisition", "retention", "audience", "sessions"].includes(item.id)) },

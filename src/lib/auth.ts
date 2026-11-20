@@ -4,15 +4,23 @@ import { query, id } from "./db";
 import { hash } from "./security";
 import { clearNeonCookies, googleAvailable, neonAuth } from "./neon-auth";
 import { HttpError } from "./http-error";
+import { withActiveWorkspace } from "./workspaces";
 export { HttpError } from "./http-error";
 export interface Identity {
   id: string;
   email: string;
   name: string;
+  /** The workspace this request works in: the home one, or another the account is a member of (see workspaces.ts). */
   workspace_id: string;
+  /** The account's first workspace (users.workspace_id). Set on every identity() result. */
+  home_workspace_id?: string;
 }
 const localSessionsAllowed = () => (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") && !process.env.VERCEL;
 export async function identity(): Promise<Identity | null> {
+  const user = await accountIdentity();
+  return user ? withActiveWorkspace(user) : null;
+}
+async function accountIdentity(): Promise<Identity | null> {
   const client = googleAvailable() ? neonAuth() : null;
   if (client) {
     try {
@@ -34,7 +42,7 @@ export async function identity(): Promise<Identity | null> {
   const token = (await cookies()).get("studio_session")?.value;
   if (!token) return null;
   return (await query<Identity>(
-    `SELECT u.* FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`,
+    `SELECT u.id,u.email,u.name,u.workspace_id FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`,
     [hash(token)],
   ))[0] || null;
 }
