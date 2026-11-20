@@ -1,0 +1,28 @@
+.workspace-menu-root { position: relative; }
+.workspace-switch-button { width: 100%; font: inherit; text-align: left; cursor: pointer; color: inherit; }
+.workspace-switch-button:hover { background: var(--hover, var(--surface-soft)); }
+.workspace-switch-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.workspace-switch-button > svg { flex: none; color: var(--muted); }
+.workspace-menu {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 30;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 10px 28px rgba(20, 24, 32, 0.14); padding: 6px;
+}
+.workspace-menu ul { list-style: none; margin: 0; padding: 0; }
+.workspace-menu li button, .workspace-menu-tools button {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.workspace-menu li button:hover:not(:disabled), .workspace-menu-tools button:hover:not(:disabled) { background: var(--selected); }
+.workspace-menu li button[aria-current] { font-weight: 600; cursor: default; color: var(--ink); }
+.workspace-menu li button:disabled:not([aria-current]), .workspace-menu-tools button:disabled { opacity: 0.55; cursor: default; }
+.workspace-menu-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-menu-tools { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; }
+.workspace-menu-tools button { color: var(--muted); }
+.workspace-menu-form { border-top: 1px solid var(--line); margin-top: 6px; padding: 8px 4px 2px; display: grid; gap: 8px; }
+.workspace-menu-form label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); }
+.workspace-menu-form input { font: inherit; font-size: 14px; color: var(--ink); padding: 8px 10px; border: 1px solid #8a909d; border-radius: var(--radius); background: var(--surface); }
+.workspace-menu-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.workspace-menu-actions .button { min-height: 34px; padding: 6px 12px; font-size: 13px; }
+.workspace-menu-note { margin: 6px 8px; font-size: 12px; color: var(--muted); }
+.workspace-menu-note.error { color: #a44c55; }

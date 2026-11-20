@@ -12,6 +12,7 @@ import { googleAvailable } from "./neon-auth";
 import { databaseUsage } from "./db-capacity";
 import { retentionDays } from "./maintenance";
 import { mediaStorageConfigured } from "./media";
+import { activeWorkspaceName } from "./workspaces";
 export async function snapshot(
   user: Identity,
   gameId?: string,
@@ -27,6 +28,7 @@ export async function snapshot(
     stats,
     google,
     usage,
+    workspaceName,
   ] = await Promise.all([
     list<Game>(workspace, "game"),
     list<Connection>(workspace, "connection").then(items => items.filter(item => item.provider === "search_console")),
@@ -34,6 +36,7 @@ export async function snapshot(
     analytics(workspace, gameId, days),
     googleAvailable(),
     databaseUsage(),
+    activeWorkspaceName(user),
   ]);
   const eventCoverage=await query<{game_id:string;events:number;last_at:string}>(`SELECT game_id,count(*)::int events,max(occurred_at)::text last_at FROM events e WHERE workspace_id=$1 AND kind='human' AND occurred_at>=now()-interval '14 days' AND occurred_at<=now() AND NOT EXISTS(SELECT 1 FROM events t WHERE t.workspace_id=e.workspace_id AND t.game_id=e.game_id AND t.session_id=e.session_id AND (t.kind='agent' OR t.properties @> '{"test":true}' OR t.properties @> '{"fixture":true}')) GROUP BY game_id`,[workspace]);
   for(const game of games){const coverage=eventCoverage.find(row=>row.game_id===game.id);game.telemetry={humanEvents:coverage?Number(coverage.events):0,lastEventAt:coverage?new Date(coverage.last_at).toISOString():null};}
@@ -42,7 +45,7 @@ export async function snapshot(
     items.filter((x) => activeGames.has(x.gameId) && (!gameId || x.gameId === gameId));
   return {
     user: { name: user.name, email: user.email },
-    workspace: { id: workspace, name: "Your workspace" },
+    workspace: { id: workspace, name: workspaceName },
     demo: false,
     games,
     recordings: [],
